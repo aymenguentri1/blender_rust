@@ -55,6 +55,7 @@ mod mesh_ops;
 mod mesh_deform;
 mod mesh_wire;
 mod mesh_reduce;
+mod mesh_hull;
 mod mesh_gen;
 mod modifiers;
 #[allow(dead_code)]
@@ -1018,6 +1019,24 @@ impl ApplicationHandler for App {
                         /* `mesh.subdivide` (one cut, no smoothing) and `mesh.separate` by loose parts (P). */
                         KeyCode::KeyD if ctrl_k && alt_k && !shift_k => geometry = self.scene.subdivide_simple() > 0,
                         KeyCode::KeyP if plain => geometry = self.scene.separate_loose() > 0,
+                        /* `mesh.convex_hull` (Ctrl + Alt + H). */
+                        KeyCode::KeyH if ctrl_k && alt_k && !shift_k => geometry = self.scene.convex_hull() > 0,
+                        /* `transform.mirror` (Ctrl + M then an axis in Blender) as one chord per axis: Ctrl + Shift + X / Y / Z. */
+                        KeyCode::KeyX | KeyCode::KeyY | KeyCode::KeyZ if ctrl_k && shift_k && !alt_k => {
+                            let axis = match code {
+                                KeyCode::KeyX => 0,
+                                KeyCode::KeyY => 1,
+                                _ => 2,
+                            };
+                            geometry = self.scene.mirror_objects(axis) > 0;
+                        }
+                        /* `object.select_grouped` by type (Shift + G) and `object.select_random` (Shift + Alt + R). */
+                        KeyCode::KeyG if shift_k && !ctrl_k && !alt_k => {
+                            self.scene.select_grouped_type();
+                        }
+                        KeyCode::KeyR if shift_k && alt_k && !ctrl_k => {
+                            self.scene.select_random(0.5);
+                        }
                         /* The Shift + S snap pie of Blender, as one chord per entry: Shift + S is Cursor to Selected,
                          * Ctrl + Shift + S Selection to Cursor, Shift + Alt + S Cursor to World Origin and
                          * Shift + Alt + C Origin to 3D Cursor. */

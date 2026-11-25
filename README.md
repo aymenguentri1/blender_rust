@@ -72,6 +72,14 @@ render toggles and scrolling (rows that do not fit are left out).
 | Alt + M | Merge by distance (0.1 mm) |
 | Ctrl + Alt + D | Subdivide (one cut, no smoothing) |
 | P | Separate by loose parts |
+| Ctrl + Alt + H | Convex Hull: replaces each selected mesh with the hull of its vertices (coplanar triangles joined into n-gons, so a box stays six quads; flat or collinear meshes are left alone) |
+| Ctrl + Shift + X / Y / Z | Mirror: reflects the selected objects through the median point along that global axis and flips their orientation and scale (Blender's Ctrl + M, one chord per axis) |
+
+### Selection
+| Keys | Operator |
+| --- | --- |
+| Shift + G | Select Grouped, Type: adds every visible object of the active object's type |
+| Shift + Alt + R | Select Random: adds about half of the visible objects; each press uses the next seed |
 
 ### Snapping and the 3D cursor
 Blender's Shift + S pie has no pie here, so each entry is one chord:
