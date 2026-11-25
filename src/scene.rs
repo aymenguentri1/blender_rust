@@ -732,6 +732,32 @@ impl Scene {
         })
     }
 
+    /// Adds a Laplacian Smooth modifier to the selected meshes, or removes the one they have.
+    pub fn toggle_laplacian_smooth(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::LaplacianSmooth { .. })) {
+                Some(i) => {
+                    stack.remove(i);
+                }
+                None => stack.push(Modifier::laplacian_smooth()),
+            }
+            true
+        })
+    }
+
+    /// Adds a Remesh modifier to the selected meshes, or removes the one they have.
+    pub fn toggle_remesh(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::Remesh { .. })) {
+                Some(i) => {
+                    stack.remove(i);
+                }
+                None => stack.push(Modifier::remesh()),
+            }
+            true
+        })
+    }
+
     /// Adds a Screw modifier to the selected meshes, or removes the one they have.
     pub fn toggle_screw(&mut self) -> usize {
         self.edit_modifiers(|stack| {
@@ -1733,6 +1759,18 @@ mod tests {
         s.update_eval();
         assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), 96);
         assert_eq!(s.toggle_wireframe(), 1);
+        assert!(s.active_object().unwrap().modifiers.is_empty());
+    }
+
+    #[test]
+    fn laplacian_smooth_and_remesh_toggle() {
+        let mut s = Scene::startup();
+        assert_eq!(s.toggle_remesh(), 1);
+        assert_eq!(s.toggle_laplacian_smooth(), 1);
+        s.update_eval();
+        assert!(s.active_object().unwrap().evaluated().unwrap().faces.len() > 6);
+        assert_eq!(s.toggle_remesh(), 1);
+        assert_eq!(s.toggle_laplacian_smooth(), 1);
         assert!(s.active_object().unwrap().modifiers.is_empty());
     }
 

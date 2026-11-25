@@ -26,6 +26,8 @@ Blender has no keys for modifiers (they live in the properties editor), so these
 | Ctrl + Alt + N | Edge Split modifier: toggle (30 degrees) |
 | Ctrl + Alt + U | Screw modifier: toggle (revolves the boundary edges about Z, 360 degrees, 16 steps; every edge of a closed mesh) |
 | Ctrl + Alt + K | Wave modifier: toggle (circular sine ripple along Z, 0.1 m high, width 1.5; needs a mesh with vertices to ripple, so subdivide first) |
+| Ctrl + Alt + L | Laplacian Smooth modifier: toggle (factor 0.5, 2 repeats, keeps the volume of a closed mesh) |
+| Ctrl + Alt + I | Remesh modifier, Blocks mode: toggle (0.1 m voxels, closed meshes only; the grid is capped at 64 cells across) |
 | Alt + C | Convert to Mesh: bakes the modifiers and the subdivision level into the mesh |
 
 The modifier stack of the active object is listed in the info text at the top left of the 3D viewport, one

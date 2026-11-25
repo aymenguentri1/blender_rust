@@ -36,6 +36,10 @@ pub enum Modifier {
     Screw { angle: f32, steps: u32, offset: f32 },
     /// Circular sine ripple along Z.
     Wave { height: f32, width: f32, speed: f32, time: f32 },
+    /// Laplacian smoothing that keeps the volume.
+    LaplacianSmooth { factor: f32, repeat: u32 },
+    /// Remesh, Blocks mode: voxel size in metres.
+    Remesh { voxel: f32 },
 }
 
 impl Modifier {
@@ -108,6 +112,15 @@ impl Modifier {
         Modifier::Wave { height: 0.1, width: 1.5, speed: 0.25, time: 0.0 }
     }
 
+    pub fn laplacian_smooth() -> Modifier {
+        Modifier::LaplacianSmooth { factor: 0.5, repeat: 2 }
+    }
+
+    /// Blender's Blocks mode starts at octree depth 4 (16 cells across the object); 0.1 m is a sensible voxel here.
+    pub fn remesh() -> Modifier {
+        Modifier::Remesh { voxel: 0.1 }
+    }
+
     /// The name shown in the modifier panel.
     pub fn label(&self) -> &'static str {
         match self {
@@ -126,6 +139,8 @@ impl Modifier {
             Modifier::Weld { .. } => "Weld",
             Modifier::Screw { .. } => "Screw",
             Modifier::Wave { .. } => "Wave",
+            Modifier::LaplacianSmooth { .. } => "Laplacian Smooth",
+            Modifier::Remesh { .. } => "Remesh",
         }
     }
 
@@ -157,6 +172,8 @@ impl Modifier {
             Modifier::Weld { distance } => format!(" {} m", num(*distance)),
             Modifier::Screw { angle, steps, .. } => format!(" {}\u{b0} x{steps}", num(angle.to_degrees())),
             Modifier::Wave { height, .. } => format!(" {} m", num(*height)),
+            Modifier::LaplacianSmooth { factor, repeat } => format!(" {} x{repeat}", num(*factor)),
+            Modifier::Remesh { voxel } => format!(": Blocks {} m", num(*voxel)),
         };
         format!("{}{}", self.label(), detail)
     }
@@ -166,7 +183,7 @@ impl Modifier {
     /// 0.01 m, Smooth factor 0.1 (0 to 2), Twist / Bend 5 degrees, Taper / Stretch 0.1, Displace strength
     /// 0.05 m, Cast factor 0.1 (0 to 1), Decimate ratio 0.05 (0.01 to 1), Edge Split angle 5 degrees
     /// (0 to 180), Wireframe thickness 0.005 m, Weld distance 0.001 m, Screw angle 15 degrees (1 to 360),
-    /// Wave height 0.05 m. Mirror and Triangulate have no value.
+    /// Wave height 0.05 m, Laplacian Smooth factor 0.1 (0 to 2), Remesh voxel size 0.01 m (min 0.01). Mirror and Triangulate have no value.
     pub fn adjust(&mut self, steps: i32) -> bool {
         let n = steps as f32;
         let round = |x: f32| (x * 10000.0).round() / 10000.0;
@@ -192,6 +209,8 @@ impl Modifier {
                 *angle = if deg >= 360.0 { std::f32::consts::TAU } else { deg.to_radians() };
             }
             Modifier::Wave { height, .. } => *height = round(*height + 0.05 * n),
+            Modifier::LaplacianSmooth { factor, .. } => *factor = round((*factor + 0.1 * n).clamp(0.0, 2.0)),
+            Modifier::Remesh { voxel } => *voxel = round((*voxel + 0.01 * n).max(0.01)),
         }
         *self != before
     }
@@ -221,6 +240,8 @@ impl Modifier {
             Modifier::Weld { distance } => mesh.merged_by_distance(*distance).0,
             Modifier::Screw { angle, steps, offset } => mesh.screwed(*angle, *steps, *offset),
             Modifier::Wave { height, width, speed, time } => mesh.waved(*height, *width, *speed, *time),
+            Modifier::LaplacianSmooth { factor, repeat } => mesh.laplacian_smoothed(*factor, *repeat),
+            Modifier::Remesh { voxel } => mesh.remeshed_blocks(*voxel),
         }
     }
 }
@@ -320,6 +341,21 @@ mod tests {
         assert!(s.adjust(-1) && s.summary() == "Screw 345\u{b0} x16");
         assert!(s.adjust(1) && s == Modifier::screw());
         assert!(!s.adjust(1));
+    }
+
+    #[test]
+    fn laplacian_smooth_and_remesh_in_the_stack() {
+        let cube = Mesh::cube(2.0);
+        let r = evaluate(&cube, &[Modifier::Remesh { voxel: 0.5 }]);
+        assert_eq!(r.faces.len(), 96);
+        let s = evaluate(&r, &[Modifier::laplacian_smooth()]);
+        assert_eq!(s.faces, r.faces);
+        assert_eq!(Modifier::laplacian_smooth().summary(), "Laplacian Smooth 0.5 x2");
+        assert_eq!(Modifier::remesh().summary(), "Remesh: Blocks 0.1 m");
+        let mut m = Modifier::remesh();
+        assert!(m.adjust(1) && m.summary() == "Remesh: Blocks 0.11 m");
+        assert!(m.adjust(-100) && m == Modifier::Remesh { voxel: 0.01 });
+        assert!(!m.adjust(-1));
     }
 
     #[test]
