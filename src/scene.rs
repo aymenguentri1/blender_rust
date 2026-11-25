@@ -55,6 +55,8 @@ pub struct Object {
     pub subsurf: u32,
     /// The modifier stack, evaluated in order before the Subdivision Surface level.
     pub modifiers: Vec<Modifier>,
+    /// The modifier the editing keys act on (clamped to the stack when used).
+    pub active_modifier: usize,
     eval: Option<Mesh>,
 }
 
@@ -189,6 +191,7 @@ impl Scene {
             smooth: false,
             subsurf: 0,
             modifiers: Vec::new(),
+            active_modifier: 0,
             eval: None,
         });
         self.objects.last_mut().unwrap()
@@ -471,15 +474,84 @@ impl Scene {
         self.push_undo();
         let mut changed = 0;
         for o in self.objects.iter_mut().filter(|o| o.selected && !o.hidden && o.mesh().is_some()) {
+            let before = o.modifiers.len();
             if f(&mut o.modifiers) {
                 o.eval = None;
                 changed += 1;
+                /* A modifier that was just added becomes the active one. */
+                if o.modifiers.len() > before {
+                    o.active_modifier = o.modifiers.len() - 1;
+                }
             }
         }
         if changed == 0 {
             self.pop_undo();
         }
         changed
+    }
+
+    /// Runs `f(stack, active)` on every selected visible mesh that has modifiers, `active` being the index of
+    /// its active modifier (clamped to the stack); `f` may change the index and returns whether it changed the
+    /// stack. Undoable.
+    fn edit_active_modifier(&mut self, mut f: impl FnMut(&mut Vec<Modifier>, &mut usize) -> bool) -> usize {
+        let has = |o: &Object| o.selected && !o.hidden && o.mesh().is_some() && !o.modifiers.is_empty();
+        if !self.objects.iter().any(|o| has(o)) {
+            return 0;
+        }
+        self.push_undo();
+        let mut changed = 0;
+        for o in self.objects.iter_mut().filter(|o| has(o)) {
+            let mut active = o.active_modifier.min(o.modifiers.len() - 1);
+            if f(&mut o.modifiers, &mut active) {
+                o.eval = None;
+                changed += 1;
+            }
+            o.active_modifier = active.min(o.modifiers.len().saturating_sub(1));
+        }
+        if changed == 0 {
+            self.pop_undo();
+        }
+        changed
+    }
+
+    /// Makes the next (`delta` 1) or previous (-1) modifier of the selected meshes the active one, wrapping
+    /// around. Returns how many objects have a stack. Not an undo step.
+    pub fn select_modifier(&mut self, delta: i32) -> usize {
+        let mut n = 0;
+        for o in self.objects.iter_mut().filter(|o| o.selected && !o.hidden && o.mesh().is_some() && !o.modifiers.is_empty()) {
+            let len = o.modifiers.len() as i32;
+            let cur = o.active_modifier.min(o.modifiers.len() - 1) as i32;
+            o.active_modifier = (cur + delta).rem_euclid(len) as usize;
+            n += 1;
+        }
+        n
+    }
+
+    /// Raises or lowers the main value of the active modifier of the selected meshes by `steps` notches
+    /// (`Modifier::adjust`).
+    pub fn adjust_modifier(&mut self, steps: i32) -> usize {
+        self.edit_active_modifier(|stack, active| stack[*active].adjust(steps))
+    }
+
+    /// Moves the active modifier one place down (`delta` 1) or up (-1) in the stack; the active one follows it.
+    pub fn move_modifier(&mut self, delta: i32) -> usize {
+        self.edit_active_modifier(|stack, active| {
+            let to = *active as i32 + delta;
+            if to < 0 || to >= stack.len() as i32 {
+                return false;
+            }
+            stack.swap(*active, to as usize);
+            *active = to as usize;
+            true
+        })
+    }
+
+    /// Removes the active modifier of the selected meshes.
+    pub fn remove_modifier(&mut self) -> usize {
+        self.edit_active_modifier(|stack, active| {
+            stack.remove(*active);
+            true
+        })
     }
 
     /// Adds a Mirror modifier for `axis` (0 = X, 1 = Y, 2 = Z) to the selected meshes, or flips that axis of
@@ -1652,6 +1724,36 @@ mod tests {
         assert_eq!(s.active_object().unwrap().evaluated().unwrap().verts.len(), 24);
         assert_eq!(s.toggle_edge_split(), 1);
         assert!(s.active_object().unwrap().modifiers.is_empty());
+    }
+
+    #[test]
+    fn the_active_modifier_can_be_selected_adjusted_moved_and_removed() {
+        let mut s = Scene::startup();
+        assert_eq!(s.adjust_modifier(1), 0);
+        s.toggle_bevel();
+        s.toggle_displace();
+        s.cycle_cast();
+        /* The newest modifier is active. */
+        assert_eq!(s.active_object().unwrap().active_modifier, 2);
+        assert_eq!(s.adjust_modifier(2), 1);
+        assert_eq!(s.active_object().unwrap().modifiers[2], Modifier::Cast { shape: crate::mesh_deform::CastShape::Sphere, factor: 0.7, radius: 0.0 });
+        assert_eq!(s.select_modifier(1), 1);
+        assert_eq!(s.active_object().unwrap().active_modifier, 0);
+        assert_eq!(s.select_modifier(-1), 1);
+        assert_eq!(s.active_object().unwrap().active_modifier, 2);
+        /* Move the Cast to the front: it goes up twice, the third time there is nowhere to go. */
+        assert_eq!(s.move_modifier(-1), 1);
+        assert_eq!(s.move_modifier(-1), 1);
+        assert_eq!(s.move_modifier(-1), 0);
+        let o = s.active_object().unwrap();
+        assert_eq!((o.active_modifier, o.modifiers[0].label(), o.modifiers[2].label()), (0, "Cast", "Displace"));
+        assert!(s.undo());
+        assert_eq!(s.active_object().unwrap().modifiers[1].label(), "Cast");
+        assert_eq!(s.remove_modifier(), 1);
+        assert_eq!(s.active_object().unwrap().modifiers.len(), 2);
+        assert_eq!(s.remove_modifier(), 1);
+        assert_eq!(s.remove_modifier(), 1);
+        assert_eq!(s.remove_modifier(), 0);
     }
 
     #[test]

@@ -982,6 +982,20 @@ impl ApplicationHandler for App {
                         /* Decimate (V: ratio 0.5, 0.25, 0.1, off) and Edge Split (N) modifiers. */
                         KeyCode::KeyV if ctrl_k && alt_k && !shift_k => geometry = self.scene.cycle_decimate() > 0,
                         KeyCode::KeyN if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_edge_split() > 0,
+                        /* Editing the stack (the active modifier is marked `>` in the viewport text): Ctrl + Alt + Up /
+                         * Down select it, `]` / `[` raise / lower its main value, Page Up / Page Down move it in the
+                         * stack and Ctrl + Shift + Alt + X removes it. */
+                        KeyCode::ArrowDown if ctrl_k && alt_k && !shift_k => {
+                            self.scene.select_modifier(1);
+                        }
+                        KeyCode::ArrowUp if ctrl_k && alt_k && !shift_k => {
+                            self.scene.select_modifier(-1);
+                        }
+                        KeyCode::BracketRight if ctrl_k && alt_k && !shift_k => geometry = self.scene.adjust_modifier(1) > 0,
+                        KeyCode::BracketLeft if ctrl_k && alt_k && !shift_k => geometry = self.scene.adjust_modifier(-1) > 0,
+                        KeyCode::PageDown if ctrl_k && alt_k && !shift_k => geometry = self.scene.move_modifier(1) > 0,
+                        KeyCode::PageUp if ctrl_k && alt_k && !shift_k => geometry = self.scene.move_modifier(-1) > 0,
+                        KeyCode::KeyX if ctrl_k && alt_k && shift_k => geometry = self.scene.remove_modifier() > 0,
                         /* `mesh.subdivide` (one cut, no smoothing) and `mesh.separate` by loose parts (P). */
                         KeyCode::KeyD if ctrl_k && alt_k && !shift_k => geometry = self.scene.subdivide_simple() > 0,
                         KeyCode::KeyP if plain => geometry = self.scene.separate_loose() > 0,
