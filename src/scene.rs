@@ -554,6 +554,78 @@ impl Scene {
         })
     }
 
+    // The properties editor panel acts on the active object (not on every selected one), like Blender's buttons.
+
+    fn edit_active_object(&mut self, f: impl FnOnce(&mut Object) -> bool) -> bool {
+        let Some(i) = self.active.and_then(|id| self.index_of(id)) else { return false };
+        if self.objects[i].mesh().is_none() {
+            return false;
+        }
+        self.push_undo();
+        let o = &mut self.objects[i];
+        let changed = f(o);
+        if changed {
+            o.eval = None;
+        } else {
+            self.pop_undo();
+        }
+        changed
+    }
+
+    /// Appends `m` to the active object's stack and makes it the active modifier.
+    pub fn panel_add_modifier(&mut self, m: Modifier) -> bool {
+        self.edit_active_object(|o| {
+            o.modifiers.push(m);
+            o.active_modifier = o.modifiers.len() - 1;
+            true
+        })
+    }
+
+    /// Makes modifier `i` of the active object the active one (not an undo step, as in Blender).
+    pub fn panel_select_modifier(&mut self, i: usize) -> bool {
+        let Some(idx) = self.active.and_then(|id| self.index_of(id)) else { return false };
+        let o = &mut self.objects[idx];
+        if i >= o.modifiers.len() || o.active_modifier == i {
+            return false;
+        }
+        o.active_modifier = i;
+        true
+    }
+
+    /// Raises / lowers the main value of modifier `i` of the active object by `steps` notches.
+    pub fn panel_adjust_modifier(&mut self, i: usize, steps: i32) -> bool {
+        self.edit_active_object(|o| {
+            let Some(m) = o.modifiers.get_mut(i) else { return false };
+            o.active_modifier = i;
+            m.adjust(steps)
+        })
+    }
+
+    /// Moves modifier `i` of the active object one place down (`delta` 1) or up (-1).
+    pub fn panel_move_modifier(&mut self, i: usize, delta: i32) -> bool {
+        self.edit_active_object(|o| {
+            let to = i as i32 + delta;
+            if i >= o.modifiers.len() || to < 0 || to >= o.modifiers.len() as i32 {
+                return false;
+            }
+            o.modifiers.swap(i, to as usize);
+            o.active_modifier = to as usize;
+            true
+        })
+    }
+
+    /// Removes modifier `i` of the active object.
+    pub fn panel_remove_modifier(&mut self, i: usize) -> bool {
+        self.edit_active_object(|o| {
+            if i >= o.modifiers.len() {
+                return false;
+            }
+            o.modifiers.remove(i);
+            o.active_modifier = o.active_modifier.min(o.modifiers.len().saturating_sub(1));
+            true
+        })
+    }
+
     /// Adds a Mirror modifier for `axis` (0 = X, 1 = Y, 2 = Z) to the selected meshes, or flips that axis of
     /// the one they have; a Mirror with no axis left is removed.
     pub fn toggle_mirror(&mut self, axis: usize) -> usize {

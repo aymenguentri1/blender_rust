@@ -44,6 +44,21 @@ keys act on:
 
 The line above shows the real active object (`Collection | Cube`).
 
+### Modifiers panel (properties editor)
+The properties editor on the right has a Modifiers panel for the active mesh object, so none of the chords above
+are required:
+
+| Control | Action |
+| --- | --- |
+| Add Modifier | Opens a list of all 17 modifier kinds; a click appends one (with its defaults) and closes the list |
+| Modifier name | Makes it the active modifier (highlighted) |
+| `^` / `v` | Move it up / down in the stack |
+| `x` | Remove it |
+| `-` / `+` (value row) | Lower / raise its main value, like Ctrl + Alt + `[` / `]` |
+
+Every panel edit is one undo step (Ctrl + Z). Not modelled: collapsing panels, per-setting fields, the viewport /
+render toggles and scrolling (rows that do not fit are left out).
+
 ### Object and mesh operators
 | Keys | Operator |
 | --- | --- |
