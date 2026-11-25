@@ -57,6 +57,7 @@ mod mesh_wire;
 mod mesh_reduce;
 mod mesh_hull;
 mod mesh_gen;
+mod mesh_build;
 mod modifiers;
 #[allow(dead_code)]
 mod scene;
@@ -1075,6 +1076,8 @@ impl ApplicationHandler for App {
                         /* Laplacian Smooth (L) and Remesh in Blocks mode (I) modifiers. */
                         KeyCode::KeyL if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_laplacian_smooth() > 0,
                         KeyCode::KeyI if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_remesh() > 0,
+                        /* Build modifier (A): reveals the faces from frame 1 over 100 frames. */
+                        KeyCode::KeyA if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_build() > 0,
                         /* Editing the stack (the active modifier is marked `>` in the viewport text): Ctrl + Alt + Up /
                          * Down select it, `]` / `[` raise / lower its main value, Page Up / Page Down move it in the
                          * stack and Ctrl + Shift + Alt + X removes it. */
@@ -1543,6 +1546,10 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::RedrawRequested => {
+                /* The modifiers that depend on time (Build) follow the current frame. */
+                if self.scene.set_frame(self.frame.unwrap_or(1)) {
+                    scene_changed(&mut self.scene, &mut self.taa);
+                }
                 let PhysicalSize { width, height } = gfx.window.inner_size();
                 let (Some(w), Some(h)) = (NonZeroU32::new(width), NonZeroU32::new(height)) else {
                     return;
