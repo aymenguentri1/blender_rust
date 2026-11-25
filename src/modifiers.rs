@@ -142,6 +142,35 @@ impl Modifier {
         format!("{}{}", self.label(), detail)
     }
 
+    /// Raises (`steps` > 0) or lowers the main value of the modifier by `steps` notches and returns whether it
+    /// changed. The notch and the range per modifier: Array count 1, Solidify thickness 0.01 m, Bevel width
+    /// 0.01 m, Smooth factor 0.1 (0 to 2), Twist / Bend 5 degrees, Taper / Stretch 0.1, Displace strength
+    /// 0.05 m, Cast factor 0.1 (0 to 1), Decimate ratio 0.05 (0.01 to 1), Edge Split angle 5 degrees
+    /// (0 to 180), Wireframe thickness 0.005 m, Weld distance 0.001 m. Mirror and Triangulate have no value.
+    pub fn adjust(&mut self, steps: i32) -> bool {
+        let n = steps as f32;
+        let round = |x: f32| (x * 10000.0).round() / 10000.0;
+        let before = self.clone();
+        match self {
+            Modifier::Mirror { .. } | Modifier::Triangulate => {}
+            Modifier::Array { count, .. } => *count = (*count as i64 + steps as i64).clamp(1, 1000) as u32,
+            Modifier::Solidify { thickness, .. } => *thickness = round((*thickness + 0.01 * n).max(0.001)),
+            Modifier::Bevel { width } => *width = round((*width + 0.01 * n).max(0.001)),
+            Modifier::Smooth { factor, .. } => *factor = round((*factor + 0.1 * n).clamp(0.0, 2.0)),
+            Modifier::SimpleDeform { mode, amount } => match mode {
+                DeformMode::Twist | DeformMode::Bend => *amount += 5.0f32.to_radians() * n,
+                DeformMode::Taper | DeformMode::Stretch => *amount = round(*amount + 0.1 * n),
+            },
+            Modifier::Displace { strength, .. } => *strength = round(*strength + 0.05 * n),
+            Modifier::Cast { factor, .. } => *factor = round((*factor + 0.1 * n).clamp(0.0, 1.0)),
+            Modifier::Decimate { ratio } => *ratio = round((*ratio + 0.05 * n).clamp(0.01, 1.0)),
+            Modifier::EdgeSplit { angle } => *angle = round((*angle + 5.0 * n).clamp(0.0, 180.0)),
+            Modifier::Wireframe { thickness } => *thickness = round((*thickness + 0.005 * n).max(0.001)),
+            Modifier::Weld { distance } => *distance = round((*distance + 0.001 * n).max(0.0001)),
+        }
+        *self != before
+    }
+
     pub fn apply(&self, mesh: &Mesh) -> Mesh {
         match self {
             Modifier::Mirror { axes, merge, threshold } => {
@@ -262,5 +291,30 @@ mod tests {
         assert_eq!(Modifier::cast(CastShape::Cylinder).summary(), "Cast: Cylinder 0.5");
         assert_eq!(Modifier::decimate(0.25).summary(), "Decimate 0.25");
         assert_eq!(Modifier::edge_split().summary(), "Edge Split 30\u{b0}");
+    }
+
+    #[test]
+    fn adjust_changes_the_main_value_within_its_range() {
+        let mut a = Modifier::array(2);
+        assert!(a.adjust(1) && a == Modifier::array(3));
+        assert!(a.adjust(-5) && a == Modifier::array(1));
+        assert!(!a.adjust(-1));
+        let mut b = Modifier::bevel();
+        assert!(b.adjust(2) && b.summary() == "Bevel 0.12 m");
+        let mut d = Modifier::decimate(0.5);
+        assert!(d.adjust(100) && d == Modifier::decimate(1.0));
+        assert!(!d.adjust(1));
+        assert!(d.adjust(-200) && d == Modifier::decimate(0.01));
+        let mut t = Modifier::simple_deform(DeformMode::Twist);
+        assert!(t.adjust(1) && t.summary() == "Simple Deform: Twist 50\u{b0}");
+        let mut e = Modifier::edge_split();
+        assert!(e.adjust(-100) && e == Modifier::EdgeSplit { angle: 0.0 });
+        assert!(!Modifier::Triangulate.adjust(1));
+        assert!(!Modifier::mirror(0).adjust(1));
+        /* Every notch of every modifier is reversible. */
+        let mut s = Modifier::smooth();
+        s.adjust(3);
+        s.adjust(-3);
+        assert_eq!(s, Modifier::smooth());
     }
 }

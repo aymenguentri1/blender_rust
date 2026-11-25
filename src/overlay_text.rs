@@ -12,7 +12,7 @@
 //!  - `ED_view3d_text_colors_get()`             (view3d_utils.cc:91): `TH_TEXT_HI`
 //!
 //! Beyond Blender: the object name is the real active object (Blender shows only `Collection` when there
-//! is none) and the modifier stack of that object is listed under it, one `+ ` line per modifier, because
+//! is none) and the modifier stack of that object is listed under it, one line per modifier (`>` marks the active one, `+` the others), because
 //! the modifiers have no properties editor yet.
 //!
 //! Deviations: the outline shadow of the text is not drawn, the grid unit line of `draw_grid_unit_name()`
@@ -33,6 +33,8 @@ pub struct ObjectInfo {
     pub name: Option<String>,
     /// One line per modifier, the Subdivision Surface level last.
     pub modifiers: Vec<String>,
+    /// The index of the active modifier in `modifiers`, marked with `>` instead of `+`.
+    pub active: usize,
 }
 
 impl ObjectInfo {
@@ -44,7 +46,8 @@ impl ObjectInfo {
                 if o.subsurf > 0 {
                     modifiers.push(format!("Subdivision Surface {}", o.subsurf));
                 }
-                ObjectInfo { name: Some(o.name.clone()), modifiers }
+                let active = o.active_modifier.min(o.modifiers.len().saturating_sub(1));
+                ObjectInfo { name: Some(o.name.clone()), modifiers, active }
             }
         }
     }
@@ -97,7 +100,7 @@ fn lines(v3d: &View3D, rv3d: &RegionView3D, frame: i32, object: &ObjectInfo) -> 
         None => "Collection".to_string(),
     });
     lines.push(frame.to_string());
-    lines.extend(object.modifiers.iter().map(|m| format!("+ {m}")));
+    lines.extend(object.modifiers.iter().enumerate().map(|(i, m)| format!("{} {m}", if i == object.active { '>' } else { '+' })));
     lines
 }
 
@@ -119,7 +122,7 @@ mod tests {
     #[test]
     fn default_view_lines() {
         let rv3d = RegionView3D::default();
-        let cube = ObjectInfo { name: Some("Cube".to_string()), modifiers: vec![] };
+        let cube = ObjectInfo { name: Some("Cube".to_string()), modifiers: vec![], active: 0 };
         assert_eq!(lines(&View3D::default(), &rv3d, 1, &cube), ["User Perspective", "Collection | Cube", "1"]);
     }
 
@@ -128,10 +131,10 @@ mod tests {
         let rv3d = RegionView3D::default();
         let none = lines(&View3D::default(), &rv3d, 1, &ObjectInfo::default());
         assert_eq!(none, ["User Perspective", "Collection", "1"]);
-        let info = ObjectInfo { name: Some("Torus".to_string()), modifiers: vec!["Mirror X".to_string(), "Subdivision Surface 2".to_string()] };
+        let info = ObjectInfo { name: Some("Torus".to_string()), modifiers: vec!["Mirror X".to_string(), "Subdivision Surface 2".to_string()], active: 0 };
         let l = lines(&View3D::default(), &rv3d, 1, &info);
         assert_eq!(l[1], "Collection | Torus");
-        assert_eq!(&l[3..], ["+ Mirror X", "+ Subdivision Surface 2"]);
+        assert_eq!(&l[3..], ["> Mirror X", "+ Subdivision Surface 2"]);
     }
 
     #[test]
@@ -143,6 +146,10 @@ mod tests {
         scene.set_subsurf(2);
         let info = ObjectInfo::of(&scene);
         assert_eq!(info.modifiers, ["Mirror X", "Bevel 0.1 m", "Subdivision Surface 2"]);
+        /* The Bevel was added last, so it is the active one; selecting moves the marker. */
+        assert_eq!(info.active, 1);
+        scene.select_modifier(-1);
+        assert_eq!(ObjectInfo::of(&scene).active, 0);
     }
 
     #[test]

@@ -28,7 +28,17 @@ Blender has no keys for modifiers (they live in the properties editor), so these
 
 The modifier stack of the active object is listed in the info text at the top left of the 3D viewport, one
 `+ ` line per modifier with its main setting (for example `+ Mirror X`, `+ Decimate 0.25`), followed by the
-Subdivision Surface level. The line above shows the real active object (`Collection | Cube`).
+Subdivision Surface level. The active modifier (the newest one after adding) is marked `>` and is the one these
+keys act on:
+
+| Keys | Operator |
+| --- | --- |
+| Ctrl + Alt + Down / Up | Select the next / previous modifier |
+| Ctrl + Alt + `]` / `[` | Raise / lower its main value (Array count, thickness, width, factor, angle, ratio, strength, distance) |
+| Ctrl + Alt + Page Down / Page Up | Move it down / up in the stack |
+| Ctrl + Shift + Alt + X | Remove it |
+
+The line above shows the real active object (`Collection | Cube`).
 
 ### Object and mesh operators
 | Keys | Operator |
