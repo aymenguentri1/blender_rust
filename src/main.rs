@@ -51,6 +51,8 @@ mod workbench;
 mod taa;
 #[allow(dead_code)]
 mod mesh;
+mod mesh_ops;
+mod modifiers;
 #[allow(dead_code)]
 mod scene;
 #[allow(dead_code)]
@@ -908,6 +910,36 @@ impl ApplicationHandler for App {
                             };
                             geometry = self.scene.set_subsurf(level) > 0;
                         }
+                        /* Modifiers: Blender has no keys for them (they live in the properties editor), so these are
+                         * Ctrl + Alt chords: X / Y / Z toggle a Mirror axis, + / - change the Array count and W toggles
+                         * Solidify. */
+                        KeyCode::KeyX | KeyCode::KeyY | KeyCode::KeyZ if ctrl_k && alt_k && !shift_k => {
+                            let axis = match code {
+                                KeyCode::KeyX => 0,
+                                KeyCode::KeyY => 1,
+                                _ => 2,
+                            };
+                            geometry = self.scene.toggle_mirror(axis) > 0;
+                        }
+                        KeyCode::Equal | KeyCode::NumpadAdd if ctrl_k && alt_k && !shift_k => {
+                            geometry = self.scene.set_array(self.scene.array_count().max(1) + 1) > 0;
+                        }
+                        KeyCode::Minus | KeyCode::NumpadSubtract if ctrl_k && alt_k && !shift_k => {
+                            let count = self.scene.array_count();
+                            geometry = count > 1 && self.scene.set_array(count - 1) > 0;
+                        }
+                        KeyCode::KeyW if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_solidify() > 0,
+                        /* Object > Join, Apply > All Transforms, Convert to Mesh (applies the modifiers), Set Origin >
+                         * Origin to Geometry (the Shift + Ctrl + Alt + C pie of Blender). */
+                        KeyCode::KeyJ if ctrl_k && !shift_k && !alt_k => geometry = self.scene.join_selected() > 0,
+                        KeyCode::KeyA if ctrl_k && !shift_k && !alt_k => geometry = self.scene.apply_transforms() > 0,
+                        KeyCode::KeyC if alt_k && !shift_k && !ctrl_k => geometry = self.scene.apply_modifiers() > 0,
+                        KeyCode::KeyC if ctrl_k && shift_k && alt_k => geometry = self.scene.origin_to_geometry() > 0,
+                        /* Mesh editing keys of Blender's edit mode, run on the whole selected mesh. */
+                        KeyCode::KeyN if alt_k && !shift_k && !ctrl_k => geometry = self.scene.flip_normals() > 0,
+                        KeyCode::KeyN if shift_k && !ctrl_k && !alt_k => geometry = self.scene.recalc_normals() > 0,
+                        KeyCode::KeyT if ctrl_k && !shift_k && !alt_k => geometry = self.scene.triangulate() > 0,
+                        KeyCode::KeyM if alt_k && !shift_k && !ctrl_k => geometry = self.scene.merge_by_distance(0.0001) > 0,
                         KeyCode::KeyS if ctrl_k && alt_k && !shift_k => geometry = self.scene.set_smooth(true) > 0,
                         KeyCode::KeyF if ctrl_k && alt_k && !shift_k => geometry = self.scene.set_smooth(false) > 0,
                         KeyCode::NumpadDecimal if plain => {

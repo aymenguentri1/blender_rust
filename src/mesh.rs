@@ -32,22 +32,22 @@ pub struct MeshEdge {
     pub faces: u32,
 }
 
-fn add(a: V3, b: V3) -> V3 {
+pub(crate) fn add(a: V3, b: V3) -> V3 {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }
-fn sub(a: V3, b: V3) -> V3 {
+pub(crate) fn sub(a: V3, b: V3) -> V3 {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
-fn scale(a: V3, s: f32) -> V3 {
+pub(crate) fn scale(a: V3, s: f32) -> V3 {
     [a[0] * s, a[1] * s, a[2] * s]
 }
-fn dot(a: V3, b: V3) -> f32 {
+pub(crate) fn dot(a: V3, b: V3) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
-fn cross(a: V3, b: V3) -> V3 {
+pub(crate) fn cross(a: V3, b: V3) -> V3 {
     [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 }
-fn normalized(v: V3) -> V3 {
+pub(crate) fn normalized(v: V3) -> V3 {
     let l = dot(v, v).sqrt();
     if l > 1e-20 {
         scale(v, 1.0 / l)
@@ -382,7 +382,7 @@ impl Mesh {
     }
 
     /// The Newell vector of face `f`: the normal scaled by twice the area.
-    fn face_area_normal(&self, f: usize) -> V3 {
+    pub(crate) fn face_area_normal(&self, f: usize) -> V3 {
         let face = &self.faces[f];
         let mut n = [0.0f32; 3];
         for i in 0..face.len() {

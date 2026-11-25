@@ -10,12 +10,17 @@
 //!    `OBJECT_OT_hide_view_clear`, `OBJECT_OT_shade_smooth` / `shade_flat`, `OBJECT_OT_location_clear`,
 //!    `OBJECT_OT_rotation_clear`, `OBJECT_OT_scale_clear`, the Subdivision Surface level shortcut
 //!    (`OBJECT_OT_subdivision_set`, Ctrl + 0..5)
+//!  - the modifier stack (`Object::modifiers`: Mirror, Array, Solidify, then the Subdivision Surface level)
+//!  - `OBJECT_OT_join` (Ctrl + J), `OBJECT_OT_transform_apply` (Ctrl + A), `OBJECT_OT_origin_set` (Geometry to
+//!    Origin, median center), `OBJECT_OT_convert` (Alt + C, applies the modifiers), and the mesh operators
+//!    Flip Normals (Alt + N), Recalculate Outside (Shift + N), Triangulate (Ctrl + T), Merge by Distance
 //!  - `ED_undo_push()`: every operator that changes data pushes a step; here a step is a copy of the object
 //!    list (selection changes are not undo steps)
 //!
 //! Matrices are column-major like Blender's `float[4][4]`: `m[col][row]`.
 
 use crate::mesh::{Mesh, Primitive, V3};
+use crate::modifiers::{self, Modifier};
 use crate::view3d::{Mat4, RegionView3D};
 
 pub type Mat3 = [[f32; 3]; 3];
@@ -46,6 +51,8 @@ pub struct Object {
     pub smooth: bool,
     /// Subdivision Surface modifier levels (0 is no modifier).
     pub subsurf: u32,
+    /// The modifier stack, evaluated in order before the Subdivision Surface level.
+    pub modifiers: Vec<Modifier>,
     eval: Option<Mesh>,
 }
 
@@ -71,7 +78,7 @@ impl Object {
 
     /// The mesh as drawn: the base mesh, or its subdivision once `Scene::update_eval()` has built it.
     pub fn evaluated(&self) -> Option<&Mesh> {
-        if self.subsurf > 0 {
+        if self.has_eval() {
             if let Some(m) = self.eval.as_ref() {
                 return Some(m);
             }
@@ -79,9 +86,17 @@ impl Object {
         self.mesh()
     }
 
+    /// Does the object draw something other than its base mesh (a modifier or a subdivision level)?
+    pub fn has_eval(&self) -> bool {
+        self.subsurf > 0 || !self.modifiers.is_empty()
+    }
+
     fn rebuild_eval(&mut self) {
-        self.eval = match (&self.data, self.subsurf) {
-            (ObjectData::Mesh(m), n) if n > 0 => Some(m.subdivided(n)),
+        self.eval = match &self.data {
+            ObjectData::Mesh(m) if self.has_eval() => {
+                let stacked = modifiers::evaluate(m, &self.modifiers);
+                Some(if self.subsurf > 0 { stacked.subdivided(self.subsurf) } else { stacked })
+            }
             _ => None,
         };
     }
@@ -171,6 +186,7 @@ impl Scene {
             hidden: false,
             smooth: false,
             subsurf: 0,
+            modifiers: Vec::new(),
             eval: None,
         });
         self.objects.last_mut().unwrap()
@@ -210,7 +226,7 @@ impl Scene {
     /// Builds the subdivided meshes the modifier stack needs; call before drawing.
     pub fn update_eval(&mut self) {
         for o in &mut self.objects {
-            if o.subsurf > 0 && o.eval.is_none() {
+            if o.has_eval() && o.eval.is_none() {
                 o.rebuild_eval();
             }
         }
@@ -357,6 +373,7 @@ impl Scene {
             copy.scale = src.scale;
             copy.smooth = src.smooth;
             copy.subsurf = src.subsurf;
+            copy.modifiers = src.modifiers.clone();
             copy.selected = true;
             if active == Some(src.id) {
                 let id = copy.id;
@@ -439,6 +456,266 @@ impl Scene {
             }
         }
         n
+    }
+
+
+    // ----- modifiers ----------------------------------------------------------------------------
+
+    /// Runs `f` on the stack of every selected visible mesh; `f` returns whether it changed the stack.
+    fn edit_modifiers(&mut self, mut f: impl FnMut(&mut Vec<Modifier>) -> bool) -> usize {
+        if self.selected().filter(|o| o.mesh().is_some()).count() == 0 {
+            return 0;
+        }
+        self.push_undo();
+        let mut changed = 0;
+        for o in self.objects.iter_mut().filter(|o| o.selected && !o.hidden && o.mesh().is_some()) {
+            if f(&mut o.modifiers) {
+                o.eval = None;
+                changed += 1;
+            }
+        }
+        if changed == 0 {
+            self.pop_undo();
+        }
+        changed
+    }
+
+    /// Adds a Mirror modifier for `axis` (0 = X, 1 = Y, 2 = Z) to the selected meshes, or flips that axis of
+    /// the one they have; a Mirror with no axis left is removed.
+    pub fn toggle_mirror(&mut self, axis: usize) -> usize {
+        let axis = axis.min(2);
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::Mirror { .. })) {
+                Some(i) => {
+                    if let Modifier::Mirror { axes, .. } = &mut stack[i] {
+                        axes[axis] = !axes[axis];
+                        if !axes.iter().any(|a| *a) {
+                            stack.remove(i);
+                        }
+                    }
+                }
+                None => stack.push(Modifier::mirror(axis)),
+            }
+            true
+        })
+    }
+
+    /// Sets the count of the Array modifier of the selected meshes: 2 or more adds or updates it, less removes it.
+    pub fn set_array(&mut self, count: u32) -> usize {
+        self.edit_modifiers(|stack| {
+            let at = stack.iter().position(|m| matches!(m, Modifier::Array { .. }));
+            match (at, count >= 2) {
+                (Some(i), true) => {
+                    if let Modifier::Array { count: c, .. } = &mut stack[i] {
+                        if *c == count {
+                            return false;
+                        }
+                        *c = count;
+                    }
+                    true
+                }
+                (Some(i), false) => {
+                    stack.remove(i);
+                    true
+                }
+                (None, true) => {
+                    stack.push(Modifier::array(count));
+                    true
+                }
+                (None, false) => false,
+            }
+        })
+    }
+
+    /// Adds a Solidify modifier to the selected meshes, or removes the one they have.
+    pub fn toggle_solidify(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::Solidify { .. })) {
+                Some(i) => {
+                    stack.remove(i);
+                }
+                None => stack.push(Modifier::solidify()),
+            }
+            true
+        })
+    }
+
+    /// The array count of the first selected mesh with an Array modifier (1 when there is none).
+    pub fn array_count(&self) -> u32 {
+        self.selected()
+            .flat_map(|o| o.modifiers.iter())
+            .find_map(|m| if let Modifier::Array { count, .. } = m { Some(*count) } else { None })
+            .unwrap_or(1)
+    }
+
+    /// `OBJECT_OT_convert` to mesh: bakes the modifier stack and the subdivision level into the mesh.
+    pub fn apply_modifiers(&mut self) -> usize {
+        let n = self.selected().filter(|o| o.mesh().is_some() && o.has_eval()).count();
+        if n == 0 {
+            return 0;
+        }
+        self.push_undo();
+        for o in self.objects.iter_mut().filter(|o| o.selected && !o.hidden && o.mesh().is_some() && o.has_eval()) {
+            o.rebuild_eval();
+            if let Some(baked) = o.eval.take() {
+                o.data = ObjectData::Mesh(baked);
+            }
+            o.modifiers.clear();
+            o.subsurf = 0;
+        }
+        n
+    }
+
+    // ----- object data operators ------------------------------------------------------------------
+
+    /// `OBJECT_OT_transform_apply` (location, rotation and scale): bakes the object transform into the mesh and
+    /// resets it. Returns how many meshes changed.
+    pub fn apply_transforms(&mut self) -> usize {
+        let n = self
+            .selected()
+            .filter(|o| o.mesh().is_some() && (o.loc != [0.0; 3] || o.rot != [0.0; 3] || o.scale != [1.0; 3]))
+            .count();
+        if n == 0 {
+            return 0;
+        }
+        self.push_undo();
+        for o in self.objects.iter_mut().filter(|o| o.selected && !o.hidden) {
+            let ObjectData::Mesh(mesh) = &o.data else { continue };
+            let (loc, rot, sc) = (o.loc, euler_to_mat3(o.rot), o.scale);
+            let flip = sc[0] * sc[1] * sc[2] < 0.0;
+            let baked = mesh.mapped(
+                |v| {
+                    let r = mat3_mul_v3(&rot, [v[0] * sc[0], v[1] * sc[1], v[2] * sc[2]]);
+                    [r[0] + loc[0], r[1] + loc[1], r[2] + loc[2]]
+                },
+                flip,
+            );
+            o.data = ObjectData::Mesh(baked);
+            o.loc = [0.0; 3];
+            o.rot = [0.0; 3];
+            o.scale = [1.0; 3];
+            o.eval = None;
+        }
+        n
+    }
+
+    /// `OBJECT_OT_origin_set` (Origin to Geometry, median center): moves the origin of the selected meshes to the
+    /// mean of their vertices without moving the mesh in the world.
+    pub fn origin_to_geometry(&mut self) -> usize {
+        let n = self.selected().filter(|o| o.mesh().is_some()).count();
+        if n == 0 {
+            return 0;
+        }
+        self.push_undo();
+        for o in self.objects.iter_mut().filter(|o| o.selected && !o.hidden) {
+            let ObjectData::Mesh(mesh) = &o.data else { continue };
+            let Some(c) = mesh.median_center() else { continue };
+            let moved = mesh.mapped(|v| [v[0] - c[0], v[1] - c[1], v[2] - c[2]], false);
+            let w = mat3_mul_v3(&euler_to_mat3(o.rot), [c[0] * o.scale[0], c[1] * o.scale[1], c[2] * o.scale[2]]);
+            o.data = ObjectData::Mesh(moved);
+            o.loc = [o.loc[0] + w[0], o.loc[1] + w[1], o.loc[2] + w[2]];
+            o.eval = None;
+        }
+        n
+    }
+
+    /// `OBJECT_OT_join`: merges the selected meshes into the active one (which must be selected), in its local
+    /// space, and deletes the others. Returns how many objects were joined into the active one.
+    pub fn join_selected(&mut self) -> usize {
+        let Some(active) = self.active.and_then(|id| self.index_of(id)) else { return 0 };
+        if !self.objects[active].selected || self.objects[active].mesh().is_none() {
+            return 0;
+        }
+        let others: Vec<usize> = (0..self.objects.len())
+            .filter(|&i| i != active && self.objects[i].selected && !self.objects[i].hidden && self.objects[i].mesh().is_some())
+            .collect();
+        if others.is_empty() {
+            return 0;
+        }
+        self.push_undo();
+        let (a_loc, a_rot, a_scale) = (self.objects[active].loc, self.objects[active].rot, self.objects[active].scale);
+        let a_inv_rot = mat3_transpose(&euler_to_mat3(a_rot));
+        let safe = |s: f32| if s.abs() < 1e-8 { 1.0 } else { s };
+        let mut joined = self.objects[active].mesh().cloned().unwrap_or_default();
+        let mut remove_ids = Vec::new();
+        for &i in &others {
+            let o = &self.objects[i];
+            let Some(mesh) = o.mesh() else { continue };
+            let (o_loc, o_rot, o_scale) = (o.loc, euler_to_mat3(o.rot), o.scale);
+            let flip = (o_scale[0] * o_scale[1] * o_scale[2] < 0.0) != (a_scale[0] * a_scale[1] * a_scale[2] < 0.0);
+            let part = mesh.mapped(
+                |v| {
+                    let w = mat3_mul_v3(&o_rot, [v[0] * o_scale[0], v[1] * o_scale[1], v[2] * o_scale[2]]);
+                    let w = [w[0] + o_loc[0] - a_loc[0], w[1] + o_loc[1] - a_loc[1], w[2] + o_loc[2] - a_loc[2]];
+                    let l = mat3_mul_v3(&a_inv_rot, w);
+                    [l[0] / safe(a_scale[0]), l[1] / safe(a_scale[1]), l[2] / safe(a_scale[2])]
+                },
+                flip,
+            );
+            joined.append(&part);
+            remove_ids.push(o.id);
+        }
+        self.objects[active].data = ObjectData::Mesh(joined);
+        self.objects[active].eval = None;
+        self.objects.retain(|o| !remove_ids.contains(&o.id));
+        remove_ids.len()
+    }
+
+    /// Runs `f` on the base mesh of every selected mesh object; `f` returns whether it changed the mesh.
+    fn edit_meshes(&mut self, mut f: impl FnMut(&mut Mesh) -> bool) -> usize {
+        if self.selected().filter(|o| o.mesh().is_some()).count() == 0 {
+            return 0;
+        }
+        self.push_undo();
+        let mut changed = 0;
+        for o in self.objects.iter_mut().filter(|o| o.selected && !o.hidden) {
+            if let ObjectData::Mesh(m) = &mut o.data {
+                if f(m) {
+                    o.eval = None;
+                    changed += 1;
+                }
+            }
+        }
+        if changed == 0 {
+            self.pop_undo();
+        }
+        changed
+    }
+
+    /// `mesh.flip_normals` on the selected meshes.
+    pub fn flip_normals(&mut self) -> usize {
+        self.edit_meshes(|m| {
+            m.flip_normals();
+            !m.faces.is_empty()
+        })
+    }
+
+    /// `mesh.normals_make_consistent` (outside) on the selected meshes.
+    pub fn recalc_normals(&mut self) -> usize {
+        self.edit_meshes(|m| m.recalc_normals_outside() > 0)
+    }
+
+    /// `mesh.quads_convert_to_tris` on the selected meshes.
+    pub fn triangulate(&mut self) -> usize {
+        self.edit_meshes(|m| {
+            if m.faces.iter().all(|f| f.len() <= 3) {
+                return false;
+            }
+            *m = m.triangulated();
+            true
+        })
+    }
+
+    /// `mesh.remove_doubles` on the selected meshes. Returns how many meshes lost vertices.
+    pub fn merge_by_distance(&mut self, distance: f32) -> usize {
+        self.edit_meshes(|m| {
+            let (merged, removed) = m.merged_by_distance(distance);
+            if removed == 0 {
+                return false;
+            }
+            *m = merged;
+            true
+        })
     }
 
     // ----- queries ------------------------------------------------------------------------------
@@ -575,6 +852,10 @@ pub fn mat3_mul(a: &Mat3, b: &Mat3) -> Mat3 {
         }
     }
     out
+}
+
+pub fn mat3_transpose(m: &Mat3) -> Mat3 {
+    std::array::from_fn(|c| std::array::from_fn(|r| m[r][c]))
 }
 
 pub fn mat3_mul_v3(m: &Mat3, v: V3) -> V3 {
@@ -900,5 +1181,161 @@ mod tests {
         assert!(ray_triangle([0.2, 0.2, -1.0], [0.0, 0.0, 1.0], a, b, c).is_some());
         assert!(ray_triangle([2.0, 2.0, 1.0], [0.0, 0.0, -1.0], a, b, c).is_none());
         assert!(ray_triangle([0.2, 0.2, 1.0], [0.0, 0.0, 1.0], a, b, c).is_none());
+    }
+    fn cube_id(s: &Scene) -> u32 {
+        s.objects.iter().find(|o| o.name == "Cube").unwrap().id
+    }
+
+    #[test]
+    fn modifiers_build_the_evaluated_mesh_and_stack_with_subsurf() {
+        let mut s = Scene::startup();
+        assert_eq!(s.set_array(3), 1);
+        s.update_eval();
+        assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), 18);
+        assert_eq!(s.array_count(), 3);
+        s.set_subsurf(1);
+        s.update_eval();
+        assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), 18 * 4);
+        assert_eq!(s.set_array(3), 0, "no change, no undo step");
+        assert_eq!(s.set_array(1), 1);
+        s.update_eval();
+        assert!(s.active_object().unwrap().modifiers.is_empty());
+        assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), 24);
+    }
+
+    #[test]
+    fn mirror_toggles_axes_and_removes_itself() {
+        let mut s = Scene::startup();
+        s.toggle_mirror(0);
+        s.toggle_mirror(1);
+        assert_eq!(s.active_object().unwrap().modifiers.len(), 1);
+        s.toggle_mirror(0);
+        s.toggle_mirror(1);
+        assert!(s.active_object().unwrap().modifiers.is_empty());
+    }
+
+    #[test]
+    fn solidify_toggles_and_undoes() {
+        let mut s = Scene::startup();
+        assert_eq!(s.toggle_solidify(), 1);
+        s.update_eval();
+        assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), 12);
+        assert!(s.undo());
+        assert!(s.active_object().unwrap().modifiers.is_empty());
+        assert!(s.redo());
+        assert_eq!(s.active_object().unwrap().modifiers.len(), 1);
+    }
+
+    #[test]
+    fn duplicate_copies_the_modifiers() {
+        let mut s = Scene::startup();
+        s.toggle_solidify();
+        s.duplicate_selected();
+        assert_eq!(s.active_object().unwrap().modifiers.len(), 1);
+    }
+
+    #[test]
+    fn apply_modifiers_bakes_them_in() {
+        let mut s = Scene::startup();
+        s.set_array(2);
+        s.set_subsurf(1);
+        assert_eq!(s.apply_modifiers(), 1);
+        let o = s.active_object().unwrap();
+        assert!(o.modifiers.is_empty() && o.subsurf == 0);
+        assert_eq!(o.mesh().unwrap().faces.len(), 48);
+        assert_eq!(s.apply_modifiers(), 0);
+    }
+
+    #[test]
+    fn apply_transforms_bakes_location_rotation_and_scale() {
+        let mut s = Scene::startup();
+        let id = cube_id(&s);
+        let i = s.index_of(id).unwrap();
+        s.objects[i].loc = [1.0, 2.0, 3.0];
+        s.objects[i].scale = [2.0, 1.0, 1.0];
+        s.objects[i].rot = [0.0, 0.0, std::f32::consts::FRAC_PI_2];
+        let before = s.objects[i].world_bounds().unwrap();
+        assert_eq!(s.apply_transforms(), 1);
+        let o = &s.objects[i];
+        assert_eq!((o.loc, o.rot, o.scale), ([0.0; 3], [0.0; 3], [1.0; 3]));
+        let after = o.world_bounds().unwrap();
+        assert!(approx(before.0, after.0) && approx(before.1, after.1), "{before:?} {after:?}");
+        assert_eq!(s.apply_transforms(), 0);
+    }
+
+    #[test]
+    fn apply_a_negative_scale_keeps_the_faces_outward() {
+        let mut s = Scene::startup();
+        let i = s.index_of(cube_id(&s)).unwrap();
+        s.objects[i].scale = [-1.0, 1.0, 1.0];
+        s.apply_transforms();
+        assert!(s.objects[i].mesh().unwrap().signed_volume() > 0.0);
+    }
+
+    #[test]
+    fn origin_to_geometry_keeps_the_mesh_in_place() {
+        let mut s = Scene::startup();
+        let i = s.index_of(cube_id(&s)).unwrap();
+        if let ObjectData::Mesh(m) = &mut s.objects[i].data {
+            *m = m.mapped(|v| [v[0] + 4.0, v[1], v[2]], false);
+        }
+        s.objects[i].scale = [2.0, 2.0, 2.0];
+        let before = s.objects[i].world_bounds().unwrap();
+        assert_eq!(s.origin_to_geometry(), 1);
+        let o = &s.objects[i];
+        assert!(approx(o.loc, [8.0, 0.0, 0.0]), "{:?}", o.loc);
+        assert!(approx(o.mesh().unwrap().median_center().unwrap(), [0.0; 3]));
+        let after = o.world_bounds().unwrap();
+        assert!(approx(before.0, after.0) && approx(before.1, after.1));
+    }
+
+    #[test]
+    fn join_merges_into_the_active_object_in_its_space() {
+        let mut s = Scene::startup();
+        let a = s.index_of(cube_id(&s)).unwrap();
+        s.objects[a].loc = [10.0, 0.0, 0.0];
+        s.objects[a].scale = [2.0, 2.0, 2.0];
+        let id = s.add_primitive(Primitive::Cube, [20.0, 0.0, 0.0]);
+        s.select_pick(Some(cube_id(&s)), true);
+        let b = s.index_of(id).unwrap();
+        s.objects[b].selected = true;
+        s.active = Some(cube_id(&s));
+        assert_eq!(s.join_selected(), 1);
+        assert!(s.index_of(id).is_none());
+        let o = s.active_object().unwrap();
+        assert_eq!(o.mesh().unwrap().faces.len(), 12);
+        /* Both cubes are where they were: x from 8 to 12 and from 19 to 21. */
+        let (lo, hi) = o.world_bounds().unwrap();
+        assert!(approx(lo, [8.0, -2.0, -2.0]) && approx(hi, [21.0, 2.0, 2.0]), "{lo:?} {hi:?}");
+        assert!(s.undo());
+        assert!(s.index_of(id).is_some());
+    }
+
+    #[test]
+    fn join_needs_two_meshes_and_a_mesh_active() {
+        let mut s = Scene::startup();
+        assert_eq!(s.join_selected(), 0);
+        s.select_all(SelectAction::Select);
+        s.active = s.objects.iter().find(|o| o.name == "Light").map(|o| o.id);
+        assert_eq!(s.join_selected(), 0);
+        assert_eq!(s.objects.len(), 3);
+    }
+
+    #[test]
+    fn mesh_operators_flip_recalc_triangulate_merge() {
+        let mut s = Scene::startup();
+        let i = s.index_of(cube_id(&s)).unwrap();
+        assert_eq!(s.recalc_normals(), 0, "nothing to fix, no undo step");
+        assert!(!s.can_undo());
+        assert_eq!(s.flip_normals(), 1);
+        assert!(s.objects[i].mesh().unwrap().signed_volume() < 0.0);
+        assert_eq!(s.recalc_normals(), 1);
+        assert!(s.objects[i].mesh().unwrap().signed_volume() > 0.0);
+        assert_eq!(s.triangulate(), 1);
+        assert_eq!(s.objects[i].mesh().unwrap().faces.len(), 12);
+        assert_eq!(s.triangulate(), 0);
+        assert_eq!(s.merge_by_distance(0.001), 0);
+        assert!(s.undo() && s.undo() && s.undo());
+        assert_eq!(s.objects[i].mesh().unwrap().faces.len(), 6);
     }
 }
