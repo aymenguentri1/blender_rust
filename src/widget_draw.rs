@@ -34,12 +34,29 @@ pub fn draw_round_box(
     outline: Rgba,
     roundness: f32,
 ) {
+    draw_round_box_sides(buf, width, height, user, rect, inner, outline, roundness, true, true);
+}
+
+/// Like `draw_round_box()` with the left and / or right corners squared off, for the buttons of an
+/// aligned row (`UI_BUT_ALIGN_LEFT` / `UI_BUT_ALIGN_RIGHT` clear the corner flags, `UI_CNR_*`).
+pub fn draw_round_box_sides(
+    buf: &mut [u32],
+    width: usize,
+    height: usize,
+    user: &UserDef,
+    rect: Rcti,
+    inner: Rgba,
+    outline: Rgba,
+    roundness: f32,
+    round_left: bool,
+    round_right: bool,
+) {
     if width == 0 || height == 0 || buf.len() < width * height || rect.is_empty() {
         return;
     }
     let size_x = (rect.size_x() + 1) as f32;
     let size_y = (rect.size_y() + 1) as f32;
-    let rad = (roundness * user.widget_unit as f32).min(size_x.min(size_y) * 0.5);
+    let rad_full = (roundness * user.widget_unit as f32).min(size_x.min(size_y) * 0.5);
     let line_w = (user.pixelsize as f32).max(1.0);
     let inner_a = inner.a as f32 / 255.0;
     let outline_a = outline.a as f32 / 255.0;
@@ -52,6 +69,8 @@ pub fn draw_round_box(
         let row = (height - 1 - y as usize) * width;
         for x in vis.xmin..=vis.xmax {
             let u = (x - rect.xmin) as f32 + 0.5;
+            let rounded = if u > size_x * 0.5 { round_right } else { round_left };
+            let rad = if rounded { rad_full } else { 0.0 };
             let ux = if u > size_x * 0.5 { size_x - u } else { u } - rad;
             let uy = if v > size_y * 0.5 { size_y - v } else { v } - rad;
             let inner_sdf = ux.min(uy).max(0.0);

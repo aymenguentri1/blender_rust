@@ -67,6 +67,8 @@ mod transform;
 mod overlay_outline;
 mod overlay_extra;
 mod add_menu;
+mod icons;
+mod view3d_header;
 mod modifier_panel;
 mod transform_panel;
 
@@ -197,6 +199,8 @@ struct App {
     show_stats: bool,
     /// The transform pivot point (Period cycles it: Median Point, 3D Cursor, Individual Origins).
     pivot_point: transform::PivotPoint,
+    /// The 3D viewport header button under the cursor (drawn lighter).
+    header_hover: Option<view3d_header::Action>,
     /// Workbench temporal anti-aliasing accumulation of the main region.
     taa: taa::TaaState,
     /// `Scene::r.cfra`, the current frame; `None` is the startup frame 1.
@@ -236,6 +240,25 @@ fn set_status_title(window: &Window, text: Option<&str>) {
     match text {
         Some(t) => window.set_title(&format!("{t} - {}", window_title())),
         None => window.set_title(&window_title()),
+    }
+}
+
+/// What the 3D viewport header shows.
+fn header_state(wire: bool, xray: bool, overlays_hidden: bool, pivot: transform::PivotPoint) -> view3d_header::HeaderState {
+    view3d_header::HeaderState { wire, xray, overlays: !overlays_hidden, pivot }
+}
+
+/// Same as `view3d.toggle_shading` (Shift + Z): entering wire drops the solid depth buffer,
+/// leaving it restarts the TAA accumulation.
+fn set_wire(wire: &mut bool, scene_depth: &mut Vec<f32>, taa: &mut taa::TaaState, to: bool) {
+    if *wire == to {
+        return;
+    }
+    *wire = to;
+    if to {
+        *scene_depth = Vec::new();
+    } else {
+        *taa = taa::TaaState::default();
     }
 }
 
@@ -322,6 +345,16 @@ impl ApplicationHandler for App {
                 let x = position.x.floor() as i32;
                 let y = height - 1 - position.y.floor() as i32;
                 self.cursor = [x, y];
+                /* The header buttons light up under the cursor. */
+                if let Some(user) = self.user.as_ref() {
+                    let hover = area::view3d_header_rect(user, layout.main)
+                        .filter(|header| header.isect_pt_v([x, y]))
+                        .and_then(|header| view3d_header::action_at(&view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point)), [x, y]));
+                    if hover != self.header_hover {
+                        self.header_hover = hover;
+                        gfx.window.request_redraw();
+                    }
+                }
                 /* The popup menu highlights the entry under the cursor. */
                 if self.add_menu.is_some() {
                     gfx.window.request_redraw();
@@ -598,32 +631,36 @@ impl ApplicationHandler for App {
                     gfx.window.request_redraw();
                     return;
                 }
-                let on_wire_button = match (self.layout.as_ref(), self.user.as_ref()) {
+                /* 3D viewport header buttons (`VIEW3D_HT_header`): a press anywhere in the header region stays
+                 * there, it never reaches the viewport. */
+                let header_hit = match (self.layout.as_ref(), self.user.as_ref()) {
                     (Some(layout), Some(user)) => area::view3d_header_rect(user, layout.main)
-                        .is_some_and(|header| ui_layout::wire_button_rect(user, header).isect_pt_v(self.cursor)),
-                    _ => false,
+                        .filter(|header| header.isect_pt_v(self.cursor))
+                        .map(|header| {
+                            let items = view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point));
+                            let action = view3d_header::action_at(&items, self.cursor);
+                            let anchor = action.and_then(|a| view3d_header::rect_of(&items, a)).map(|r| [r.xmin, r.ymin]);
+                            (action, anchor)
+                        }),
+                    _ => None,
                 };
-                if on_wire_button {
-                    /* Same as `view3d.toggle_shading` (Shift + Z): entering wire drops the solid depth
-                     * buffer, leaving it restarts the TAA accumulation. */
-                    self.wire = !self.wire;
-                    if self.wire {
-                        self.scene_depth = Vec::new();
-                    } else {
-                        self.taa = taa::TaaState::default();
-                    }
-                    gfx.window.request_redraw();
-                    return;
-                }
-                let on_xray_button = match (self.layout.as_ref(), self.user.as_ref()) {
-                    (Some(layout), Some(user)) => area::view3d_header_rect(user, layout.main)
-                        .is_some_and(|header| ui_layout::xray_button_rect(user, header).isect_pt_v(self.cursor)),
-                    _ => false,
-                };
-                if on_xray_button {
-                    /* Same as `view3d.toggle_xray` (Alt + Z); not modelled in wire shading. */
-                    if !self.wire {
-                        self.xray = !self.xray;
+                if let Some((action, anchor)) = header_hit {
+                    /* Buttons for things this port does not model (the editor type and mode dropdowns, the View,
+                     * Select and Object menus, orientation, snapping, proportional editing, the option arrows and
+                     * the Material Preview and Rendered shading) are drawn but do nothing. */
+                    use view3d_header::Action;
+                    match action {
+                        Some(Action::ShadeWire) => set_wire(&mut self.wire, &mut self.scene_depth, &mut self.taa, true),
+                        Some(Action::ShadeSolid) => set_wire(&mut self.wire, &mut self.scene_depth, &mut self.taa, false),
+                        /* `view3d.toggle_xray` (Alt + Z); not modelled in wire shading. */
+                        Some(Action::Xray) if !self.wire => self.xray = !self.xray,
+                        /* `show_overlays` (Shift + Alt + Z). */
+                        Some(Action::Overlays) => self.overlays_hidden = !self.overlays_hidden,
+                        /* The pivot dropdown cycles the modes like Period does. */
+                        Some(Action::Pivot) => self.pivot_point = self.pivot_point.next(),
+                        /* Opens the Add menu below the button, like Shift + A does at the cursor. */
+                        Some(Action::MenuAdd) => self.add_menu = anchor,
+                        _ => {}
                     }
                     gfx.window.request_redraw();
                     return;
@@ -1776,50 +1813,11 @@ impl ApplicationHandler for App {
                     if let Some(user) = self.user.as_ref() {
                         if let Some(header) = area::view3d_header_rect(user, layout.main) {
                             area::blend_rect(&mut buf, w, h, header, theme::SPACE_VIEW3D_HEADER);
-                            /* Wireframe toggle: wired to the same state as Shift + Z (`self.wire`). */
-                            widget_draw::draw_round_box(
-                                &mut buf,
-                                w,
-                                h,
-                                user,
-                                ui_layout::wire_button_rect(user, header),
-                                if self.wire { theme::WCOL_TOGGLE_INNER_SEL } else { theme::WCOL_TOOL_INNER },
-                                theme::WCOL_TOOL_OUTLINE,
-                                theme::WCOL_TOOL_ROUNDNESS,
-                            );
-                            /* X-ray toggle: wired to `self.xray` (Alt + Z). In wire shading the operator flips
-                             * `V3D_SHADING_XRAY_WIREFRAME`, which is not modelled, so it is drawn dimmed and
-                             * does nothing there. */
-                            let (xray_inner, xray_outline) = if self.wire {
-                                (
-                                    theme::Rgba { a: theme::WCOL_TOOL_INNER.a / 2, ..theme::WCOL_TOOL_INNER },
-                                    theme::Rgba { a: theme::WCOL_TOOL_OUTLINE.a / 2, ..theme::WCOL_TOOL_OUTLINE },
-                                )
-                            } else if self.xray {
-                                (theme::WCOL_TOGGLE_INNER_SEL, theme::WCOL_TOOL_OUTLINE)
-                            } else {
-                                (theme::WCOL_TOOL_INNER, theme::WCOL_TOOL_OUTLINE)
-                            };
-                            widget_draw::draw_round_box(
-                                &mut buf,
-                                w,
-                                h,
-                                user,
-                                ui_layout::xray_button_rect(user, header),
-                                xray_inner,
-                                xray_outline,
-                                theme::WCOL_TOOL_ROUNDNESS,
-                            );
-                            /* Pulldown menu labels (`View`, `Select`, `Add`, `Object`) after the two toggles.
-                             * Visual only: no menu opens. */
-                            let mut row = ui_layout::HeaderRow::new_global(user, header.size_y() + 1);
-                            row.place(user.widget_unit * 3);
-                            row.place(user.widget_unit * 3);
-                            for label in ["View", "Select", "Add", "Object"] {
-                                let mut rect = row.place(font::label_width(user, label));
-                                rect.translate(header.xmin, header.ymin);
-                                font::draw_label(&mut buf, w, h, user, rect, label, theme::WCOL_PULLDOWN_TEXT);
-                            }
+                            /* Editor type, mode, menus, transform cluster, overlays, X-ray and shading buttons. The ones
+                             * this port models are wired to the same state as their keys (Shift + Z, Alt + Z,
+                             * Shift + Alt + Z, Period). */
+                            let items = view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point));
+                            view3d_header::draw(&mut buf, w, h, user, &items, self.header_hover);
                         }
                     }
                     /* ED_screen_draw_edges(): the border and outline of every area, `totrct` with the area vertices as scissor. */
