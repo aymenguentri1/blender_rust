@@ -1019,6 +1019,15 @@ impl ApplicationHandler for App {
                         /* `mesh.subdivide` (one cut, no smoothing) and `mesh.separate` by loose parts (P). */
                         KeyCode::KeyD if ctrl_k && alt_k && !shift_k => geometry = self.scene.subdivide_simple() > 0,
                         KeyCode::KeyP if plain => geometry = self.scene.separate_loose() > 0,
+                        /* `object.parent_set` (Ctrl + P, Object with Keep Transform), `object.parent_clear` (Alt + P: Clear
+                         * and Keep Transformation, Shift + Alt + P: Clear Parent) and `object.select_hierarchy`
+                         * (Ctrl + [ parent, Ctrl + ] child, with Shift to extend the selection). */
+                        KeyCode::KeyP if ctrl_k && !shift_k && !alt_k => geometry = self.scene.parent_set() > 0,
+                        KeyCode::KeyP if alt_k && !shift_k && !ctrl_k => geometry = self.scene.parent_clear(true) > 0,
+                        KeyCode::KeyP if alt_k && shift_k && !ctrl_k => geometry = self.scene.parent_clear(false) > 0,
+                        KeyCode::BracketLeft | KeyCode::BracketRight if ctrl_k && !alt_k => {
+                            self.scene.select_hierarchy(code == KeyCode::BracketLeft, shift_k);
+                        }
                         /* `mesh.convex_hull` (Ctrl + Alt + H). */
                         KeyCode::KeyH if ctrl_k && alt_k && !shift_k => geometry = self.scene.convex_hull() > 0,
                         /* `transform.mirror` (Ctrl + M then an axis in Blender) as one chord per axis: Ctrl + Shift + X / Y / Z. */

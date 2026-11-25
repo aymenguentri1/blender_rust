@@ -27,6 +27,9 @@ use crate::view3d::{Mat4, RegionView3D};
 
 pub type Mat3 = [[f32; 3]; 3];
 
+const IDENTITY4: Mat4 = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]];
+const MAX_PARENT_DEPTH: u32 = 64;
+
 const UNDO_MAX: usize = 32;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -57,6 +60,13 @@ pub struct Object {
     pub modifiers: Vec<Modifier>,
     /// The modifier the editing keys act on (clamped to the stack when used).
     pub active_modifier: usize,
+    /// The parent object (by id). `world = parent_world * parent_inv * local` like `BKE_object_get_world_matrix`.
+    pub parent: Option<u32>,
+    /// `Object::parentinv`: the inverse of the parent's world matrix when the parent was set, so that parenting
+    /// does not move the child.
+    pub parent_inv: Mat4,
+    /// The parent's world matrix as of the last `Scene::refresh_parents()` (identity without a parent).
+    pub parent_world: Mat4,
     eval: Option<Mesh>,
     /// What the cached `eval` was built against besides the object itself (the targets of its Shrinkwrap
     /// modifiers and the transforms involved); 0 when the stack has no such dependency.
@@ -65,6 +75,27 @@ pub struct Object {
 
 impl Object {
     pub fn world_matrix(&self) -> Mat4 {
+        let local = self.local_matrix();
+        if self.parent.is_some() {
+            mat4_mul(&self.parent_world, &mat4_mul(&self.parent_inv, &local))
+        } else {
+            local
+        }
+    }
+
+    /// The inverse of the linear part of the parent space (`parent_world * parent_inv`): turns a world space
+    /// offset into an offset of `loc`. Identity without a parent.
+    pub fn parent_lin_inv(&self) -> Mat3 {
+        if self.parent.is_none() {
+            return [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        }
+        let m = mat4_mul(&self.parent_world, &self.parent_inv);
+        let inv = crate::view3d::invert_m4_m4(&m);
+        [[inv[0][0], inv[0][1], inv[0][2]], [inv[1][0], inv[1][1], inv[1][2]], [inv[2][0], inv[2][1], inv[2][2]]]
+    }
+
+    /// The matrix of the object's own location, rotation and scale (`BKE_object_to_mat4()`).
+    pub fn local_matrix(&self) -> Mat4 {
         let r = euler_to_mat3(self.rot);
         let mut m = [[0.0f32; 4]; 4];
         for c in 0..3 {
@@ -197,6 +228,9 @@ impl Scene {
             subsurf: 0,
             modifiers: Vec::new(),
             active_modifier: 0,
+            parent: None,
+            parent_inv: IDENTITY4,
+            parent_world: IDENTITY4,
             eval: None,
             eval_sig: 0,
         });
@@ -236,6 +270,7 @@ impl Scene {
 
     /// Builds the subdivided meshes the modifier stack needs; call before drawing.
     pub fn update_eval(&mut self) {
+        self.refresh_parents();
         for i in 0..self.objects.len() {
             if !self.objects[i].has_eval() {
                 continue;
@@ -396,7 +431,14 @@ impl Scene {
             return 0;
         }
         self.push_undo();
+        self.refresh_parents();
         let active = self.active;
+        let gone: Vec<u32> = self.objects.iter().filter(|o| o.selected && !o.hidden).map(|o| o.id).collect();
+        for i in 0..self.objects.len() {
+            if self.objects[i].parent.is_some_and(|p| gone.contains(&p)) && !gone.contains(&self.objects[i].id) {
+                self.bake_world_and_unparent(i);
+            }
+        }
         self.objects.retain(|o| !(o.selected && !o.hidden));
         if active.is_some_and(|id| self.index_of(id).is_none()) {
             self.active = None;
@@ -415,6 +457,7 @@ impl Scene {
             o.selected = false;
         }
         let active = self.active;
+        let mut copies: Vec<(u32, u32)> = Vec::new();
         for src in &sources {
             let name = src.name.clone();
             let copy = self.new_object(&name, src.data.clone());
@@ -425,11 +468,25 @@ impl Scene {
             copy.subsurf = src.subsurf;
             copy.modifiers = src.modifiers.clone();
             copy.selected = true;
+            copy.parent = src.parent;
+            copy.parent_inv = src.parent_inv;
+            let id = copy.id;
+            copies.push((src.id, id));
             if active == Some(src.id) {
-                let id = copy.id;
                 self.active = Some(id);
             }
         }
+        /* A copy whose parent was copied too is parented to that copy (`BKE_object_duplicate` remaps it). */
+        for &(old, new) in &copies {
+            let Some(i) = self.index_of(new) else { continue };
+            if let Some(p) = self.objects[i].parent {
+                if let Some(&(_, np)) = copies.iter().find(|(o, _)| *o == p) {
+                    self.objects[i].parent = Some(np);
+                }
+            }
+            let _ = old;
+        }
+        self.refresh_parents();
         sources.len()
     }
 
@@ -1159,9 +1216,14 @@ impl Scene {
         }
         self.push_undo();
         let mut n = 0;
-        for o in self.objects.iter_mut().filter(|o| o.selected && !o.hidden) {
-            o.loc = [o.loc[0] + delta[0], o.loc[1] + delta[1], o.loc[2] + delta[2]];
+        let skip: Vec<bool> = (0..self.objects.len()).map(|i| self.has_selected_ancestor(i)).collect();
+        for (i, o) in self.objects.iter_mut().enumerate().filter(|(_, o)| o.selected && !o.hidden) {
             n += 1;
+            if skip[i] {
+                continue;
+            }
+            let d = mat3_mul_v3(&o.parent_lin_inv(), delta);
+            o.loc = [o.loc[0] + d[0], o.loc[1] + d[1], o.loc[2] + d[2]];
         }
         n
     }
@@ -1300,6 +1362,165 @@ impl Scene {
         n
     }
 
+    fn push_tree(&self, i: usize, level: i32, seen: &mut Vec<bool>, rows: &mut Vec<OutlinerRow>) {
+        if seen[i] {
+            return;
+        }
+        seen[i] = true;
+        let o = &self.objects[i];
+        rows.push(OutlinerRow { level, name: o.name.clone(), kind: RowKind::Object(o.id) });
+        let mut kids: Vec<usize> = (0..self.objects.len()).filter(|&j| self.objects[j].parent == Some(o.id)).collect();
+        kids.sort_by_key(|&j| self.objects[j].name.to_lowercase());
+        for k in kids {
+            self.push_tree(k, level + 1, seen, rows);
+        }
+    }
+
+    // ----- parenting -----------------------------------------------------------------------------
+
+    /// The world matrix of object `i` computed through its chain of parents (no cache involved).
+    fn full_world(&self, i: usize, depth: u32) -> Mat4 {
+        let o = &self.objects[i];
+        let local = o.local_matrix();
+        match o.parent.and_then(|p| self.index_of(p)) {
+            Some(p) if depth < MAX_PARENT_DEPTH => {
+                mat4_mul(&self.full_world(p, depth + 1), &mat4_mul(&o.parent_inv, &local))
+            }
+            _ => local,
+        }
+    }
+
+    /// Updates `Object::parent_world` of every object; `update_eval()` calls it before the modifiers are built.
+    pub fn refresh_parents(&mut self) {
+        let worlds: Vec<Mat4> = (0..self.objects.len())
+            .map(|i| match self.objects[i].parent.and_then(|p| self.index_of(p)) {
+                Some(p) => self.full_world(p, 1),
+                None => IDENTITY4,
+            })
+            .collect();
+        for (o, w) in self.objects.iter_mut().zip(worlds) {
+            o.parent_world = w;
+        }
+    }
+
+    /// Is object `a` (index) a descendant of the object with id `ancestor`?
+    fn is_descendant(&self, a: usize, ancestor: u32) -> bool {
+        let mut cur = self.objects[a].parent;
+        for _ in 0..MAX_PARENT_DEPTH {
+            match cur {
+                Some(p) if p == ancestor => return true,
+                Some(p) => cur = self.index_of(p).and_then(|j| self.objects[j].parent),
+                None => return false,
+            }
+        }
+        false
+    }
+
+    /// Does a parent, grandparent, ... of object `i` belong to the selection? Such an object moves with it.
+    pub fn has_selected_ancestor(&self, i: usize) -> bool {
+        let mut cur = self.objects[i].parent;
+        for _ in 0..MAX_PARENT_DEPTH {
+            let Some(p) = cur.and_then(|p| self.index_of(p)) else { return false };
+            if self.objects[p].selected && !self.objects[p].hidden {
+                return true;
+            }
+            cur = self.objects[p].parent;
+        }
+        false
+    }
+
+    /// Gives object `i` its world transform as its own location, rotation and scale and drops the parent
+    /// (`BKE_object_apply_mat4`). Shear (a non-uniformly scaled rotated parent) cannot be represented and is lost.
+    fn bake_world_and_unparent(&mut self, i: usize) {
+        let w = self.full_world(i, 0);
+        let o = &mut self.objects[i];
+        let (loc, rot, scale) = decompose(&w);
+        o.loc = loc;
+        o.rot = rot;
+        o.scale = scale;
+        o.parent = None;
+        o.parent_inv = IDENTITY4;
+        o.parent_world = IDENTITY4;
+        o.eval = None;
+    }
+
+    /// `OBJECT_OT_parent_set` (Ctrl + P, type Object with Keep Transform): the active object becomes the parent
+    /// of the other selected objects, which stay where they are. Returns how many were parented.
+    pub fn parent_set(&mut self) -> usize {
+        let Some(active) = self.active.filter(|&id| self.index_of(id).is_some_and(|i| !self.objects[i].hidden)) else {
+            return 0;
+        };
+        let ai = self.index_of(active).unwrap();
+        let children: Vec<usize> = (0..self.objects.len())
+            .filter(|&i| {
+                let o = &self.objects[i];
+                o.selected && !o.hidden && o.id != active && !self.is_descendant(ai, o.id)
+            })
+            .collect();
+        if children.is_empty() {
+            return 0;
+        }
+        self.push_undo();
+        for &i in &children {
+            self.bake_world_and_unparent(i);
+            let inv = crate::view3d::invert_m4_m4(&self.full_world(ai, 0));
+            let o = &mut self.objects[i];
+            o.parent = Some(active);
+            o.parent_inv = inv;
+        }
+        self.refresh_parents();
+        children.len()
+    }
+
+    /// `OBJECT_OT_parent_clear`: removes the parent of the selected objects. With `keep_transform` they stay
+    /// where they are (type Clear and Keep Transformation), otherwise they fall back to their own local
+    /// transform (type Clear Parent). Returns how many had a parent.
+    pub fn parent_clear(&mut self, keep_transform: bool) -> usize {
+        let targets: Vec<usize> =
+            (0..self.objects.len()).filter(|&i| self.objects[i].selected && !self.objects[i].hidden && self.objects[i].parent.is_some()).collect();
+        if targets.is_empty() {
+            return 0;
+        }
+        self.push_undo();
+        self.refresh_parents();
+        for &i in &targets {
+            if keep_transform {
+                self.bake_world_and_unparent(i);
+            } else {
+                let o = &mut self.objects[i];
+                o.parent = None;
+                o.parent_inv = IDENTITY4;
+                o.parent_world = IDENTITY4;
+                o.eval = None;
+            }
+        }
+        self.refresh_parents();
+        targets.len()
+    }
+
+    /// `OBJECT_OT_select_hierarchy` (Ctrl + [ parent, Ctrl + ] child; with `extend` the old selection stays):
+    /// moves the selection and the active object to the parent or the first child (by name) of the active one.
+    pub fn select_hierarchy(&mut self, to_parent: bool, extend: bool) -> bool {
+        let Some(ai) = self.active.and_then(|id| self.index_of(id)) else { return false };
+        let target = if to_parent {
+            self.objects[ai].parent.and_then(|p| self.index_of(p))
+        } else {
+            let id = self.objects[ai].id;
+            (0..self.objects.len())
+                .filter(|&j| self.objects[j].parent == Some(id))
+                .min_by_key(|&j| self.objects[j].name.to_lowercase())
+        };
+        let Some(t) = target.filter(|&t| !self.objects[t].hidden) else { return false };
+        if !extend {
+            for o in &mut self.objects {
+                o.selected = false;
+            }
+        }
+        self.objects[t].selected = true;
+        self.active = Some(self.objects[t].id);
+        true
+    }
+
     /// `mesh.subdivide` (one cut, no smoothing) on the selected meshes.
     pub fn subdivide_simple(&mut self) -> usize {
         self.edit_meshes(|m| {
@@ -1319,7 +1540,10 @@ impl Scene {
         if sel.is_empty() {
             return None;
         }
-        let sum = sel.iter().fold([0.0f32; 3], |s, o| [s[0] + o.loc[0], s[1] + o.loc[1], s[2] + o.loc[2]]);
+        let sum = sel.iter().fold([0.0f32; 3], |s, o| {
+            let w = o.world_matrix()[3];
+            [s[0] + w[0], s[1] + w[1], s[2] + w[2]]
+        });
         let n = sel.len() as f32;
         Some([sum[0] / n, sum[1] / n, sum[2] / n])
     }
@@ -1376,14 +1600,22 @@ impl Scene {
     /// The tree rows of the outliner in the view layer mode: collections, then the objects of the
     /// `Collection` sorted by name.
     pub fn outliner_rows(&self) -> Vec<OutlinerRow> {
-        let mut objects: Vec<&Object> = self.objects.iter().collect();
-        objects.sort_by_key(|o| o.name.to_lowercase());
         let mut rows = vec![
             OutlinerRow { level: 0, name: "Scene Collection".into(), kind: RowKind::SceneCollection },
             OutlinerRow { level: 1, name: "Collection".into(), kind: RowKind::ActiveCollection },
         ];
-        for o in objects {
-            rows.push(OutlinerRow { level: 2, name: o.name.clone(), kind: RowKind::Object(o.id) });
+        let mut seen = vec![false; self.objects.len()];
+        let mut roots: Vec<usize> =
+            (0..self.objects.len()).filter(|&i| self.objects[i].parent.and_then(|p| self.index_of(p)).is_none()).collect();
+        roots.sort_by_key(|&i| self.objects[i].name.to_lowercase());
+        for r in roots {
+            self.push_tree(r, 2, &mut seen, &mut rows);
+        }
+        /* Objects in a parent cycle (not reachable from a root) are listed flat so none disappears. */
+        for i in 0..self.objects.len() {
+            if !seen[i] {
+                rows.push(OutlinerRow { level: 2, name: self.objects[i].name.clone(), kind: RowKind::Object(self.objects[i].id) });
+            }
         }
         rows.push(OutlinerRow { level: 1, name: "XGen Guides".into(), kind: RowKind::Collection });
         rows
@@ -1467,6 +1699,38 @@ pub fn euler_to_mat3(e: V3) -> Mat3 {
 }
 
 /// `mat3_normalized_to_eul()`: the XYZ euler angles of a rotation matrix.
+/// `a * b` of column-major matrices.
+pub fn mat4_mul(a: &Mat4, b: &Mat4) -> Mat4 {
+    let mut out = [[0.0f32; 4]; 4];
+    for (c, col) in out.iter_mut().enumerate() {
+        for (r, v) in col.iter_mut().enumerate() {
+            *v = (0..4).map(|k| a[k][r] * b[c][k]).sum();
+        }
+    }
+    out
+}
+
+/// Splits a matrix into location, Euler rotation and scale (`mat4_to_loc_rot_size()`); a mirroring matrix
+/// gets a negative X scale.
+pub fn decompose(m: &Mat4) -> (V3, V3, V3) {
+    let len = |c: usize| (m[c][0] * m[c][0] + m[c][1] * m[c][1] + m[c][2] * m[c][2]).sqrt();
+    let mut scale = [len(0), len(1), len(2)];
+    let col = |c: usize, s: f32| -> V3 {
+        if s > 1e-12 {
+            [m[c][0] / s, m[c][1] / s, m[c][2] / s]
+        } else {
+            [0.0; 3]
+        }
+    };
+    let (x, y, z) = (col(0, scale[0]), col(1, scale[1]), col(2, scale[2]));
+    if dot(cross(x, y), z) < 0.0 {
+        scale[0] = -scale[0];
+    }
+    let sx = if scale[0] < 0.0 { -1.0 } else { 1.0 };
+    let r: Mat3 = [[x[0] * sx, x[1] * sx, x[2] * sx], y, z];
+    ([m[3][0], m[3][1], m[3][2]], mat3_to_euler(&r), scale)
+}
+
 pub fn mat3_to_euler(m: &Mat3) -> V3 {
     let cy = (m[0][0] * m[0][0] + m[0][1] * m[0][1]).sqrt();
     if cy > 1e-6 {
@@ -2204,5 +2468,131 @@ mod tests {
         s.select_random(0.5);
         let second: Vec<bool> = s.objects.iter().map(|o| o.selected).collect();
         assert!(first.iter().any(|&x| x) || second.iter().any(|&x| x));
+    }
+
+    /// A cube at (4, 0, 0) parented to the startup cube (which is moved and turned first).
+    fn parented_pair() -> (Scene, usize, usize) {
+        let mut s = Scene::startup();
+        let parent = s.index_of(cube_id(&s)).unwrap();
+        let cid = s.add_primitive(Primitive::Cube, [4.0, 0.0, 0.0]);
+        let child = s.index_of(cid).unwrap();
+        s.objects[parent].loc = [0.0, 1.0, 0.0];
+        s.objects[parent].rot = [0.0, 0.0, std::f32::consts::FRAC_PI_2];
+        s.objects[parent].scale = [2.0, 2.0, 2.0];
+        s.refresh_parents();
+        s.objects[parent].selected = true;
+        s.active = Some(s.objects[parent].id);
+        (s, parent, child)
+    }
+
+    #[test]
+    fn parenting_keeps_the_child_in_place_and_it_follows_the_parent() {
+        let (mut s, p, c) = parented_pair();
+        let before = mat4_mul_point(&s.objects[c].world_matrix(), [1.0, 0.0, 0.0]);
+        assert_eq!(s.parent_set(), 1);
+        assert_eq!(s.objects[c].parent, Some(s.objects[p].id));
+        assert!(approx(mat4_mul_point(&s.objects[c].world_matrix(), [1.0, 0.0, 0.0]), before), "no jump");
+        /* Moving the parent by +2 in X moves the child by the same. */
+        s.objects[p].loc[0] += 2.0;
+        s.refresh_parents();
+        let after = mat4_mul_point(&s.objects[c].world_matrix(), [1.0, 0.0, 0.0]);
+        assert!(approx(after, [before[0] + 2.0, before[1], before[2]]), "{after:?}");
+        /* Turning the parent a further quarter turn about Z swings the child about the parent origin. */
+        s.objects[p].loc = [0.0, 1.0, 0.0];
+        s.objects[p].rot[2] += std::f32::consts::FRAC_PI_2;
+        s.refresh_parents();
+        let swung = mat4_mul_point(&s.objects[c].world_matrix(), [0.0; 3]);
+        let rel = [4.0 - 0.0, 0.0 - 1.0];
+        assert!(approx(swung, [-rel[1] + 0.0, rel[0] + 1.0, 0.0]), "{swung:?}");
+    }
+
+    #[test]
+    fn parent_clear_keeps_or_drops_the_transform_and_undoes() {
+        let (mut s, p, c) = parented_pair();
+        s.parent_set();
+        s.objects[p].loc[0] += 3.0;
+        s.refresh_parents();
+        let world = s.objects[c].world_matrix();
+        s.select_all(SelectAction::Deselect);
+        s.objects[c].selected = true;
+        assert_eq!(s.parent_clear(true), 1);
+        assert!(s.objects[c].parent.is_none());
+        let now = s.objects[c].world_matrix();
+        for col in 0..4 {
+            for row in 0..4 {
+                assert!((now[col][row] - world[col][row]).abs() < 1e-4, "{now:?} {world:?}");
+            }
+        }
+        assert!(s.undo());
+        assert!(s.objects[c].parent.is_some());
+        assert_eq!(s.parent_clear(false), 1);
+        assert!(approx(s.objects[c].loc, [4.0, 0.0, 0.0]), "back to the local transform");
+        assert_eq!(s.parent_clear(false), 0);
+    }
+
+    #[test]
+    fn parenting_refuses_cycles_and_deleting_the_parent_frees_the_child_in_place() {
+        let (mut s, p, c) = parented_pair();
+        s.parent_set();
+        /* Making the child the parent of its own parent is refused. */
+        s.select_all(SelectAction::Deselect);
+        s.objects[p].selected = true;
+        s.active = Some(s.objects[c].id);
+        assert_eq!(s.parent_set(), 0);
+        /* Delete the parent. */
+        let world = mat4_mul_point(&s.objects[c].world_matrix(), [1.0, 1.0, 1.0]);
+        s.select_all(SelectAction::Deselect);
+        s.objects[p].selected = true;
+        assert_eq!(s.delete_selected(), 1);
+        let c = s.index_of(s.objects.iter().find(|o| o.parent.is_none() && o.name == "Cube.001").unwrap().id).unwrap();
+        assert!(approx(mat4_mul_point(&s.objects[c].world_matrix(), [1.0, 1.0, 1.0]), world));
+    }
+
+    #[test]
+    fn duplicating_a_family_parents_the_copies_to_each_other() {
+        let (mut s, p, c) = parented_pair();
+        s.parent_set();
+        s.objects[c].selected = true;
+        assert_eq!(s.duplicate_selected(), 2);
+        let parent_copy = s.objects.iter().find(|o| o.name == "Cube.002").map(|o| o.id);
+        let child_copy = s.objects.iter().find(|o| o.name == "Cube.003").unwrap();
+        assert_ne!(child_copy.parent, Some(s.objects[p].id));
+        assert_eq!(child_copy.parent, parent_copy);
+    }
+
+    #[test]
+    fn the_outliner_nests_children_and_select_hierarchy_walks_it() {
+        let (mut s, p, c) = parented_pair();
+        s.parent_set();
+        let rows = s.outliner_rows();
+        let names: Vec<(i32, &str)> = rows.iter().map(|r| (r.level, r.name.as_str())).collect();
+        let at = names.iter().position(|&(_, n)| n == "Cube").unwrap();
+        assert_eq!(names[at + 1], (3, "Cube.001"));
+        let (pid, cid) = (s.objects[p].id, s.objects[c].id);
+        assert!(s.select_hierarchy(false, false));
+        assert_eq!((s.active, s.selected_count()), (Some(cid), 1));
+        assert!(!s.select_hierarchy(false, false), "no grandchild");
+        assert!(s.select_hierarchy(true, true));
+        assert_eq!((s.active, s.selected_count()), (Some(pid), 2));
+    }
+
+    #[test]
+    fn decompose_inverts_the_world_matrix() {
+        let mut s = Scene::startup();
+        let i = s.index_of(cube_id(&s)).unwrap();
+        s.objects[i].loc = [1.0, -2.0, 3.0];
+        s.objects[i].rot = [0.2, -0.4, 0.9];
+        s.objects[i].scale = [-2.0, 1.5, 0.5];
+        let (loc, rot, scale) = decompose(&s.objects[i].world_matrix());
+        let mut o = s.objects[i].clone();
+        o.loc = loc;
+        o.rot = rot;
+        o.scale = scale;
+        let (a, b) = (s.objects[i].world_matrix(), o.world_matrix());
+        for c in 0..4 {
+            for r in 0..4 {
+                assert!((a[c][r] - b[c][r]).abs() < 1e-4, "{a:?} {b:?}");
+            }
+        }
     }
 }
