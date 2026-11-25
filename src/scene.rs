@@ -25,6 +25,9 @@ use crate::mesh::{Mesh, Primitive, V3};
 use crate::modifiers::{self, Modifier};
 use crate::view3d::{Mat4, RegionView3D};
 
+pub mod ops;
+pub use ops::{AlignMode, AlignTo, GroupKind, Randomize, Stats};
+
 pub type Mat3 = [[f32; 3]; 3];
 
 const IDENTITY4: Mat4 = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]];

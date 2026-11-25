@@ -35,9 +35,17 @@ pub struct ObjectInfo {
     pub modifiers: Vec<String>,
     /// The index of the active modifier in `modifiers`, marked with `>` instead of `+`.
     pub active: usize,
+    /// The statistics overlay lines (`Scene::statistics`), empty when it is off.
+    pub stats: Vec<String>,
 }
 
 impl ObjectInfo {
+    /// Adds the statistics overlay lines of `scene`.
+    pub fn with_stats(mut self, scene: &Scene) -> ObjectInfo {
+        self.stats = scene.statistics().lines();
+        self
+    }
+
     pub fn of(scene: &Scene) -> ObjectInfo {
         match scene.active_object() {
             None => ObjectInfo::default(),
@@ -47,7 +55,7 @@ impl ObjectInfo {
                     modifiers.push(format!("Subdivision Surface {}", o.subsurf));
                 }
                 let active = o.active_modifier.min(o.modifiers.len().saturating_sub(1));
-                ObjectInfo { name: Some(o.name.clone()), modifiers, active }
+                ObjectInfo { name: Some(o.name.clone()), modifiers, active, stats: Vec::new() }
             }
         }
     }
@@ -101,6 +109,7 @@ fn lines(v3d: &View3D, rv3d: &RegionView3D, frame: i32, object: &ObjectInfo) -> 
     });
     lines.push(frame.to_string());
     lines.extend(object.modifiers.iter().enumerate().map(|(i, m)| format!("{} {m}", if i == object.active { '>' } else { '+' })));
+    lines.extend(object.stats.iter().cloned());
     lines
 }
 
@@ -122,8 +131,18 @@ mod tests {
     #[test]
     fn default_view_lines() {
         let rv3d = RegionView3D::default();
-        let cube = ObjectInfo { name: Some("Cube".to_string()), modifiers: vec![], active: 0 };
+        let cube = ObjectInfo { name: Some("Cube".to_string()), modifiers: vec![], active: 0, stats: vec![] };
         assert_eq!(lines(&View3D::default(), &rv3d, 1, &cube), ["User Perspective", "Collection | Cube", "1"]);
+    }
+
+    #[test]
+    fn statistics_lines_come_last() {
+        let rv3d = RegionView3D::default();
+        let scene = Scene::startup();
+        let info = ObjectInfo::of(&scene).with_stats(&scene);
+        let l = lines(&View3D::default(), &rv3d, 1, &info);
+        assert_eq!(&l[3..], ["Objects  1/3", "Vertices  8", "Faces  6", "Triangles  12"]);
+        assert_eq!(lines(&View3D::default(), &rv3d, 1, &ObjectInfo::of(&scene)).len(), 3);
     }
 
     #[test]
@@ -131,7 +150,7 @@ mod tests {
         let rv3d = RegionView3D::default();
         let none = lines(&View3D::default(), &rv3d, 1, &ObjectInfo::default());
         assert_eq!(none, ["User Perspective", "Collection", "1"]);
-        let info = ObjectInfo { name: Some("Torus".to_string()), modifiers: vec!["Mirror X".to_string(), "Subdivision Surface 2".to_string()], active: 0 };
+        let info = ObjectInfo { name: Some("Torus".to_string()), modifiers: vec!["Mirror X".to_string(), "Subdivision Surface 2".to_string()], active: 0, stats: vec![] };
         let l = lines(&View3D::default(), &rv3d, 1, &info);
         assert_eq!(l[1], "Collection | Torus");
         assert_eq!(&l[3..], ["> Mirror X", "+ Subdivision Surface 2"]);

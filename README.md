@@ -110,6 +110,21 @@ location is exact), shear is dropped when a transform is baked, and the parent i
 | Shift + Alt + R | Select Random: adds about half of the visible objects; each press uses the next seed |
 | Shift + H | Hide Unselected: hides every visible object that is not selected (H hides the selection, Alt + H shows everything again and selects it) |
 
+### Align, randomize and group
+| Keys | Operator |
+| --- | --- |
+| Shift + Alt + 1 / 2 / 3 | Align Objects (Centers): moves the selected objects along global X / Y / Z so the centers of their bounds meet the active object's |
+| Ctrl + Shift + Alt + 1 / 2 / 3 | Align Objects (Negative Sides): the minimum sides meet the active object's. The code also offers Positive Sides and the Scene Origin, 3D Cursor and Selection references (`Scene::align_objects`) |
+| Ctrl + Shift + R | Randomize Transform: a random offset of location (1 m), rotation (15 degrees) and scale (20 %) per selected object. The seed counts up, so pressing it again gives another set. Blender's own defaults are all zero, so the amounts here are this port's choice |
+| Ctrl + Shift + G | Select Grouped, Children (every descendant of the active object) |
+| Shift + Alt + G | Select Grouped, Immediate Children |
+| Ctrl + Shift + Alt + G | Select Grouped, Parent |
+| Ctrl + Shift + Alt + S | Select Grouped, Siblings |
+| Ctrl + Shift + Alt + M | Origin to Center of Mass (Volume): the volume centroid of a closed mesh, the median of the vertices for an open one |
+| Shift + Alt + O | Statistics overlay: Objects (selected / visible), Vertices, Faces and Triangles of the visible objects, evaluated with their modifiers, under the info text |
+
+All but the overlay are undoable (Align pushes no step when nothing moves). The code is in `src/scene/ops.rs`.
+
 ### Snapping and the 3D cursor
 Blender's Shift + S pie has no pie here, so each entry is one chord:
 
