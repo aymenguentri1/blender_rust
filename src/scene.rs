@@ -58,6 +58,9 @@ pub struct Object {
     /// The modifier the editing keys act on (clamped to the stack when used).
     pub active_modifier: usize,
     eval: Option<Mesh>,
+    /// What the cached `eval` was built against besides the object itself (the targets of its Shrinkwrap
+    /// modifiers and the transforms involved); 0 when the stack has no such dependency.
+    eval_sig: u64,
 }
 
 impl Object {
@@ -95,10 +98,10 @@ impl Object {
         self.subsurf > 0 || !self.modifiers.is_empty()
     }
 
-    fn rebuild_eval(&mut self) {
+    fn rebuild_eval(&mut self, ctx: &modifiers::EvalCtx) {
         self.eval = match &self.data {
             ObjectData::Mesh(m) if self.has_eval() => {
-                let stacked = modifiers::evaluate(m, &self.modifiers);
+                let stacked = modifiers::evaluate_with(m, &self.modifiers, ctx);
                 Some(if self.subsurf > 0 { stacked.subdivided(self.subsurf) } else { stacked })
             }
             _ => None,
@@ -193,6 +196,7 @@ impl Scene {
             modifiers: Vec::new(),
             active_modifier: 0,
             eval: None,
+            eval_sig: 0,
         });
         self.objects.last_mut().unwrap()
     }
@@ -230,11 +234,50 @@ impl Scene {
 
     /// Builds the subdivided meshes the modifier stack needs; call before drawing.
     pub fn update_eval(&mut self) {
-        for o in &mut self.objects {
-            if o.has_eval() && o.eval.is_none() {
-                o.rebuild_eval();
+        for i in 0..self.objects.len() {
+            if !self.objects[i].has_eval() {
+                continue;
+            }
+            let (ctx, sig) = self.eval_ctx(i);
+            if self.objects[i].eval.is_none() || self.objects[i].eval_sig != sig {
+                self.objects[i].rebuild_eval(&ctx);
+                self.objects[i].eval_sig = sig;
             }
         }
+    }
+
+    /// The scene context of the modifier stack of object `i` (the Shrinkwrap targets in its local space) and a
+    /// signature of everything that context depends on, so that moving a target rebuilds the object.
+    fn eval_ctx(&self, i: usize) -> (modifiers::EvalCtx, u64) {
+        use std::hash::{Hash, Hasher};
+        let mut ctx = modifiers::EvalCtx::default();
+        let owner = &self.objects[i];
+        let targets: Vec<u32> = owner
+            .modifiers
+            .iter()
+            .filter_map(|m| if let Modifier::Shrinkwrap { target: Some(t), .. } = m { Some(*t) } else { None })
+            .collect();
+        if targets.is_empty() {
+            return (ctx, 0);
+        }
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let to_local = crate::view3d::invert_m4_m4(&owner.world_matrix());
+        let bits = |m: &Mat4| m.iter().flatten().map(|f| f.to_bits()).collect::<Vec<u32>>();
+        bits(&to_local).hash(&mut h);
+        for t in targets {
+            let Some(o) = self.index_of(t).map(|j| &self.objects[j]).filter(|o| o.id != owner.id) else { continue };
+            let Some(mesh) = o.mesh() else { continue };
+            let tw = o.world_matrix();
+            t.hash(&mut h);
+            bits(&tw).hash(&mut h);
+            for v in &mesh.verts {
+                v.map(f32::to_bits).hash(&mut h);
+            }
+            mesh.faces.hash(&mut h);
+            let local = mesh.mapped(|p| mat4_mul_point(&to_local, mat4_mul_point(&tw, p)), false);
+            ctx.targets.insert(t, local);
+        }
+        (ctx, h.finish().max(1))
     }
 
     // ----- undo ---------------------------------------------------------------------------------
@@ -614,6 +657,31 @@ impl Scene {
         })
     }
 
+    /// The Shrinkwrap target picker: moves modifier `i` of the active object to the next other mesh object
+    /// (by id) and, after the last one, to no target.
+    pub fn panel_cycle_target(&mut self, i: usize) -> bool {
+        let Some(active) = self.active else { return false };
+        let mut ids: Vec<u32> = self.objects.iter().filter(|o| o.id != active && o.mesh().is_some()).map(|o| o.id).collect();
+        ids.sort();
+        self.edit_active_object(|o| {
+            let Some(Modifier::Shrinkwrap { target, .. }) = o.modifiers.get_mut(i) else { return false };
+            *target = match *target {
+                None => ids.first().copied(),
+                Some(t) => ids.iter().position(|&x| x == t).and_then(|p| ids.get(p + 1).copied()),
+            };
+            o.active_modifier = i;
+            true
+        })
+    }
+
+    /// The name of the Shrinkwrap target of modifier `i` of the active object.
+    pub fn target_name(&self, i: usize) -> Option<String> {
+        match self.active_object()?.modifiers.get(i)? {
+            Modifier::Shrinkwrap { target: Some(t), .. } => self.index_of(*t).map(|j| self.objects[j].name.clone()),
+            _ => None,
+        }
+    }
+
     /// Removes modifier `i` of the active object.
     pub fn panel_remove_modifier(&mut self, i: usize) -> bool {
         self.edit_active_object(|o| {
@@ -903,8 +971,14 @@ impl Scene {
             return 0;
         }
         self.push_undo();
-        for o in self.objects.iter_mut().filter(|o| o.selected && !o.hidden && o.mesh().is_some() && o.has_eval()) {
-            o.rebuild_eval();
+        for i in 0..self.objects.len() {
+            let o = &self.objects[i];
+            if !(o.selected && !o.hidden && o.mesh().is_some() && o.has_eval()) {
+                continue;
+            }
+            let (ctx, _) = self.eval_ctx(i);
+            let o = &mut self.objects[i];
+            o.rebuild_eval(&ctx);
             if let Some(baked) = o.eval.take() {
                 o.data = ObjectData::Mesh(baked);
             }
@@ -1844,6 +1918,28 @@ mod tests {
         assert_eq!(s.toggle_remesh(), 1);
         assert_eq!(s.toggle_laplacian_smooth(), 1);
         assert!(s.active_object().unwrap().modifiers.is_empty());
+    }
+
+    #[test]
+    fn shrinkwrap_follows_its_target() {
+        let mut s = Scene::startup();
+        let cube = s.active;
+        let sphere = s.add_primitive(crate::mesh::Primitive::UvSphere, [0.0; 3]);
+        s.active = cube;
+        assert!(s.panel_add_modifier(Modifier::shrinkwrap()));
+        assert!(s.panel_cycle_target(0));
+        assert_eq!(s.target_name(0), s.objects[s.index_of(sphere).unwrap()].name.clone().into());
+        s.update_eval();
+        let before = s.active_object().unwrap().evaluated().unwrap().verts.clone();
+        assert_ne!(before, s.active_object().unwrap().mesh().unwrap().verts);
+        /* Moving the target rebuilds the wrapped mesh without touching the owner. */
+        let j = s.index_of(sphere).unwrap();
+        s.objects[j].loc = [5.0, 0.0, 0.0];
+        s.update_eval();
+        assert_ne!(s.active_object().unwrap().evaluated().unwrap().verts, before);
+        /* The picker ends on no target, then starts over. */
+        assert!(s.panel_cycle_target(0));
+        assert_eq!(s.target_name(0), None);
     }
 
     #[test]

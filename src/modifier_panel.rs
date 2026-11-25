@@ -28,6 +28,8 @@ pub enum Action {
     Remove(usize),
     Decrease(usize),
     Increase(usize),
+    /// The target picker of a Shrinkwrap: the next other mesh object, then none.
+    CycleTarget(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,11 +50,12 @@ pub struct Widget {
     pub centered: bool,
 }
 
-/// What the panel shows: the active mesh object, its modifiers as (name, summary) and the active one.
+/// What the panel shows: the active mesh object, its modifiers as (name, summary, target row) and the active one.
+/// The target row is only there for modifiers that have a target (Shrinkwrap).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PanelState {
     pub object: Option<String>,
-    pub modifiers: Vec<(&'static str, String)>,
+    pub modifiers: Vec<(&'static str, String, Option<String>)>,
     pub active: usize,
     pub add_open: bool,
 }
@@ -63,7 +66,16 @@ impl PanelState {
             None => PanelState { add_open, ..Default::default() },
             Some(o) => PanelState {
                 object: Some(o.name.clone()),
-                modifiers: o.modifiers.iter().map(|m| (m.label(), m.summary())).collect(),
+                modifiers: o
+                    .modifiers
+                    .iter()
+                    .enumerate()
+                    .map(|(i, m)| {
+                        let target = matches!(m, Modifier::Shrinkwrap { .. })
+                            .then(|| format!("Target: {}", scene.target_name(i).unwrap_or_else(|| "(none)".into())));
+                        (m.label(), m.summary(), target)
+                    })
+                    .collect(),
                 active: o.active_modifier.min(o.modifiers.len().saturating_sub(1)),
                 add_open,
             },
@@ -120,7 +132,7 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
         }
     }
     top -= gap;
-    for (i, (name, summary)) in st.modifiers.iter().enumerate() {
+    for (i, (name, summary, target)) in st.modifiers.iter().enumerate() {
         let style = if i == st.active { Style::Selected } else { Style::Button };
         let (r3, r2, r1) = (x1 - small + 1, x1 - 2 * small - gap + 1, x1 - 3 * small - 2 * gap + 1);
         let head = vec![
@@ -129,7 +141,8 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
             (r2, r2 + small - 1, "v".into(), Style::Button, Some(Action::MoveDown(i)), true),
             (r3, x1, "x".into(), Style::Button, Some(Action::Remove(i)), true),
         ];
-        if top - 2 * unit - gap < window.ymin {
+        let rows = if target.is_some() { 3 } else { 2 };
+        if top - rows * (unit + gap) < window.ymin {
             break;
         }
         row(&mut out, &mut top, head);
@@ -140,6 +153,9 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
             (m2, x1, "+".into(), Style::Button, Some(Action::Increase(i)), true),
         ];
         row(&mut out, &mut top, value);
+        if let Some(label) = target {
+            row(&mut out, &mut top, vec![(x0, x1, label.clone(), Style::Button, Some(Action::CycleTarget(i)), false)]);
+        }
         top -= gap;
     }
     out
@@ -192,6 +208,7 @@ pub fn apply(scene: &mut Scene, add_open: &mut bool, action: Action) -> bool {
         Action::Remove(i) => scene.panel_remove_modifier(i),
         Action::Decrease(i) => scene.panel_adjust_modifier(i, -1),
         Action::Increase(i) => scene.panel_adjust_modifier(i, 1),
+        Action::CycleTarget(i) => scene.panel_cycle_target(i),
     }
 }
 
@@ -225,7 +242,7 @@ mod tests {
         let user = UserDef::from_window_scale(1.0);
         let st = PanelState {
             object: Some("Cube".into()),
-            modifiers: vec![("Mirror", "Mirror X".into()), ("Array", "Array x2".into())],
+            modifiers: vec![("Mirror", "Mirror X".into(), None), ("Array", "Array x2".into(), None)],
             active: 1,
             add_open: false,
         };
@@ -249,12 +266,27 @@ mod tests {
     }
 
     #[test]
+    fn a_shrinkwrap_gets_a_target_row() {
+        let user = UserDef::from_window_scale(1.0);
+        let st = PanelState {
+            object: Some("Cube".into()),
+            modifiers: vec![("Shrinkwrap", "Shrinkwrap 0 m".into(), Some("Target: (none)".into()))],
+            ..Default::default()
+        };
+        let ws = widgets(&user, window(), &st);
+        assert_eq!(ws.len(), 2 + 4 + 3 + 1);
+        let t = ws.iter().find(|w| w.action == Some(Action::CycleTarget(0))).unwrap();
+        assert_eq!(t.label, "Target: (none)");
+        assert_eq!(t.rect.xmin, ws[0].rect.xmin, "full width");
+    }
+
+    #[test]
     fn the_add_list_has_one_row_per_kind() {
         let user = UserDef::from_window_scale(1.0);
         let st = PanelState { object: Some("Cube".into()), add_open: true, ..Default::default() };
         let ws = widgets(&user, window(), &st);
         let adds = ws.iter().filter(|w| matches!(w.action, Some(Action::Add(_)))).count();
-        assert_eq!(adds, 17);
+        assert_eq!(adds, Modifier::catalog().len());
     }
 
     #[test]
@@ -264,7 +296,7 @@ mod tests {
         let st = PanelState { object: Some("Cube".into()), add_open: true, ..Default::default() };
         let ws = widgets(&user, small, &st);
         assert!(ws.iter().all(|w| w.rect.ymin >= small.ymin));
-        assert!(ws.iter().filter(|w| matches!(w.action, Some(Action::Add(_)))).count() < 17);
+        assert!(ws.iter().filter(|w| matches!(w.action, Some(Action::Add(_)))).count() < Modifier::catalog().len());
     }
 
     #[test]
@@ -288,5 +320,11 @@ mod tests {
         assert_eq!(s.active_object().unwrap().modifiers.len(), 2);
         let st = PanelState::of(&s, false);
         assert_eq!(st.modifiers.len(), 2);
+        /* Only a Shrinkwrap has a target row. */
+        assert!(apply(&mut s, &mut open, Action::Add(Modifier::catalog().len() - 1)));
+        let st = PanelState::of(&s, false);
+        assert_eq!(st.modifiers[2].2.as_deref(), Some("Target: (none)"));
+        assert!(st.modifiers[0].2.is_none());
+        assert!(!apply(&mut s, &mut open, Action::CycleTarget(0)), "an Array has no target");
     }
 }
