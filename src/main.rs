@@ -57,6 +57,7 @@ mod scene;
 mod transform;
 mod overlay_outline;
 mod overlay_extra;
+mod add_menu;
 
 use std::{num::NonZeroU32, sync::Arc};
 
@@ -199,8 +200,8 @@ struct App {
     scene_ids: Vec<u32>,
     /// The running modal transform (G / R / S).
     xform: Option<transform::Transform>,
-    /// The next primitive of Shift + A (cycles through `Primitive::ALL`).
-    add_next: usize,
+    /// The open Shift + A popup menu: the window position (y up) it was opened at.
+    add_menu: Option<[i32; 2]>,
 }
 
 /// After a change of geometry, visibility or transforms: builds the modifier results and restarts the TAA
@@ -302,6 +303,10 @@ impl ApplicationHandler for App {
                 let x = position.x.floor() as i32;
                 let y = height - 1 - position.y.floor() as i32;
                 self.cursor = [x, y];
+                /* The popup menu highlights the entry under the cursor. */
+                if self.add_menu.is_some() {
+                    gfx.window.request_redraw();
+                }
                 /* Modal object transform (G / R / S): the cursor movement drives the transform. */
                 if let Some(xf) = self.xform.as_mut() {
                     let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
@@ -488,6 +493,11 @@ impl ApplicationHandler for App {
              * on by default but there is no geometry to hit yet, so only the view plane fallback of
              * `ED_view3d_cursor3d_position()` is done, and the cursor orientation is not modelled. */
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => {
+                /* A popup menu closes on RIGHTMOUSE. */
+                if self.add_menu.take().is_some() {
+                    gfx.window.request_redraw();
+                    return;
+                }
                 /* `Transform Modal Map` CANCEL on RIGHTMOUSE: the objects go back to where they were. */
                 if let Some(xf) = self.xform.take() {
                     xf.cancel(&mut self.scene);
@@ -549,6 +559,20 @@ impl ApplicationHandler for App {
             }
             /* `Transform Modal Map`: CONFIRM on LEFTMOUSE press (any modifier) while the cursor drag runs. */
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
+                /* A click in the popup menu runs the entry under the cursor (`object.*_add`: the new object is
+                 * placed at the 3D cursor); any click closes the menu, outside it nothing else happens. */
+                if let Some(pos) = self.add_menu.take() {
+                    if let Some(user) = self.user.as_ref() {
+                        let size = gfx.window.inner_size();
+                        let menu = add_menu::layout(user, pos, size.width as i32, size.height as i32);
+                        if let Some(prim) = add_menu::item_at(&menu, self.cursor) {
+                            self.scene.add_primitive(prim, self.cursor3d);
+                            scene_changed(&mut self.scene, &mut self.taa);
+                        }
+                    }
+                    gfx.window.request_redraw();
+                    return;
+                }
                 /* `Transform Modal Map` CONFIRM on LEFTMOUSE: the transform stays as it is. */
                 if self.xform.take().is_some() {
                     set_status_title(&gfx.window, None);
@@ -782,6 +806,15 @@ impl ApplicationHandler for App {
                 let PhysicalKey::Code(code) = key_event.physical_key else { return };
                 let (shift_k, ctrl_k, alt_k) = (self.modifiers.shift_key(), self.modifiers.control_key(), self.modifiers.alt_key());
 
+                /* An open popup menu takes the keyboard: ESC closes it, other keys do nothing. */
+                if self.add_menu.is_some() {
+                    if code == KeyCode::Escape {
+                        self.add_menu = None;
+                        gfx.window.request_redraw();
+                    }
+                    return;
+                }
+
                 /* `Transform Modal Map` while a G / R / S transform runs: CONFIRM on RET / NUMPAD_ENTER / SPACE,
                  * CANCEL on ESC, the X / Y / Z axis constraints (Shift for the plane), numeric input. */
                 if self.xform.is_some() {
@@ -895,10 +928,8 @@ impl ApplicationHandler for App {
                             geometry = if shift_k { self.scene.redo() } else { self.scene.undo() };
                         }
                         KeyCode::KeyA if shift_k && !ctrl_k && !alt_k => {
-                            let prim = mesh::Primitive::ALL[self.add_next % mesh::Primitive::ALL.len()];
-                            self.add_next += 1;
-                            self.scene.add_primitive(prim, self.cursor3d);
-                            geometry = true;
+                            /* `wm.call_menu` of `VIEW3D_MT_add`: the popup opens at the cursor. */
+                            self.add_menu = Some(self.cursor);
                         }
                         KeyCode::Digit0 | KeyCode::Digit1 | KeyCode::Digit2 | KeyCode::Digit3 | KeyCode::Digit4 | KeyCode::Digit5
                             if ctrl_k && !shift_k && !alt_k =>
@@ -1511,6 +1542,11 @@ impl ApplicationHandler for App {
                             screen_draw::draw_area_border(&mut buf, w, h, user, totrct, vertices);
                             screen_draw::draw_area_outline(&mut buf, w, h, user, totrct, vertices, self.active_area == Some(kind));
                         }
+                    }
+                    /* Popup menus are drawn above everything else. */
+                    if let (Some(pos), Some(user)) = (self.add_menu, self.user.as_ref()) {
+                        let menu = add_menu::layout(user, pos, w as i32, h as i32);
+                        add_menu::draw(&mut buf, w, h, user, &menu, self.cursor);
                     }
                 }
                 buf.present().expect("present");
