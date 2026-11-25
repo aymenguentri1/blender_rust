@@ -749,8 +749,9 @@ impl ApplicationHandler for App {
                         let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
                         smooth_finish(&mut self.rv3d, &mut self.smooth);
                         let smooth_src = self.rv3d.state_backup();
-                        let min = view3d::DEFAULT_CUBE_MIN.map(|v| v.min(0.0));
-                        let max = view3d::DEFAULT_CUBE_MAX.map(|v| v.max(0.0));
+                        let (bounds_min, bounds_max) = self.rv3d.visible_bounds();
+                        let min = bounds_min.map(|v| v.min(0.0));
+                        let max = bounds_max.map(|v| v.max(0.0));
                         self.rv3d.view_from_minmax(&self.v3d, rw, rh, min, max);
                         self.smooth = self.rv3d.smooth_view_begin(smooth_src, view3d::SMOOTH_VIEWTX).map(|sms| (sms, std::time::Instant::now()));
                         self.cursor3d_quat = [1.0, 0.0, 0.0, 0.0];
@@ -781,7 +782,8 @@ impl ApplicationHandler for App {
                         let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
                         smooth_finish(&mut self.rv3d, &mut self.smooth);
                         let smooth_src = self.rv3d.state_backup();
-                        self.rv3d.view_from_minmax(&self.v3d, rw, rh, view3d::DEFAULT_CUBE_MIN, view3d::DEFAULT_CUBE_MAX);
+                        let (min, max) = self.rv3d.visible_bounds();
+                        self.rv3d.view_from_minmax(&self.v3d, rw, rh, min, max);
                         self.smooth = self.rv3d.smooth_view_begin(smooth_src, view3d::SMOOTH_VIEWTX).map(|sms| (sms, std::time::Instant::now()));
                         gfx.window.request_redraw();
                     }

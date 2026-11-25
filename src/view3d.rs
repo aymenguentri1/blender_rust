@@ -646,6 +646,88 @@ impl RegionView3D {
             [n[0], n[1], n[2], -dot_v3(n, v1)]
         })
     }
+    /// `ED_view3d_clipping_clamp_minmax()` (editors/space_view3d/view3d_utils.cc:389-422): the box `min` ..
+    /// `max` is cut by the view clipping border. The 6 box planes and the clipping planes (negated, so that a
+    /// point is inside where `dot(plane.xyz, co) + plane.w <= 0`) are intersected three at a time and the
+    /// min / max of the corners that lie inside every plane become the new box, as in `isect_planes_v3_fn()`
+    /// (blenlib/intern/math_geom.cc:856-905) with `eps_coplanar = 1e-4` and `eps_isect = 1e-6`. Blender's fifth
+    /// and sixth clipping planes are zero (`ED_view3d_clipping_calc()` sets four) and its coplanar tests skip
+    /// them, so only the four are used. Returns false and leaves the box unchanged without clipping or when
+    /// nothing intersects.
+    pub fn clipping_clamp_minmax(&self, min: &mut [f32; 3], max: &mut [f32; 3]) -> bool {
+        let Some(clip) = self.clip.as_ref() else { return false };
+        const EPS_COPLANAR: f32 = 1e-4;
+        const EPS_ISECT: f32 = 1e-6;
+
+        let mut planes = [[0.0f32; 4]; 10];
+        for i in 0..3 {
+            planes[i * 2][i] = -1.0;
+            planes[i * 2][3] = min[i];
+            planes[i * 2 + 1][i] = 1.0;
+            planes[i * 2 + 1][3] = -max[i];
+        }
+        for (i, p) in clip.iter().enumerate() {
+            planes[6 + i] = [-p[0], -p[1], -p[2], -p[3]];
+        }
+        let normal = |i: usize| [planes[i][0], planes[i][1], planes[i][2]];
+
+        let (mut found, mut out_min, mut out_max) = (false, [f32::MAX; 3], [-f32::MAX; 3]);
+        for i in 0..planes.len() {
+            let n1 = normal(i);
+            for j in (i + 1)..planes.len() {
+                let n2 = normal(j);
+                let n1n2 = cross_v3(n1, n2);
+                if dot_v3(n1n2, n1n2) <= EPS_COPLANAR {
+                    continue;
+                }
+                for k in (j + 1)..planes.len() {
+                    let n3 = normal(k);
+                    let n2n3 = cross_v3(n2, n3);
+                    if dot_v3(n2n3, n2n3) <= EPS_COPLANAR {
+                        continue;
+                    }
+                    let n3n1 = cross_v3(n3, n1);
+                    if dot_v3(n3n1, n3n1) <= EPS_COPLANAR {
+                        continue;
+                    }
+                    let quotient = -dot_v3(n1, n2n3);
+                    if quotient.abs() < EPS_COPLANAR {
+                        continue;
+                    }
+                    let co: [f32; 3] = std::array::from_fn(|a| {
+                        ((n2n3[a] * planes[i][3]) + (n3n1[a] * planes[j][3]) + (n1n2[a] * planes[k][3])) / quotient
+                    });
+                    /* A point may lie outside the planes it was made from (low epsilon values). */
+                    let inside = (0..planes.len())
+                        .all(|t| t == i || t == j || t == k || dot_v3(normal(t), co) + planes[t][3] <= EPS_ISECT);
+                    if inside {
+                        for a in 0..3 {
+                            out_min[a] = out_min[a].min(co[a]);
+                            out_max[a] = out_max[a].max(co[a]);
+                        }
+                        found = true;
+                    }
+                }
+            }
+        }
+        if found {
+            *min = out_min;
+            *max = out_max;
+        }
+        found
+    }
+
+    /// `view3d_calc_minmax_visible()` (editors/space_view3d/view3d_navigate_view_all.cc:176-235) for the
+    /// startup scene, whose only object with bounds in the source is the default cube (`DEFAULT_CUBE_MIN` /
+    /// `DEFAULT_CUBE_MAX`): with `clip_bounds` the bounds are clamped to the view clipping border when
+    /// `RV3D_CLIPPING_ENABLED()` (wire and solid shading, both modelled, so only `clip` matters).
+    pub fn visible_bounds(&self) -> ([f32; 3], [f32; 3]) {
+        let (mut min, mut max) = (DEFAULT_CUBE_MIN, DEFAULT_CUBE_MAX);
+        if self.clip.is_some() {
+            self.clipping_clamp_minmax(&mut min, &mut max);
+        }
+        (min, max)
+    }
     /// `ED_view3d_project_int_global(region, co, r_co, V3D_PROJ_TEST_CLIP_NEAR)`
     /// (editors/space_view3d/view3d_project.cc:105-150, 195-215) for a region of `winx` x `winy`
     /// pixels: `None` when `co` is clipped by the near plane or the result overflows.
@@ -1423,6 +1505,21 @@ mod tests {
         assert!(planes.iter().any(|p| dist(p, [0.0, 10.0, 0.0]) < 0.0));
     }
 
+    /* Without a clipping border the bounds are the cube's; with a border that keeps x and y within 0.5
+     * (planes keep `dot(plane.xyz, co) + plane.w >= 0`) and does not limit z, the box shrinks to
+     * 0.5 x 0.5 x 1 on each side of the origin. */
+    #[test]
+    fn visible_bounds_follow_clipping() {
+        let mut rv3d = RegionView3D::default();
+        assert_eq!(rv3d.visible_bounds(), (DEFAULT_CUBE_MIN, DEFAULT_CUBE_MAX));
+
+        rv3d.clip = Some([[1.0, 0.0, 0.0, 0.5], [-1.0, 0.0, 0.0, 0.5], [0.0, 1.0, 0.0, 0.5], [0.0, -1.0, 0.0, 0.5]]);
+        let (min, max) = rv3d.visible_bounds();
+        for i in 0..3 {
+            let e = if i == 2 { 1.0 } else { 0.5 };
+            assert!(close(min[i], -e, 1e-5) && close(max[i], e, 1e-5), "{:?} {:?}", min, max);
+        }
+    }
     /* 1000x500 region: frame_aspect 0.5, horizontal fit, viewfac 1000.
      * pixsize = (36 * 0.01 / 50) / 1000 * 2 = 1.44e-5, so the view plane is
      * +-0.0072 x +-0.0036 and the frustum scales are 2 * 0.01 / 0.0144 and 2 * 0.01 / 0.0072. */
