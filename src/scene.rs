@@ -732,6 +732,32 @@ impl Scene {
         })
     }
 
+    /// Adds a Screw modifier to the selected meshes, or removes the one they have.
+    pub fn toggle_screw(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::Screw { .. })) {
+                Some(i) => {
+                    stack.remove(i);
+                }
+                None => stack.push(Modifier::screw()),
+            }
+            true
+        })
+    }
+
+    /// Adds a Wave modifier to the selected meshes, or removes the one they have.
+    pub fn toggle_wave(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::Wave { .. })) {
+                Some(i) => {
+                    stack.remove(i);
+                }
+                None => stack.push(Modifier::wave()),
+            }
+            true
+        })
+    }
+
     /// Adds a Weld modifier to the selected meshes, or removes the one they have.
     pub fn toggle_weld(&mut self) -> usize {
         self.edit_modifiers(|stack| {
@@ -1707,6 +1733,19 @@ mod tests {
         s.update_eval();
         assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), 96);
         assert_eq!(s.toggle_wireframe(), 1);
+        assert!(s.active_object().unwrap().modifiers.is_empty());
+    }
+
+    #[test]
+    fn screw_and_wave_toggle() {
+        let mut s = Scene::startup();
+        assert_eq!(s.toggle_screw(), 1);
+        assert_eq!(s.toggle_wave(), 1);
+        assert_eq!(s.active_object().unwrap().modifiers.len(), 2);
+        s.update_eval();
+        assert!(s.active_object().unwrap().evaluated().is_some());
+        assert_eq!(s.toggle_screw(), 1);
+        assert_eq!(s.toggle_wave(), 1);
         assert!(s.active_object().unwrap().modifiers.is_empty());
     }
 

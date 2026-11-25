@@ -24,6 +24,8 @@ Blender has no keys for modifiers (they live in the properties editor), so these
 | Ctrl + Alt + Q | Wireframe modifier: toggle (0.02 m frames; stack it after Triangulate to frame triangles) |
 | Ctrl + Alt + V | Decimate modifier (collapse): each press cycles ratio 0.5 -> 0.25 -> 0.1 -> off |
 | Ctrl + Alt + N | Edge Split modifier: toggle (30 degrees) |
+| Ctrl + Alt + U | Screw modifier: toggle (revolves the boundary edges about Z, 360 degrees, 16 steps; every edge of a closed mesh) |
+| Ctrl + Alt + K | Wave modifier: toggle (circular sine ripple along Z, 0.1 m high, width 1.5; needs a mesh with vertices to ripple, so subdivide first) |
 | Alt + C | Convert to Mesh: bakes the modifiers and the subdivision level into the mesh |
 
 The modifier stack of the active object is listed in the info text at the top left of the 3D viewport, one

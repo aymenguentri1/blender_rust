@@ -31,6 +31,11 @@ pub enum Modifier {
     Wireframe { thickness: f32 },
     /// Merge by distance.
     Weld { distance: f32 },
+    /// Revolve the profile edges about Z by `angle` radians (default one full turn), `steps` steps, rising
+    /// `offset` per turn.
+    Screw { angle: f32, steps: u32, offset: f32 },
+    /// Circular sine ripple along Z.
+    Wave { height: f32, width: f32, speed: f32, time: f32 },
 }
 
 impl Modifier {
@@ -93,6 +98,16 @@ impl Modifier {
         Modifier::Weld { distance: 0.001 }
     }
 
+    /// Defaults of `DNA_modifier_defaults.h`: 360 degrees, 16 steps, no offset.
+    pub fn screw() -> Modifier {
+        Modifier::Screw { angle: std::f32::consts::TAU, steps: crate::mesh_gen::SCREW_STEPS, offset: 0.0 }
+    }
+
+    /// Width 1.5 and speed 0.25 as in Blender; the height is 0.1 m (Blender's 0.5 m is huge next to the 2 m cube).
+    pub fn wave() -> Modifier {
+        Modifier::Wave { height: 0.1, width: 1.5, speed: 0.25, time: 0.0 }
+    }
+
     /// The name shown in the modifier panel.
     pub fn label(&self) -> &'static str {
         match self {
@@ -109,6 +124,8 @@ impl Modifier {
             Modifier::EdgeSplit { .. } => "Edge Split",
             Modifier::Wireframe { .. } => "Wireframe",
             Modifier::Weld { .. } => "Weld",
+            Modifier::Screw { .. } => "Screw",
+            Modifier::Wave { .. } => "Wave",
         }
     }
 
@@ -138,6 +155,8 @@ impl Modifier {
             Modifier::EdgeSplit { angle } => format!(" {}\u{b0}", num(*angle)),
             Modifier::Wireframe { thickness } => format!(" {} m", num(*thickness)),
             Modifier::Weld { distance } => format!(" {} m", num(*distance)),
+            Modifier::Screw { angle, steps, .. } => format!(" {}\u{b0} x{steps}", num(angle.to_degrees())),
+            Modifier::Wave { height, .. } => format!(" {} m", num(*height)),
         };
         format!("{}{}", self.label(), detail)
     }
@@ -146,7 +165,8 @@ impl Modifier {
     /// changed. The notch and the range per modifier: Array count 1, Solidify thickness 0.01 m, Bevel width
     /// 0.01 m, Smooth factor 0.1 (0 to 2), Twist / Bend 5 degrees, Taper / Stretch 0.1, Displace strength
     /// 0.05 m, Cast factor 0.1 (0 to 1), Decimate ratio 0.05 (0.01 to 1), Edge Split angle 5 degrees
-    /// (0 to 180), Wireframe thickness 0.005 m, Weld distance 0.001 m. Mirror and Triangulate have no value.
+    /// (0 to 180), Wireframe thickness 0.005 m, Weld distance 0.001 m, Screw angle 15 degrees (1 to 360),
+    /// Wave height 0.05 m. Mirror and Triangulate have no value.
     pub fn adjust(&mut self, steps: i32) -> bool {
         let n = steps as f32;
         let round = |x: f32| (x * 10000.0).round() / 10000.0;
@@ -167,6 +187,11 @@ impl Modifier {
             Modifier::EdgeSplit { angle } => *angle = round((*angle + 5.0 * n).clamp(0.0, 180.0)),
             Modifier::Wireframe { thickness } => *thickness = round((*thickness + 0.005 * n).max(0.001)),
             Modifier::Weld { distance } => *distance = round((*distance + 0.001 * n).max(0.0001)),
+            Modifier::Screw { angle, .. } => {
+                let deg = ((angle.to_degrees() + 15.0 * n).clamp(1.0, 360.0) * 100.0).round() / 100.0;
+                *angle = if deg >= 360.0 { std::f32::consts::TAU } else { deg.to_radians() };
+            }
+            Modifier::Wave { height, .. } => *height = round(*height + 0.05 * n),
         }
         *self != before
     }
@@ -194,6 +219,8 @@ impl Modifier {
             Modifier::EdgeSplit { angle } => mesh.edge_split(*angle),
             Modifier::Wireframe { thickness } => mesh.wireframed(*thickness),
             Modifier::Weld { distance } => mesh.merged_by_distance(*distance).0,
+            Modifier::Screw { angle, steps, offset } => mesh.screwed(*angle, *steps, *offset),
+            Modifier::Wave { height, width, speed, time } => mesh.waved(*height, *width, *speed, *time),
         }
     }
 }
@@ -276,6 +303,23 @@ mod tests {
         assert!(d.faces.len() < sphere.triangulated().faces.len());
         let cube = Mesh::cube(2.0);
         assert_eq!(evaluate(&cube, &[Modifier::edge_split()]).verts.len(), 24);
+    }
+
+    #[test]
+    fn screw_and_wave_in_the_stack() {
+        let plane = Mesh::plane(2.0).mapped(|v| [v[0] + 3.0, v[1], v[2]], false);
+        let r = evaluate(&plane, &[Modifier::screw()]);
+        assert_eq!(r.faces.len(), 4 * 16);
+        let g = Mesh::grid(8, 8, 4.0);
+        let w = evaluate(&g, &[Modifier::wave()]);
+        assert_eq!(w.faces, g.faces);
+        assert_ne!(w.verts, g.verts);
+        assert_eq!(Modifier::screw().summary(), "Screw 360\u{b0} x16");
+        assert_eq!(Modifier::wave().summary(), "Wave 0.1 m");
+        let mut s = Modifier::screw();
+        assert!(s.adjust(-1) && s.summary() == "Screw 345\u{b0} x16");
+        assert!(s.adjust(1) && s == Modifier::screw());
+        assert!(!s.adjust(1));
     }
 
     #[test]

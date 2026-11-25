@@ -55,6 +55,7 @@ mod mesh_ops;
 mod mesh_deform;
 mod mesh_wire;
 mod mesh_reduce;
+mod mesh_gen;
 mod modifiers;
 #[allow(dead_code)]
 mod scene;
@@ -982,6 +983,9 @@ impl ApplicationHandler for App {
                         /* Decimate (V: ratio 0.5, 0.25, 0.1, off) and Edge Split (N) modifiers. */
                         KeyCode::KeyV if ctrl_k && alt_k && !shift_k => geometry = self.scene.cycle_decimate() > 0,
                         KeyCode::KeyN if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_edge_split() > 0,
+                        /* Screw (U) and Wave (K) modifiers. */
+                        KeyCode::KeyU if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_screw() > 0,
+                        KeyCode::KeyK if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_wave() > 0,
                         /* Editing the stack (the active modifier is marked `>` in the viewport text): Ctrl + Alt + Up /
                          * Down select it, `]` / `[` raise / lower its main value, Page Up / Page Down move it in the
                          * stack and Ctrl + Shift + Alt + X removes it. */
