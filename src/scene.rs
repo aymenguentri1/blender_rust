@@ -105,6 +105,13 @@ impl EmptyKind {
     }
 }
 
+/// The Ctrl + C buffer: objects as they were when copied.
+#[derive(Clone, Debug, Default)]
+pub struct Clipboard {
+    pub objects: Vec<Object>,
+    pub active: Option<u32>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Object {
     /// Stable identifier (never reused), written to the object id buffer as `id + 1`.
@@ -612,12 +619,19 @@ impl Scene {
             return 0;
         }
         self.push_undo();
+        let active = self.active;
+        self.spawn_copies(&sources, active)
+    }
+
+    /// New selected copies of `sources` (the active one becomes the copy of `active`); the old selection is
+    /// cleared. A copy whose parent was copied too is parented to that copy (`BKE_object_duplicate` remaps it);
+    /// a parent that no longer exists is dropped. Pushes no undo step.
+    fn spawn_copies(&mut self, sources: &[Object], active: Option<u32>) -> usize {
         for o in &mut self.objects {
             o.selected = false;
         }
-        let active = self.active;
         let mut copies: Vec<(u32, u32)> = Vec::new();
-        for src in &sources {
+        for src in sources {
             let name = src.name.clone();
             let copy = self.new_object(&name, src.data.clone());
             copy.loc = src.loc;
@@ -635,18 +649,45 @@ impl Scene {
                 self.active = Some(id);
             }
         }
-        /* A copy whose parent was copied too is parented to that copy (`BKE_object_duplicate` remaps it). */
-        for &(old, new) in &copies {
+        for &(_, new) in &copies {
             let Some(i) = self.index_of(new) else { continue };
             if let Some(p) = self.objects[i].parent {
                 if let Some(&(_, np)) = copies.iter().find(|(o, _)| *o == p) {
                     self.objects[i].parent = Some(np);
+                } else if self.index_of(p).is_none() {
+                    self.objects[i].parent = None;
+                    self.objects[i].parent_inv = IDENTITY4;
                 }
             }
-            let _ = old;
         }
         self.refresh_parents();
         sources.len()
+    }
+
+    /// `VIEW3D_OT_copybuffer` (Ctrl + C): the selected objects (and which one is active) go to the clipboard.
+    pub fn copy_selected(&self) -> Option<Clipboard> {
+        let objects: Vec<Object> = self.selected().cloned().collect();
+        if objects.is_empty() {
+            return None;
+        }
+        let active = self.active.filter(|a| objects.iter().any(|o| o.id == *a));
+        Some(Clipboard { objects, active })
+    }
+
+    /// `VIEW3D_OT_pastebuffer` (Ctrl + V): adds the clipboard objects at their copied transforms, named like new
+    /// objects (`Cube.001`), selected and active as copied, as one undo step. A parent that was not copied is kept
+    /// while it still exists in the scene. Returns the number of objects pasted.
+    pub fn paste(&mut self, clip: &Clipboard) -> usize {
+        if clip.objects.is_empty() {
+            return 0;
+        }
+        self.push_undo();
+        let n = self.spawn_copies(&clip.objects, clip.active);
+        /* A buffer without an active object leaves no active object among the pasted ones. */
+        if clip.active.is_none() {
+            self.active = None;
+        }
+        n
     }
 
     /// `OBJECT_OT_hide_view_set`: hides the selected objects.
@@ -2423,6 +2464,48 @@ mod tests {
             s.select_box(&rv3d, w, h, [80, 120, 30, 70], BoxMode::Sub, through);
             assert!(!s.objects.iter().find(|o| o.id == cube).unwrap().selected, "Sub removes, through={through}");
         }
+    }
+
+    #[test]
+    fn copy_paste_adds_selected_copies() {
+        let mut s = Scene::startup();
+        let n = s.objects.len();
+        let cube = s.objects.iter().find(|o| o.name == "Cube").unwrap().id;
+        s.select_all(SelectAction::Deselect);
+        assert!(s.copy_selected().is_none());
+        s.select_pick(Some(cube), false);
+        let clip = s.copy_selected().unwrap();
+        assert_eq!(s.paste(&clip), 1);
+        assert_eq!(s.objects.len(), n + 1);
+        let pasted = s.objects.last().unwrap();
+        assert_eq!(pasted.name, "Cube.001");
+        assert!(pasted.selected && s.active == Some(pasted.id));
+        assert!(!s.objects.iter().find(|o| o.id == cube).unwrap().selected);
+        /* Pasting twice gives two more objects; undo takes one paste away. */
+        assert_eq!(s.paste(&clip), 1);
+        assert_eq!(s.objects.last().unwrap().name, "Cube.002");
+        assert!(s.undo());
+        assert_eq!(s.objects.len(), n + 1);
+    }
+
+    #[test]
+    fn paste_drops_a_deleted_parent() {
+        let mut s = Scene::startup();
+        let cube = s.objects.iter().find(|o| o.name == "Cube").unwrap().id;
+        let sphere = s.add_primitive(Primitive::UvSphere, [3.0, 0.0, 0.0]);
+        s.select_all(SelectAction::Deselect);
+        s.select_pick(Some(sphere), false);
+        s.select_pick(Some(cube), true);
+        s.active = Some(cube);
+        assert!(s.parent_set() > 0);
+        s.select_all(SelectAction::Deselect);
+        s.select_pick(Some(sphere), false);
+        let clip = s.copy_selected().unwrap();
+        s.select_all(SelectAction::Deselect);
+        s.select_pick(Some(cube), false);
+        s.delete_selected();
+        s.paste(&clip);
+        assert_eq!(s.objects.last().unwrap().parent, None);
     }
 
     #[test]
