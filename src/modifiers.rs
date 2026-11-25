@@ -46,6 +46,8 @@ pub enum Modifier {
     /// Reveals the faces over `length` frames from frame `start` (taken apart again with `reverse`), in random
     /// order for the `seed` when `randomize`.
     Build { start: f32, length: f32, reverse: bool, randomize: bool, seed: u32 },
+    /// Simple smoothing that puts the lost detail of the stack's starting mesh back (`factor` per round).
+    CorrectiveSmooth { factor: f32, repeat: u32, scale: f32 },
 }
 
 /// The offsets the Array key cycles through: a label, the relative offset (a factor of the bounds size) and the
@@ -155,6 +157,11 @@ impl Modifier {
         Modifier::Build { start: 1.0, length: 100.0, reverse: false, randomize: false, seed: 0 }
     }
 
+    /// Defaults of `DNA_modifier_defaults.h`: factor 0.5, 5 repeats, scale 1.
+    pub fn corrective_smooth() -> Modifier {
+        Modifier::CorrectiveSmooth { factor: 0.5, repeat: 5, scale: 1.0 }
+    }
+
     pub fn shrinkwrap() -> Modifier {
         Modifier::Shrinkwrap { target: None, offset: 0.0 }
     }
@@ -178,6 +185,7 @@ impl Modifier {
             Modifier::bevel(),
             Modifier::smooth(),
             Modifier::laplacian_smooth(),
+            Modifier::corrective_smooth(),
             Modifier::simple_deform(DeformMode::Twist),
             Modifier::displace(),
             Modifier::wave(),
@@ -220,6 +228,7 @@ impl Modifier {
             Modifier::Remesh { .. } => "Remesh",
             Modifier::Shrinkwrap { .. } => "Shrinkwrap",
             Modifier::Build { .. } => "Build",
+            Modifier::CorrectiveSmooth { .. } => "Corrective Smooth",
         }
     }
 
@@ -266,6 +275,7 @@ impl Modifier {
             Modifier::LaplacianSmooth { factor, repeat } => format!(" {} x{repeat}", num(*factor)),
             Modifier::Remesh { voxel } => format!(": Blocks {} m", num(*voxel)),
             Modifier::Shrinkwrap { offset, .. } => format!(" {} m", num(*offset)),
+            Modifier::CorrectiveSmooth { factor, repeat, .. } => format!(" {} x{repeat}", num(*factor)),
             Modifier::Build { start, length, reverse, randomize, .. } => {
                 let mut d = format!(" {}-{}", num(*start), num(*start + *length));
                 if *reverse {
@@ -286,7 +296,7 @@ impl Modifier {
     /// 0.05 m, Cast factor 0.1 (0 to 1), Decimate ratio 0.05 (0.01 to 1), Edge Split angle 5 degrees
     /// (0 to 180), Wireframe thickness 0.005 m, Weld distance 0.001 m, Screw angle 15 degrees (1 to 360),
     /// Wave height 0.05 m, Laplacian Smooth factor 0.1 (0 to 2), Remesh voxel size 0.01 m (min 0.01),
-    /// Shrinkwrap offset 0.01 m, Build duration 10 frames (min 1). Mirror and Triangulate have no value.
+    /// Shrinkwrap offset 0.01 m, Build duration 10 frames (min 1), Corrective Smooth factor 0.1 (0 to 1). Mirror and Triangulate have no value.
     pub fn adjust(&mut self, steps: i32) -> bool {
         let n = steps as f32;
         let round = |x: f32| (x * 10000.0).round() / 10000.0;
@@ -315,6 +325,7 @@ impl Modifier {
             Modifier::LaplacianSmooth { factor, .. } => *factor = round((*factor + 0.1 * n).clamp(0.0, 2.0)),
             Modifier::Remesh { voxel } => *voxel = round((*voxel + 0.01 * n).max(0.01)),
             Modifier::Shrinkwrap { offset, .. } => *offset = round((*offset + 0.01 * n).clamp(-10.0, 10.0)),
+            Modifier::CorrectiveSmooth { factor, .. } => *factor = round((*factor + 0.1 * n).clamp(0.0, 1.0)),
             Modifier::Build { length, .. } => *length = round((*length + 10.0 * n).clamp(1.0, 1_000_000.0)),
         }
         *self != before
@@ -326,7 +337,13 @@ impl Modifier {
 
     /// `apply()` with the scene context; a Shrinkwrap without a (found) target leaves the mesh alone.
     pub fn apply_with(&self, mesh: &Mesh, ctx: &EvalCtx) -> Mesh {
+        self.apply_rest(mesh, ctx, &mesh.verts)
+    }
+
+    /// `apply_with()` where `rest` are the vertices of the mesh at the start of the stack (Corrective Smooth).
+    fn apply_rest(&self, mesh: &Mesh, ctx: &EvalCtx, rest: &[V3]) -> Mesh {
         match self {
+            Modifier::CorrectiveSmooth { factor, repeat, scale } => mesh.corrective_smoothed(rest, *factor, *repeat, *scale),
             Modifier::Shrinkwrap { target, offset } => match target.and_then(|t| ctx.targets.get(&t)) {
                 Some(t) => mesh.shrinkwrapped(t, *offset),
                 None => mesh.clone(),
@@ -376,7 +393,7 @@ pub fn evaluate(mesh: &Mesh, stack: &[Modifier]) -> Mesh {
 }
 
 pub fn evaluate_with(mesh: &Mesh, stack: &[Modifier], ctx: &EvalCtx) -> Mesh {
-    stack.iter().fold(mesh.clone(), |m, md| md.apply_with(&m, ctx))
+    stack.iter().fold(mesh.clone(), |m, md| md.apply_rest(&m, ctx, &mesh.verts))
 }
 
 #[cfg(test)]
@@ -519,13 +536,30 @@ mod tests {
     }
 
     #[test]
+    fn corrective_smooth_uses_the_start_of_the_stack_as_rest() {
+        let sphere = Mesh::uv_sphere(16, 8, 1.0);
+        let cs = Modifier::corrective_smooth();
+        assert_eq!(cs.summary(), "Corrective Smooth 0.5 x5");
+        /* First in the stack the rest is the input itself: no change. */
+        let same = evaluate(&sphere, &[cs.clone()]);
+        assert!(same.verts.iter().zip(&sphere.verts).all(|(a, b)| (0..3).all(|k| (a[k] - b[k]).abs() < 1e-3)));
+        /* After a deformer it differs from plain smoothing. */
+        let tw = Modifier::simple_deform(DeformMode::Taper);
+        let a = evaluate(&sphere, &[tw.clone(), cs]);
+        let b = evaluate(&sphere, &[tw, Modifier::Smooth { factor: 0.5, repeat: 5 }]);
+        assert_ne!(a.verts, b.verts);
+        let mut m = Modifier::corrective_smooth();
+        assert!(m.adjust(-100) && m.summary() == "Corrective Smooth 0 x5");
+    }
+
+    #[test]
     fn the_catalog_has_every_kind_once() {
         let c = Modifier::catalog();
-        assert_eq!(c.len(), 19);
+        assert_eq!(c.len(), 20);
         let mut names: Vec<&str> = c.iter().map(|m| m.label()).collect();
         names.sort();
         names.dedup();
-        assert_eq!(names.len(), 19);
+        assert_eq!(names.len(), 20);
         /* Every entry evaluates on a cube without panicking. */
         for m in &c {
             let _ = m.apply(&Mesh::cube(2.0));
