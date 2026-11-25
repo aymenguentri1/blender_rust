@@ -19,26 +19,70 @@ const INNER_SEL: Rgba = Rgba::hex(0x4772b3ff);
 const TITLE_TEXT: Rgba = Rgba::hex(0x999999ff);
 const ITEM_TEXT: Rgba = Rgba::hex(0xddddddff);
 const ITEM_TEXT_SEL: Rgba = Rgba::hex(0xffffffff);
-const TITLE: &str = "Add Mesh";
+const TITLE: &str = "Add";
+
+/// An entry of the menu. Blender nests the meshes in a Mesh submenu; here all entries are in one list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AddItem {
+    Mesh(Primitive),
+    Empty,
+    Camera,
+    Light,
+}
+
+impl AddItem {
+    /// The nine mesh primitives, then Empty, Camera and Light (the order of `VIEW3D_MT_add`).
+    pub const ALL: [AddItem; 12] = [
+        AddItem::Mesh(Primitive::Plane),
+        AddItem::Mesh(Primitive::Cube),
+        AddItem::Mesh(Primitive::Circle),
+        AddItem::Mesh(Primitive::UvSphere),
+        AddItem::Mesh(Primitive::IcoSphere),
+        AddItem::Mesh(Primitive::Cylinder),
+        AddItem::Mesh(Primitive::Cone),
+        AddItem::Mesh(Primitive::Torus),
+        AddItem::Mesh(Primitive::Grid),
+        AddItem::Empty,
+        AddItem::Camera,
+        AddItem::Light,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            AddItem::Mesh(p) => p.label(),
+            AddItem::Empty => "Empty",
+            AddItem::Camera => "Camera",
+            AddItem::Light => "Light",
+        }
+    }
+
+    /// The name of the new object.
+    pub fn object_name(self) -> &'static str {
+        match self {
+            AddItem::Mesh(p) => p.object_name(),
+            other => other.label(),
+        }
+    }
+}
 
 pub struct Layout {
     pub panel: Rcti,
     pub title: Rcti,
-    pub items: Vec<(Rcti, Primitive)>,
+    pub items: Vec<(Rcti, AddItem)>,
 }
 
 /// The panel for a menu opened at window position `pos` (y up) in a `win_w` x `win_h` window.
 pub fn layout(user: &UserDef, pos: [i32; 2], win_w: i32, win_h: i32) -> Layout {
     let unit = user.widget_unit;
     let margin = (unit / 5).max(2);
-    let widest = Primitive::ALL
+    let widest = AddItem::ALL
         .iter()
         .map(|p| font::label_width(user, p.label()))
         .chain([font::label_width(user, TITLE)])
         .max()
         .unwrap_or(0);
     let width = (widest + 2 * margin).max(6 * unit);
-    let rows = Primitive::ALL.len() as i32 + 1;
+    let rows = AddItem::ALL.len() as i32 + 1;
     let height = rows * unit + 2 * margin;
 
     /* Top left corner at the cursor, then back inside the window. */
@@ -62,12 +106,12 @@ pub fn layout(user: &UserDef, pos: [i32; 2], win_w: i32, win_h: i32) -> Layout {
         ymax: panel.ymax - margin - i * unit,
         ymin: panel.ymax - margin - (i + 1) * unit + 1,
     };
-    let items = Primitive::ALL.iter().enumerate().map(|(i, &p)| (row(i as i32 + 1), p)).collect();
+    let items = AddItem::ALL.iter().enumerate().map(|(i, &p)| (row(i as i32 + 1), p)).collect();
     Layout { panel, title: row(0), items }
 }
 
 /// The entry under the window position `cursor`.
-pub fn item_at(layout: &Layout, cursor: [i32; 2]) -> Option<Primitive> {
+pub fn item_at(layout: &Layout, cursor: [i32; 2]) -> Option<AddItem> {
     layout.items.iter().find(|(r, _)| r.isect_pt_v(cursor)).map(|&(_, p)| p)
 }
 
@@ -105,22 +149,25 @@ mod tests {
     fn the_panel_opens_below_and_right_of_the_cursor() {
         let l = layout(&user(), [300, 500], 1000, 800);
         assert_eq!((l.panel.xmin, l.panel.ymax), (300, 500));
-        assert_eq!(l.items.len(), 9);
+        assert_eq!(l.items.len(), 12);
         assert!(l.items.iter().all(|(r, _)| l.panel.isect_pt(r.xmin, r.ymin) && l.panel.isect_pt(r.xmax, r.ymax)));
     }
 
-    /* 10 rows of 20 px plus a 4 px margin on both sides. */
+    /* 13 rows of 20 px plus a 4 px margin on both sides. */
     #[test]
     fn rows_are_one_unit_high_and_in_order() {
         let l = layout(&user(), [300, 500], 1000, 800);
-        assert_eq!(l.panel.size_y() + 1, 10 * 20 + 8);
+        assert_eq!(l.panel.size_y() + 1, 13 * 20 + 8);
         for (r, _) in &l.items {
             assert_eq!(r.size_y() + 1, 20);
         }
         assert!(l.title.ymin > l.items[0].0.ymax);
         assert!(l.items.windows(2).all(|w| w[0].0.ymin == w[1].0.ymax + 1));
         let labels: Vec<_> = l.items.iter().map(|(_, p)| p.label()).collect();
-        assert_eq!(labels, ["Plane", "Cube", "Circle", "UV Sphere", "Ico Sphere", "Cylinder", "Cone", "Torus", "Grid"]);
+        assert_eq!(
+            labels,
+            ["Plane", "Cube", "Circle", "UV Sphere", "Ico Sphere", "Cylinder", "Cone", "Torus", "Grid", "Empty", "Camera", "Light"]
+        );
     }
 
     #[test]
