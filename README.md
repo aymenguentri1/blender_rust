@@ -13,6 +13,8 @@ Blender has no keys for modifiers (they live in the properties editor), so these
 | --- | --- |
 | Ctrl + Alt + X / Y / Z | Mirror modifier: toggle that axis (the modifier goes away when no axis is left) |
 | Ctrl + Alt + `+` / `-` | Array modifier: more / fewer copies (1 removes it), relative offset (1, 0, 0) |
+| Ctrl + Alt + O | Array modifier: cycles the offset through relative X (default) -> Y -> Z -> constant 1 m along X -> Y -> Z (the stack line shows it, for example `+ Array x3 +1 m Y`) |
+| Ctrl + Alt + J | Array modifier: toggle Merge (1 mm): vertices that touch are joined, here across the whole array (Blender joins only neighbouring copies) |
 | Ctrl + Alt + W | Solidify modifier: toggle (0.01 m, offset -1) |
 | Ctrl + Alt + B | Bevel modifier: toggle (one segment, 0.1 m, clamped under half the shortest edge) |
 | Ctrl + Alt + M | Smooth modifier: toggle (factor 0.5, 1 repeat) |
