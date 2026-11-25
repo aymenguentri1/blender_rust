@@ -5,6 +5,25 @@
 Selection, transforms (G / R / S), duplicate (Shift + D), delete, hide, undo / redo and the Add menu cycle
 (Shift + A) are modelled on Blender. On top of those:
 
+### 3D viewport header
+The header of the 3D viewport follows `VIEW3D_HT_header`: the editor type and `Object Mode` dropdowns, the
+`View`, `Select`, `Add` and `Object` menus, the transform cluster (orientation, pivot point, snapping,
+proportional editing), and right aligned the Overlays and X-ray toggles and the four shading buttons with their
+option arrows. Icons are drawn as vectors (`src/icons.rs`), and the layout, drawing and hit testing live in
+`src/view3d_header.rs`. Buttons light up under the cursor.
+
+| Button | Action |
+| --- | --- |
+| Wireframe / Solid shading | Same as Shift + Z |
+| X-ray | Same as Alt + Z (dimmed and inert in wire shading) |
+| Overlays | Same as Shift + Alt + Z |
+| Pivot point | Cycles Median Point, 3D Cursor, Individual Origins, like Period (the icon follows the mode) |
+| `Add` | Opens the Add menu under the button |
+
+Drawn but not modelled: the editor type and mode dropdowns, the `View`, `Select` and `Object` menus, orientation,
+snapping, proportional editing, Material Preview and Rendered shading and every option arrow. When the header is
+too narrow for the transform cluster it is dropped as a whole, where Blender scrolls the region.
+
 ### Modifier stack
 Modifiers are evaluated in order on the base mesh, then the Subdivision Surface level (Ctrl + 0..5).
 Blender has no keys for modifiers (they live in the properties editor), so these are Ctrl + Alt chords:
