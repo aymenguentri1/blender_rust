@@ -108,6 +108,7 @@ location is exact), shear is dropped when a transform is baked, and the parent i
 | --- | --- |
 | Shift + G | Select Grouped, Type: adds every visible object of the active object's type |
 | Shift + Alt + R | Select Random: adds about half of the visible objects; each press uses the next seed |
+| Shift + H | Hide Unselected: hides every visible object that is not selected (H hides the selection, Alt + H shows everything again and selects it) |
 
 ### Snapping and the 3D cursor
 Blender's Shift + S pie has no pie here, so each entry is one chord:

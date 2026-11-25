@@ -1002,6 +1002,7 @@ impl ApplicationHandler for App {
                         KeyCode::KeyX | KeyCode::Delete if plain => geometry = self.scene.delete_selected() > 0,
                         KeyCode::KeyH if plain => geometry = self.scene.hide_selected() > 0,
                         KeyCode::KeyH if alt_k && !shift_k && !ctrl_k => geometry = self.scene.reveal_all() > 0,
+                        KeyCode::KeyH if shift_k && !alt_k && !ctrl_k => geometry = self.scene.hide_unselected() > 0,
                         KeyCode::KeyA if plain => {
                             self.scene.select_all(scene::SelectAction::Select);
                         }
