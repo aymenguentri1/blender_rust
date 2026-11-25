@@ -196,6 +196,13 @@ limited to 63 bytes like Blender's `MAX_NAME`. Code: `src/rename_popup.rs` and `
 
 All but the overlay are undoable (Align pushes no step when nothing moves). The code is in `src/scene/ops.rs`.
 
+### Apply, snap to grid and local view
+| Keys | Operator |
+| --- | --- |
+| Ctrl + Shift + Alt + L / R / Z | Apply Location / Rotation / Scale (`OBJECT_OT_transform_apply` with one option; Ctrl + A still applies all three). What is applied is baked into the mesh and reset, what is not stays on the object. Location is converted through the remaining rotation and scale so the mesh does not move. Applying Rotation to a non-uniformly scaled object shears it, as in Blender. A negative scale reverses the face winding so the mesh is not left inside out. The direct children of an applied object stay where they are (their parent inverse is adjusted), like Blender; before this they jumped |
+| Ctrl + Shift + Alt + T | Selection to Grid (`VIEW3D_OT_snap_selected_to_grid`, 1 m): every selected object origin goes to the nearest grid point in world space, also under a rotated or scaled parent. An object that moves with a selected ancestor is left to it |
+| Numpad `/` | Local View (`VIEW3D_OT_localview`): only the selected objects stay visible and the view frames them; press again to leave. Objects you had hidden stay hidden, and so do those you hide inside local view (Alt + H does not bring back what local view hides). Entering needs a selection. It follows undo. Blender also restores the previous view on exit and shows a local-view marker, neither is modelled |
+
 ### Pivot point
 Period cycles the transform pivot point (Blender's pivot pie): Median Point (default), 3D Cursor and Individual Origins.
 G, R and S and Shift + D use it: the 3D cursor mode rotates and scales about the cursor, Individual Origins turns and

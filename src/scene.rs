@@ -26,7 +26,7 @@ use crate::modifiers::{self, Modifier};
 use crate::view3d::{Mat4, RegionView3D};
 
 pub mod ops;
-pub use ops::{AlignMode, AlignTo, GroupKind, Randomize, Stats};
+pub use ops::{AlignMode, AlignTo, ApplyMask, GroupKind, Randomize};
 
 pub type Mat3 = [[f32; 3]; 3];
 
@@ -255,6 +255,7 @@ struct Snapshot {
     objects: Vec<Object>,
     active: Option<u32>,
     next_id: u32,
+    local_view: Option<Vec<u32>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -276,6 +277,9 @@ pub struct Scene {
     select_seed: u32,
     /// `Scene::r.cfra`, the current frame (the Build modifier depends on it); kept out of the undo steps.
     frame: i32,
+    /// Local View (`VIEW3D_OT_localview`): the ids of the objects this mode hid, `None` outside of it. They are kept
+    /// apart from the objects the user hid, so leaving gives back exactly the former.
+    local_view: Option<Vec<u32>>,
 }
 
 impl Default for Scene {
@@ -287,7 +291,7 @@ impl Default for Scene {
 impl Scene {
     /// The factory startup scene.
     pub fn startup() -> Scene {
-        let mut s = Scene { objects: Vec::new(), active: None, next_id: 0, undo: Vec::new(), redo: Vec::new(), select_seed: 0, frame: 1 };
+        let mut s = Scene { objects: Vec::new(), active: None, next_id: 0, undo: Vec::new(), redo: Vec::new(), select_seed: 0, frame: 1, local_view: None };
         let deg = std::f32::consts::PI / 180.0;
         let camera = s.new_object("Camera", ObjectData::Camera);
         camera.loc = [7.358_891, -6.925_791, 4.958_309];
@@ -413,13 +417,14 @@ impl Scene {
     // ----- undo ---------------------------------------------------------------------------------
 
     fn snapshot(&self) -> Snapshot {
-        Snapshot { objects: self.objects.clone(), active: self.active, next_id: self.next_id }
+        Snapshot { objects: self.objects.clone(), active: self.active, next_id: self.next_id, local_view: self.local_view.clone() }
     }
 
     fn restore(&mut self, s: Snapshot) {
         self.objects = s.objects;
         self.active = s.active;
         self.next_id = s.next_id;
+        self.local_view = s.local_view;
     }
 
     /// `ED_undo_push()`: call before the operator changes the scene.
@@ -735,12 +740,14 @@ impl Scene {
 
     /// `OBJECT_OT_hide_view_clear`: shows every hidden object and selects it.
     pub fn reveal_all(&mut self) -> usize {
-        let n = self.objects.iter().filter(|o| o.hidden).count();
+        /* Objects that Local View hides stay out of reach until it is left. */
+        let kept = self.local_view.clone().unwrap_or_default();
+        let n = self.objects.iter().filter(|o| o.hidden && !kept.contains(&o.id)).count();
         if n == 0 {
             return 0;
         }
         self.push_undo();
-        for o in self.objects.iter_mut().filter(|o| o.hidden) {
+        for o in self.objects.iter_mut().filter(|o| o.hidden && !kept.contains(&o.id)) {
             o.hidden = false;
             o.selected = true;
         }
@@ -1410,34 +1417,9 @@ impl Scene {
     // ----- object data operators ------------------------------------------------------------------
 
     /// `OBJECT_OT_transform_apply` (location, rotation and scale): bakes the object transform into the mesh and
-    /// resets it. Returns how many meshes changed.
+    /// resets it. Returns how many meshes changed (see `apply_transform` for the single options).
     pub fn apply_transforms(&mut self) -> usize {
-        let n = self
-            .selected()
-            .filter(|o| o.mesh().is_some() && (o.loc != [0.0; 3] || o.rot != [0.0; 3] || o.scale != [1.0; 3]))
-            .count();
-        if n == 0 {
-            return 0;
-        }
-        self.push_undo();
-        for o in self.objects.iter_mut().filter(|o| o.selected && !o.hidden) {
-            let ObjectData::Mesh(mesh) = &o.data else { continue };
-            let (loc, rot, sc) = (o.loc, euler_to_mat3(o.rot), o.scale);
-            let flip = sc[0] * sc[1] * sc[2] < 0.0;
-            let baked = mesh.mapped(
-                |v| {
-                    let r = mat3_mul_v3(&rot, [v[0] * sc[0], v[1] * sc[1], v[2] * sc[2]]);
-                    [r[0] + loc[0], r[1] + loc[1], r[2] + loc[2]]
-                },
-                flip,
-            );
-            o.data = ObjectData::Mesh(baked);
-            o.loc = [0.0; 3];
-            o.rot = [0.0; 3];
-            o.scale = [1.0; 3];
-            o.eval = None;
-        }
-        n
+        self.apply_transform(ApplyMask::ALL)
     }
 
     /// `OBJECT_OT_origin_set` (Origin to Geometry, median center): moves the origin of the selected meshes to the
