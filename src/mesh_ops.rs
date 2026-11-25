@@ -8,10 +8,14 @@
 //!    default 1, 0, 0) plus the constant offset
 //!  - `MOD_solidify` (simple mode): a shell of `thickness` along the vertex normals, offset -1 keeps the
 //!    original surface on the outside and +1 on the inside; boundary edges get a rim of quads
+//!  - `MOD_bevel` (one segment, `Offset` width): every face shrinks by the width, every edge between two
+//!    faces becomes a chamfer quad and every vertex a cap polygon; the width is clamped to under half the
+//!    shortest edge (Blender's `Clamp Overlap`)
+//!  - `mesh.subdivide` (one cut, smoothness 0), `mesh.separate` by loose parts
 //!  - `OBJECT_OT_join`, `mesh.flip_normals`, `mesh.normals_make_consistent`, `mesh.quads_convert_to_tris`
 //!    and `mesh.remove_doubles` (Merge by Distance)
 
-use crate::mesh::{add, cross, dot, scale, sub, Mesh, V3};
+use crate::mesh::{add, cross, dot, normalized, scale, sub, Mesh, V3};
 use std::collections::HashMap;
 
 impl Mesh {
@@ -116,6 +120,161 @@ impl Mesh {
                 if !directed.contains_key(&(b, a)) {
                     out.faces.push(vec![a, a + n, b + n, b]);
                 }
+            }
+        }
+        out
+    }
+
+    /// `mesh.subdivide` with one cut and no smoothing: every n-gon becomes n quads around its center.
+    pub fn subdivided_simple(&self) -> Mesh {
+        let mut out = Mesh { verts: self.verts.clone(), faces: Vec::new() };
+        let mut mids: HashMap<(u32, u32), u32> = HashMap::new();
+        for (f, face) in self.faces.iter().enumerate() {
+            let k = face.len();
+            let center = out.verts.len() as u32;
+            out.verts.push(self.face_center(f));
+            let mut mid = |a: u32, b: u32, out: &mut Mesh| -> u32 {
+                *mids.entry((a.min(b), a.max(b))).or_insert_with(|| {
+                    out.verts.push(scale(add(self.verts[a as usize], self.verts[b as usize]), 0.5));
+                    (out.verts.len() - 1) as u32
+                })
+            };
+            for i in 0..k {
+                let (prev, cur, next) = (face[(i + k - 1) % k], face[i], face[(i + 1) % k]);
+                let (m_next, m_prev) = (mid(cur, next, &mut out), mid(prev, cur, &mut out));
+                out.faces.push(vec![cur, m_next, center, m_prev]);
+            }
+        }
+        out
+    }
+
+    /// The connected pieces of the mesh (vertices that no face uses are dropped), ordered by their first face.
+    pub fn loose_parts(&self) -> Vec<Mesh> {
+        let mut parent: Vec<u32> = (0..self.verts.len() as u32).collect();
+        fn find(parent: &mut Vec<u32>, mut x: u32) -> u32 {
+            while parent[x as usize] != x {
+                parent[x as usize] = parent[parent[x as usize] as usize];
+                x = parent[x as usize];
+            }
+            x
+        }
+        for face in &self.faces {
+            for &v in &face[1..] {
+                let (a, b) = (find(&mut parent, face[0]), find(&mut parent, v));
+                if a != b {
+                    parent[b as usize] = a;
+                }
+            }
+        }
+        let mut order: Vec<u32> = Vec::new();
+        let mut parts: HashMap<u32, (Mesh, HashMap<u32, u32>)> = HashMap::new();
+        for face in &self.faces {
+            let root = find(&mut parent, face[0]);
+            let (mesh, remap) = parts.entry(root).or_insert_with(|| {
+                order.push(root);
+                (Mesh::default(), HashMap::new())
+            });
+            let new_face: Vec<u32> = face
+                .iter()
+                .map(|&v| {
+                    *remap.entry(v).or_insert_with(|| {
+                        mesh.verts.push(self.verts[v as usize]);
+                        (mesh.verts.len() - 1) as u32
+                    })
+                })
+                .collect();
+            mesh.faces.push(new_face);
+        }
+        order.into_iter().map(|r| parts.remove(&r).unwrap().0).collect()
+    }
+
+    /// The Bevel modifier with one segment: a chamfer of `width` on every edge between two faces and a cap on
+    /// every closed vertex. Open boundaries are not bevelled (their faces still shrink).
+    pub fn beveled(&self, width: f32) -> Mesh {
+        let shortest = self.edges().iter().map(|e| {
+            let d = sub(self.verts[e.a as usize], self.verts[e.b as usize]);
+            dot(d, d).sqrt()
+        }).fold(f32::INFINITY, f32::min);
+        let w = width.min(0.49 * shortest);
+        if !(w > 1e-9) || !shortest.is_finite() {
+            return self.clone();
+        }
+        /* One new vertex per face corner. */
+        let mut base = Vec::with_capacity(self.faces.len());
+        let mut out = Mesh::default();
+        for (f, face) in self.faces.iter().enumerate() {
+            base.push(out.verts.len() as u32);
+            let n = self.face_normal(f);
+            let k = face.len();
+            for i in 0..k {
+                let v = self.verts[face[i] as usize];
+                let a = normalized(sub(self.verts[face[(i + k - 1) % k] as usize], v));
+                let b = normalized(sub(self.verts[face[(i + 1) % k] as usize], v));
+                let c = cross(a, b);
+                let sin = dot(c, c).sqrt();
+                let p = if sin < 1e-3 {
+                    v
+                } else {
+                    /* Convex corners move along the bisector into the face, reflex ones the other way. */
+                    let dir = if dot(c, n) <= 0.0 { 1.0 } else { -1.0 };
+                    add(v, scale(add(a, b), dir * w / sin))
+                };
+                out.verts.push(p);
+            }
+            out.faces.push((0..k as u32).map(|i| base[f] + i).collect());
+        }
+        let corner = |f: usize, i: usize| base[f] + (i % self.faces[f].len()) as u32;
+        /* Directed edges -> (face, index); an edge used twice in the same direction is non-manifold. */
+        let mut directed: HashMap<(u32, u32), Option<(usize, usize)>> = HashMap::new();
+        for (f, face) in self.faces.iter().enumerate() {
+            for i in 0..face.len() {
+                let key = (face[i], face[(i + 1) % face.len()]);
+                directed.entry(key).and_modify(|e| *e = None).or_insert(Some((f, i)));
+            }
+        }
+        for (f, face) in self.faces.iter().enumerate() {
+            for i in 0..face.len() {
+                let (a, b) = (face[i], face[(i + 1) % face.len()]);
+                if a > b {
+                    continue;
+                }
+                if let (Some(Some((_, _))), Some(Some((g, j)))) = (directed.get(&(a, b)), directed.get(&(b, a))) {
+                    out.faces.push(vec![corner(f, i + 1), corner(f, i), corner(*g, *j + 1), corner(*g, *j)]);
+                }
+            }
+        }
+        /* The cap of every vertex: walk the faces around it through their incoming edges. */
+        let mut corners_of: HashMap<u32, Vec<(usize, usize)>> = HashMap::new();
+        for (f, face) in self.faces.iter().enumerate() {
+            for (i, &v) in face.iter().enumerate() {
+                corners_of.entry(v).or_default().push((f, i));
+            }
+        }
+        let mut verts_sorted: Vec<&u32> = corners_of.keys().collect();
+        verts_sorted.sort();
+        for &v in verts_sorted {
+            let list = &corners_of[&v];
+            let (f0, i0) = list[0];
+            let mut cap = vec![corner(f0, i0)];
+            let (mut f, mut i) = (f0, i0);
+            let mut closed = false;
+            for _ in 0..list.len() {
+                let face = &self.faces[f];
+                let prev = face[(i + face.len() - 1) % face.len()];
+                match directed.get(&(v, prev)) {
+                    Some(Some((g, j))) => {
+                        (f, i) = (*g, *j);
+                        if (f, i) == (f0, i0) {
+                            closed = true;
+                            break;
+                        }
+                        cap.push(corner(f, i));
+                    }
+                    _ => break,
+                }
+            }
+            if closed && cap.len() == list.len() && cap.len() >= 3 {
+                out.faces.push(cap);
             }
         }
         out
@@ -418,5 +577,74 @@ mod tests {
     fn mapped_with_a_mirroring_map_keeps_faces_outward() {
         let m = Mesh::cube(2.0).mapped(|v| [-v[0], v[1], v[2]], true);
         assert!((m.signed_volume() - 8.0).abs() < 1e-4);
+    }
+    #[test]
+    fn simple_subdivide_counts_and_keeps_the_shape() {
+        let m = Mesh::cube(2.0).subdivided_simple();
+        assert_eq!((m.verts.len(), m.faces.len()), (26, 24));
+        assert!(m.faces.iter().all(|f| f.len() == 4));
+        assert!(m.edges().iter().all(|e| e.faces == 2));
+        assert!((m.signed_volume() - 8.0).abs() < 1e-4);
+        let t = Mesh::circle(8, 1.0).subdivided_simple();
+        assert_eq!(t.faces.len(), 8);
+        let twice = Mesh::cube(2.0).subdivided_simple().subdivided_simple();
+        assert_eq!(twice.faces.len(), 96);
+    }
+
+    #[test]
+    fn loose_parts_split_disconnected_pieces() {
+        let mut m = Mesh::cube(2.0);
+        m.append(&Mesh::cube(1.0).mapped(|v| add(v, [5.0, 0.0, 0.0]), false));
+        m.append(&Mesh::plane(1.0).mapped(|v| add(v, [0.0, 5.0, 0.0]), false));
+        m.verts.push([9.0, 9.0, 9.0]); /* a loose vertex is dropped */
+        let parts = m.loose_parts();
+        assert_eq!(parts.len(), 3);
+        assert_eq!((parts[0].verts.len(), parts[0].faces.len()), (8, 6));
+        assert_eq!((parts[1].verts.len(), parts[1].faces.len()), (8, 6));
+        assert_eq!((parts[2].verts.len(), parts[2].faces.len()), (4, 1));
+        assert!((parts[1].signed_volume() - 1.0).abs() < 1e-4);
+        assert_eq!(Mesh::cube(2.0).loose_parts().len(), 1);
+        assert!(Mesh::default().loose_parts().is_empty());
+    }
+
+    #[test]
+    fn bevel_a_cube_is_a_closed_chamfered_solid() {
+        let m = Mesh::cube(2.0).beveled(0.2);
+        /* 24 corners, 6 + 12 + 8 faces, and Euler: 24 - 48 + 26 = 2. */
+        assert_eq!((m.verts.len(), m.faces.len()), (24, 26));
+        let edges = m.edges();
+        assert!(edges.iter().all(|e| e.faces == 2));
+        assert_eq!(m.verts.len() as i32 - edges.len() as i32 + m.faces.len() as i32, 2);
+        let v = m.signed_volume();
+        assert!(v > 0.0 && v < 8.0, "{v}");
+        /* The original faces keep their planes, shrunk by the width on every side. */
+        let (mn, mx) = m.bounds().unwrap();
+        assert!(mn.iter().chain(mx.iter()).all(|c| (c.abs() - 1.0).abs() < 1e-5));
+        /* Each of the 12 chamfers cuts at most a prism with a right triangle of legs 0.2 and length 2. */
+        assert!(8.0 - v < 12.0 * 0.5 * 0.2 * 0.2 * 2.0 + 1e-3);
+        assert!(m.faces.iter().filter(|f| f.len() == 3).count() == 8, "triangular vertex caps");
+    }
+
+    #[test]
+    fn bevel_width_is_clamped_and_zero_is_a_noop() {
+        let huge = Mesh::cube(2.0).beveled(50.0);
+        assert!(huge.signed_volume() > 0.0);
+        assert!(huge.verts.iter().all(|v| v.iter().all(|c| c.abs() <= 1.0 + 1e-5)));
+        assert_eq!(Mesh::cube(2.0).beveled(0.0), Mesh::cube(2.0));
+        assert_eq!(Mesh::default().beveled(0.1), Mesh::default());
+    }
+
+    #[test]
+    fn bevel_an_open_mesh_only_insets() {
+        let m = Mesh::plane(2.0).beveled(0.1);
+        assert_eq!((m.verts.len(), m.faces.len()), (4, 1));
+        assert!((m.bounds().unwrap().1[0] - 0.9).abs() < 1e-5);
+    }
+
+    #[test]
+    fn bevel_keeps_a_sphere_closed_and_outward() {
+        let m = Mesh::ico_sphere(2, 1.0).beveled(0.02);
+        assert!(m.edges().iter().all(|e| e.faces == 2));
+        assert!(m.signed_volume() > 0.0);
     }
 }

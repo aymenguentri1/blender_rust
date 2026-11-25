@@ -2,7 +2,7 @@
 //! before the Subdivision Surface level, which is why a mirrored or arrayed object subdivides as one piece.
 //!
 //! Defaults follow `DNA_modifier_defaults.h`: Mirror merges at 0.001 m, Array has a count of 2 and a relative
-//! offset of (1, 0, 0), Solidify a thickness of 0.01 m and an offset of -1.
+//! offset of (1, 0, 0), Solidify a thickness of 0.01 m and an offset of -1, Bevel a width of 0.1 m.
 
 use crate::mesh::{Mesh, V3};
 
@@ -11,6 +11,8 @@ pub enum Modifier {
     Mirror { axes: [bool; 3], merge: bool, threshold: f32 },
     Array { count: u32, relative: V3, constant: V3 },
     Solidify { thickness: f32, offset: f32 },
+    /// One segment, `Offset` width.
+    Bevel { width: f32 },
 }
 
 impl Modifier {
@@ -28,12 +30,17 @@ impl Modifier {
         Modifier::Solidify { thickness: 0.01, offset: -1.0 }
     }
 
+    pub fn bevel() -> Modifier {
+        Modifier::Bevel { width: 0.1 }
+    }
+
     /// The name shown in the modifier panel.
     pub fn label(&self) -> &'static str {
         match self {
             Modifier::Mirror { .. } => "Mirror",
             Modifier::Array { .. } => "Array",
             Modifier::Solidify { .. } => "Solidify",
+            Modifier::Bevel { .. } => "Bevel",
         }
     }
 
@@ -50,6 +57,7 @@ impl Modifier {
             }
             Modifier::Array { count, relative, constant } => mesh.arrayed(*count, *relative, *constant),
             Modifier::Solidify { thickness, offset } => mesh.solidified(*thickness, *offset),
+            Modifier::Bevel { width } => mesh.beveled(*width),
         }
     }
 }
@@ -79,5 +87,13 @@ mod tests {
         let cube = Mesh::cube(2.0).mapped(|v| [v[0] + 3.0, v[1] + 3.0, v[2]], false);
         let m = Modifier::Mirror { axes: [true, true, false], merge: true, threshold: 0.001 };
         assert_eq!(m.apply(&cube).faces.len(), 24);
+    }
+    #[test]
+    fn bevel_in_the_stack() {
+        let cube = Mesh::cube(2.0);
+        assert_eq!(evaluate(&cube, &[Modifier::bevel()]).faces.len(), 26);
+        /* Bevelling a mirrored half cube chamfers the seam too only when it is welded: 12 + ... faces, still closed. */
+        let r = evaluate(&cube, &[Modifier::array(2), Modifier::bevel()]);
+        assert_eq!(r.faces.len(), 2 * 26);
     }
 }
