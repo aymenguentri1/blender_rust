@@ -10,6 +10,7 @@
 use crate::area::{fill_rect, Rcti};
 use crate::font;
 use crate::mesh::Primitive;
+pub use crate::scene::EmptyKind;
 use crate::theme::Rgba;
 use crate::userdef::UserDef;
 
@@ -25,14 +26,15 @@ const TITLE: &str = "Add";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AddItem {
     Mesh(Primitive),
-    Empty,
+    Empty(EmptyKind),
     Camera,
     Light,
 }
 
 impl AddItem {
-    /// The nine mesh primitives, then Empty, Camera and Light (the order of `VIEW3D_MT_add`).
-    pub const ALL: [AddItem; 12] = [
+    /// The nine mesh primitives, the seven empty types (Blender nests them in an Empty submenu), Camera and Light
+    /// (the order of `VIEW3D_MT_add`).
+    pub const ALL: [AddItem; 18] = [
         AddItem::Mesh(Primitive::Plane),
         AddItem::Mesh(Primitive::Cube),
         AddItem::Mesh(Primitive::Circle),
@@ -42,7 +44,13 @@ impl AddItem {
         AddItem::Mesh(Primitive::Cone),
         AddItem::Mesh(Primitive::Torus),
         AddItem::Mesh(Primitive::Grid),
-        AddItem::Empty,
+        AddItem::Empty(EmptyKind::PlainAxes),
+        AddItem::Empty(EmptyKind::Arrows),
+        AddItem::Empty(EmptyKind::SingleArrow),
+        AddItem::Empty(EmptyKind::Circle),
+        AddItem::Empty(EmptyKind::Cube),
+        AddItem::Empty(EmptyKind::Sphere),
+        AddItem::Empty(EmptyKind::Cone),
         AddItem::Camera,
         AddItem::Light,
     ];
@@ -50,7 +58,15 @@ impl AddItem {
     pub fn label(self) -> &'static str {
         match self {
             AddItem::Mesh(p) => p.label(),
-            AddItem::Empty => "Empty",
+            AddItem::Empty(k) => match k {
+                EmptyKind::PlainAxes => "Empty: Plain Axes",
+                EmptyKind::Arrows => "Empty: Arrows",
+                EmptyKind::SingleArrow => "Empty: Single Arrow",
+                EmptyKind::Circle => "Empty: Circle",
+                EmptyKind::Cube => "Empty: Cube",
+                EmptyKind::Sphere => "Empty: Sphere",
+                EmptyKind::Cone => "Empty: Cone",
+            },
             AddItem::Camera => "Camera",
             AddItem::Light => "Light",
         }
@@ -60,6 +76,7 @@ impl AddItem {
     pub fn object_name(self) -> &'static str {
         match self {
             AddItem::Mesh(p) => p.object_name(),
+            AddItem::Empty(_) => "Empty",
             other => other.label(),
         }
     }
@@ -149,7 +166,7 @@ mod tests {
     fn the_panel_opens_below_and_right_of_the_cursor() {
         let l = layout(&user(), [300, 500], 1000, 800);
         assert_eq!((l.panel.xmin, l.panel.ymax), (300, 500));
-        assert_eq!(l.items.len(), 12);
+        assert_eq!(l.items.len(), 18);
         assert!(l.items.iter().all(|(r, _)| l.panel.isect_pt(r.xmin, r.ymin) && l.panel.isect_pt(r.xmax, r.ymax)));
     }
 
@@ -157,7 +174,7 @@ mod tests {
     #[test]
     fn rows_are_one_unit_high_and_in_order() {
         let l = layout(&user(), [300, 500], 1000, 800);
-        assert_eq!(l.panel.size_y() + 1, 13 * 20 + 8);
+        assert_eq!(l.panel.size_y() + 1, 19 * 20 + 8);
         for (r, _) in &l.items {
             assert_eq!(r.size_y() + 1, 20);
         }
@@ -166,7 +183,17 @@ mod tests {
         let labels: Vec<_> = l.items.iter().map(|(_, p)| p.label()).collect();
         assert_eq!(
             labels,
-            ["Plane", "Cube", "Circle", "UV Sphere", "Ico Sphere", "Cylinder", "Cone", "Torus", "Grid", "Empty", "Camera", "Light"]
+            ["Plane", "Cube", "Circle", "UV Sphere", "Ico Sphere", "Cylinder", "Cone", "Torus", "Grid",
+                "Empty: Plain Axes",
+                "Empty: Arrows",
+                "Empty: Single Arrow",
+                "Empty: Circle",
+                "Empty: Cube",
+                "Empty: Sphere",
+                "Empty: Cone",
+                "Camera",
+                "Light"
+            ]
         );
     }
 
@@ -194,8 +221,8 @@ mod tests {
     #[test]
     fn drawing_highlights_the_hovered_row_only() {
         let u = user();
-        let (w, h) = (400usize, 300usize);
-        let l = layout(&u, [50, 250], w as i32, h as i32);
+        let (w, h) = (400usize, 500usize);
+        let l = layout(&u, [50, 450], w as i32, h as i32);
         let bg = 0x0055_5555u32;
         let mut buf = vec![bg; w * h];
         let (rect, _) = l.items[3];

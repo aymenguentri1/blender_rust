@@ -90,10 +90,12 @@ step, and the values are the object's own (local) transform, so they also work o
 dragging a field, expressions, lock toggles, rotation modes and delta transforms.
 
 ### Add menu
-Shift + A opens one list of twelve entries: the nine mesh primitives, then Empty (Plain Axes, drawn as three lines
-through the origin), Camera and Light (Point). The new object is placed at the 3D cursor, aligned to the world, selected and
-active, and is one undo step. Blender nests the meshes in a Mesh submenu and offers more empty, light and camera
-types; those are not modelled.
+Shift + A opens one list of eighteen entries: the nine mesh primitives, the seven empty types (Plain Axes, Arrows,
+Single Arrow, Circle, Cube, Sphere, Cone, listed as `Empty: ...`), Camera and Light (Point). The new object is placed at
+the 3D cursor, aligned to the world, selected and active, and is one undo step. Empties are drawn with Blender's
+shapes at display size 1 (the circle lies in the XZ plane, the cone points along +Y); Arrows are the three axis
+lines without the screen aligned end markers and letters. Blender nests the meshes and empties in submenus and
+offers the Image empty and more light and camera types; those are not modelled.
 
 ### Parenting
 | Keys | Operator |

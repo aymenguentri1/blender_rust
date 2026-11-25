@@ -22,7 +22,7 @@ use crate::area::Rcti;
 use crate::mesh::V3;
 use crate::overlay_cursor::{draw_segment_gradient, project_segment};
 use crate::overlay_grid::srgb_to_linearrgb;
-use crate::scene::{mat4_mul_dir, mat4_mul_point, Object, ObjectData, Scene};
+use crate::scene::{mat4_mul_dir, mat4_mul_point, EmptyKind, Object, ObjectData, Scene};
 use crate::theme::{Rgba, SPACE_VIEW3D_ACTIVE, SPACE_VIEW3D_SELECT, SPACE_VIEW3D_WIRE};
 use crate::userdef::UserDef;
 use crate::view3d::RegionView3D;
@@ -86,7 +86,7 @@ fn world_segments(o: &Object, rv3d: &RegionView3D, winx: i32, winy: i32) -> Vec<
             }
             segs
         }
-        ObjectData::Empty => plain_axes().into_iter().map(|(a, b)| (mat4_mul_point(&m, a), mat4_mul_point(&m, b))).collect(),
+        ObjectData::Empty(kind) => empty_segments(kind).into_iter().map(|(a, b)| (mat4_mul_point(&m, a), mat4_mul_point(&m, b))).collect(),
         ObjectData::Mesh(_) => Vec::new(),
     }
 }
@@ -103,8 +103,67 @@ pub fn plain_axes() -> Vec<Seg> {
         .collect()
 }
 
+/// The shape of an empty in object space (`overlay_shape.cc`, display size 1). Arrows are the three axis lines
+/// without Blender's screen aligned end markers and axis letters.
+pub fn empty_segments(kind: EmptyKind) -> Vec<Seg> {
+    use std::f32::consts::TAU;
+    let ring = |n: usize, p: &dyn Fn(f32, f32) -> V3| -> Vec<Seg> {
+        let pt = |i: usize| p((TAU * (i % n) as f32 / n as f32).cos(), (TAU * (i % n) as f32 / n as f32).sin());
+        (0..n).map(|i| (pt(i), pt(i + 1))).collect()
+    };
+    match kind {
+        EmptyKind::PlainAxes => plain_axes(),
+        EmptyKind::Arrows => (0..3)
+            .map(|k| {
+                let mut b = [0.0; 3];
+                b[k] = 1.0;
+                ([0.0; 3], b)
+            })
+            .collect(),
+        EmptyKind::SingleArrow => {
+            /* A square pyramid head from z = 0.75 to the tip at z = 1 on a shaft from the origin. */
+            let mut segs: Vec<Seg> = vec![([0.0; 3], [0.0, 0.0, 0.75])];
+            let base: [V3; 4] = [[0.035, 0.035, 0.75], [-0.035, 0.035, 0.75], [-0.035, -0.035, 0.75], [0.035, -0.035, 0.75]];
+            for i in 0..4 {
+                segs.push(([0.0, 0.0, 1.0], base[i]));
+                segs.push((base[i], base[(i + 1) % 4]));
+            }
+            segs
+        }
+        /* In the XZ plane, 64 segments. */
+        EmptyKind::Circle => ring(64, &|c, s| [c, 0.0, s]),
+        EmptyKind::Cube => {
+            let corner = |i: usize| -> V3 { [if i & 1 == 0 { -1.0 } else { 1.0 }, if i & 2 == 0 { -1.0 } else { 1.0 }, if i & 4 == 0 { -1.0 } else { 1.0 }] };
+            let mut segs = Vec::new();
+            for i in 0..8usize {
+                for bit in [1usize, 2, 4] {
+                    if i & bit == 0 {
+                        segs.push((corner(i), corner(i | bit)));
+                    }
+                }
+            }
+            segs
+        }
+        /* Three circles of 32 segments, one in each axis plane. */
+        EmptyKind::Sphere => {
+            let mut segs = ring(32, &|c, s| [c, s, 0.0]);
+            segs.extend(ring(32, &|c, s| [c, 0.0, s]));
+            segs.extend(ring(32, &|c, s| [0.0, c, s]));
+            segs
+        }
+        /* Base ring of 8 segments in the XZ plane, apex at y = 2. */
+        EmptyKind::Cone => {
+            let mut segs = ring(8, &|c, s| [c, 0.0, s]);
+            for i in 0..8 {
+                segs.push((segs[i].0, [0.0, 2.0, 0.0]));
+            }
+            segs
+        }
+    }
+}
+
 fn is_extra(o: &Object) -> bool {
-    matches!(o.data, ObjectData::Camera | ObjectData::Light | ObjectData::Empty) && !o.hidden
+    matches!(o.data, ObjectData::Camera | ObjectData::Light | ObjectData::Empty(_)) && !o.hidden
 }
 
 /// Draws the cameras and lights of `scene` into `region` (inclusive Blender rect, y up) of the `0x00RRGGBB`
@@ -293,6 +352,31 @@ mod tests {
     }
 
     #[test]
+    fn every_empty_type_has_its_shape() {
+        let n = |k| empty_segments(k).len();
+        assert_eq!(n(EmptyKind::PlainAxes), 3);
+        assert_eq!(n(EmptyKind::Arrows), 3);
+        assert_eq!(n(EmptyKind::SingleArrow), 9);
+        assert_eq!(n(EmptyKind::Circle), 64);
+        assert_eq!(n(EmptyKind::Cube), 12);
+        assert_eq!(n(EmptyKind::Sphere), 96);
+        assert_eq!(n(EmptyKind::Cone), 16);
+        /* Everything lies inside the unit box (the cone's apex reaches y = 2). */
+        for k in EmptyKind::ALL {
+            for (a, b) in empty_segments(k) {
+                for p in [a, b] {
+                    assert!(p.iter().all(|c| c.abs() <= 2.0 + 1e-5), "{k:?} {p:?}");
+                }
+            }
+        }
+        let cube = empty_segments(EmptyKind::Cube);
+        assert!(cube.iter().all(|(a, b)| (0..3).filter(|&i| a[i] != b[i]).count() == 1 && (0..3).all(|i| a[i].abs() == 1.0)));
+        /* The circle closes on itself. */
+        let c = empty_segments(EmptyKind::Circle);
+        assert!((c[63].1[0] - c[0].0[0]).abs() < 1e-5 && (c[63].1[2] - c[0].0[2]).abs() < 1e-4);
+    }
+
+    #[test]
     fn the_empty_is_three_axes_through_the_origin_and_can_be_picked_and_drawn() {
         let segs = plain_axes();
         assert_eq!(segs.len(), 3);
@@ -302,7 +386,7 @@ mod tests {
         for o in &mut s.objects {
             o.hidden = true;
         }
-        let id = s.add_item(crate::add_menu::AddItem::Empty, [0.0; 3]);
+        let id = s.add_item(crate::add_menu::AddItem::Empty(EmptyKind::PlainAxes), [0.0; 3]);
         let rv3d = view();
         assert_eq!(pick(&s, &rv3d, W, H, [W / 2, H / 2]), Some(id), "the origin is the view centre");
         assert_eq!(pick(&s, &rv3d, W, H, [2, 2]), None);
