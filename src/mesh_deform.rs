@@ -8,6 +8,12 @@
 //!    Twist rotates the cross-section about the axis by up to `amount` radians, Taper scales it by
 //!    `1 + amount * t` and Stretch bulges it by `amount * sin(pi t)` (a smooth, ends-fixed stretch)
 //!
+//!  - Bend (added to Simple Deform): the Z range is wrapped onto a circular arc of `amount` radians in the
+//!    XZ plane, the lower end stays put
+//!  - `MOD_displace`: every vertex moves along its normal by `(texture - midlevel) * strength`; the texture is
+//!    a smooth value noise in 0..1 (Blender's default Clouds texture is also noise based), so coincident
+//!    vertices move together and the mesh stays closed
+//!
 //! None of them change the topology, so faces are shared with the input mesh.
 
 use crate::mesh::{Mesh, V3};
@@ -15,6 +21,7 @@ use crate::mesh::{Mesh, V3};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeformMode {
     Twist,
+    Bend,
     Taper,
     Stretch,
 }
@@ -23,6 +30,7 @@ impl DeformMode {
     pub fn label(self) -> &'static str {
         match self {
             DeformMode::Twist => "Twist",
+            DeformMode::Bend => "Bend",
             DeformMode::Taper => "Taper",
             DeformMode::Stretch => "Stretch",
         }
@@ -30,7 +38,8 @@ impl DeformMode {
     /// The next mode in the cycle, or `None` after the last one (the modifier is then removed).
     pub fn next(self) -> Option<DeformMode> {
         match self {
-            DeformMode::Twist => Some(DeformMode::Taper),
+            DeformMode::Twist => Some(DeformMode::Bend),
+            DeformMode::Bend => Some(DeformMode::Taper),
             DeformMode::Taper => Some(DeformMode::Stretch),
             DeformMode::Stretch => None,
         }
@@ -70,6 +79,22 @@ impl Mesh {
         Mesh { verts: cur, faces: self.faces.clone() }
     }
 
+    /// The Displace modifier: moves each vertex along its normal by `(noise - midlevel) * strength`.
+    pub fn displaced(&self, strength: f32, midlevel: f32, noise_scale: f32) -> Mesh {
+        let normals = self.vertex_normals();
+        let verts = self
+            .verts
+            .iter()
+            .zip(&normals)
+            .map(|(v, n)| {
+                let t = value_noise([v[0] * noise_scale, v[1] * noise_scale, v[2] * noise_scale]);
+                let d = (t - midlevel) * strength;
+                [v[0] + n[0] * d, v[1] + n[1] * d, v[2] + n[2] * d]
+            })
+            .collect();
+        Mesh { verts, faces: self.faces.clone() }
+    }
+
     /// The Simple Deform modifier about the Z axis. `amount` is in radians for Twist and a factor otherwise.
     pub fn deformed(&self, mode: DeformMode, amount: f32) -> Mesh {
         let Some((min, max)) = self.bounds() else {
@@ -88,6 +113,15 @@ impl Mesh {
                     let (s, c) = (amount * t).sin_cos();
                     [x * c - y * s, x * s + y * c, v[2]]
                 }
+                DeformMode::Bend => {
+                    if amount.abs() < 1e-6 {
+                        return v;
+                    }
+                    let r = span / amount;
+                    let phi = amount * t;
+                    let arm = r - x;
+                    [r - arm * phi.cos(), y, lower + arm * phi.sin()]
+                }
                 DeformMode::Taper => {
                     let k = 1.0 + amount * t;
                     [x * k, y * k, v[2]]
@@ -100,6 +134,31 @@ impl Mesh {
         };
         Mesh { verts: self.verts.iter().map(|&v| map(v)).collect(), faces: self.faces.clone() }
     }
+}
+
+fn lattice_hash(x: i32, y: i32, z: i32) -> f32 {
+    let mut h = (x as u32).wrapping_mul(0x9E37_79B1) ^ (y as u32).wrapping_mul(0x85EB_CA77) ^ (z as u32).wrapping_mul(0xC2B2_AE3D);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2C1B_3C6D);
+    h ^= h >> 12;
+    h = h.wrapping_mul(0x297A_2D39);
+    h ^= h >> 15;
+    (h >> 8) as f32 / (1u32 << 24) as f32
+}
+
+/// Smooth value noise in 0..1 (trilinear with a smoothstep fade between hashed lattice values).
+pub fn value_noise(p: V3) -> f32 {
+    let (fx, fy, fz) = (p[0].floor(), p[1].floor(), p[2].floor());
+    let (ix, iy, iz) = (fx as i32, fy as i32, fz as i32);
+    let fade = |t: f32| t * t * (3.0 - 2.0 * t);
+    let (u, v, w) = (fade(p[0] - fx), fade(p[1] - fy), fade(p[2] - fz));
+    let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
+    let c = |dx, dy, dz| lattice_hash(ix + dx, iy + dy, iz + dz);
+    let x00 = lerp(c(0, 0, 0), c(1, 0, 0), u);
+    let x10 = lerp(c(0, 1, 0), c(1, 1, 0), u);
+    let x01 = lerp(c(0, 0, 1), c(1, 0, 1), u);
+    let x11 = lerp(c(0, 1, 1), c(1, 1, 1), u);
+    lerp(lerp(x00, x10, v), lerp(x01, x11, v), w)
 }
 
 #[cfg(test)]
@@ -143,5 +202,35 @@ mod tests {
         for (a, b) in cube.verts.iter().zip(&s.verts) {
             assert!((a[0] - b[0]).abs() < 1e-4 && (a[1] - b[1]).abs() < 1e-4);
         }
+    }
+
+    #[test]
+    fn bend_keeps_the_bottom_and_curls_the_top() {
+        let cube = Mesh::cube(2.0);
+        let b = cube.deformed(DeformMode::Bend, std::f32::consts::FRAC_PI_2);
+        let r = 2.0 / std::f32::consts::FRAC_PI_2;
+        for (a, n) in cube.verts.iter().zip(&b.verts) {
+            if a[2] < 0.0 {
+                assert!((a[0] - n[0]).abs() < 1e-5 && (a[2] - n[2]).abs() < 1e-5);
+            } else if a[0].abs() < 1.0001 && a[0] > 0.0 {
+                /* x = 1 is the inner side: radius r - 1, a quarter turn lands it at x = r, z = -1 + r - 1. */
+                assert!((n[0] - r).abs() < 1e-4, "{n:?}");
+                assert!((n[2] - (-1.0 + r - 1.0)).abs() < 1e-4, "{n:?}");
+            }
+            assert_eq!(a[1], n[1]);
+        }
+        assert_eq!(cube.deformed(DeformMode::Bend, 0.0), cube);
+    }
+
+    #[test]
+    fn displace_is_deterministic_and_keeps_the_mesh_closed() {
+        let cube = Mesh::cube(2.0);
+        let d = cube.displaced(0.5, 0.5, 1.0);
+        assert_eq!(d, cube.displaced(0.5, 0.5, 1.0));
+        assert_ne!(d.verts, cube.verts);
+        assert_eq!(d.faces, cube.faces);
+        assert_eq!(cube.displaced(0.0, 0.5, 1.0), cube);
+        let n = value_noise([0.3, 1.7, -2.2]);
+        assert!((0.0..=1.0).contains(&n));
     }
 }

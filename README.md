@@ -16,8 +16,10 @@ Blender has no keys for modifiers (they live in the properties editor), so these
 | Ctrl + Alt + W | Solidify modifier: toggle (0.01 m, offset -1) |
 | Ctrl + Alt + B | Bevel modifier: toggle (one segment, 0.1 m, clamped under half the shortest edge) |
 | Ctrl + Alt + M | Smooth modifier: toggle (factor 0.5, 1 repeat) |
-| Ctrl + Alt + T | Simple Deform modifier (Z axis): each press cycles Twist (45 degrees) -> Taper (0.5) -> Stretch (0.5) -> off |
+| Ctrl + Alt + T | Simple Deform modifier (Z axis): each press cycles Twist (45 degrees) -> Bend (45 degrees) -> Taper (0.5) -> Stretch (0.5) -> off |
 | Ctrl + Alt + E | Weld modifier: toggle (merge by distance, 1 mm) |
+| Ctrl + Alt + G | Displace modifier: toggle (noise along the normals, strength 0.2 m, midlevel 0.5) |
+| Ctrl + Alt + R | Triangulate modifier: toggle |
 | Alt + C | Convert to Mesh: bakes the modifiers and the subdivision level into the mesh |
 
 ### Object and mesh operators
