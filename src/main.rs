@@ -56,6 +56,7 @@ mod scene;
 #[allow(dead_code)]
 mod transform;
 mod overlay_outline;
+mod overlay_extra;
 
 use std::{num::NonZeroU32, sync::Arc};
 
@@ -614,7 +615,11 @@ impl ApplicationHandler for App {
                     let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
                     self.rv3d.update(&self.v3d, rw, rh);
                     let mval = [self.cursor[0] - layout.main.xmin, self.cursor[1] - layout.main.ymin];
-                    let hit = self.scene.pick(&self.rv3d, rw, rh, mval);
+                    let mut hit = self.scene.pick(&self.rv3d, rw, rh, mval);
+                    if hit.is_none() && !self.overlays_hidden {
+                        /* Cameras and lights are overlay shapes: a click near their lines picks them. */
+                        hit = overlay_extra::pick(&self.scene, &self.rv3d, rw, rh, mval);
+                    }
                     self.scene.select_pick(hit, extend);
                     gfx.window.request_redraw();
                 } else if let Some(window) = outliner_draw::window_rect(user, layout.outliner).filter(|w| w.isect_pt_v(self.cursor)) {
@@ -1353,6 +1358,7 @@ impl ApplicationHandler for App {
                             overlay_grid_draw::draw_grid(&mut buf, w, h, layout.main, &self.v3d, &self.rv3d, &self.scene_depth);
                         }
                         if let Some(user) = self.user.as_ref().filter(|_| !self.overlays_hidden) {
+                            overlay_extra::draw_extras(&mut buf, w, h, layout.main, user, &self.rv3d, &self.scene);
                             overlay_cursor::draw_cursor(&mut buf, w, h, layout.main, user, &self.rv3d, self.cursor3d, self.cursor3d_quat);
                             overlay_text::draw(&mut buf, w, h, layout.main, user, &self.v3d, &self.rv3d, self.frame.unwrap_or(1));
                         }
