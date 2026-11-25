@@ -986,6 +986,9 @@ impl ApplicationHandler for App {
                         /* Screw (U) and Wave (K) modifiers. */
                         KeyCode::KeyU if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_screw() > 0,
                         KeyCode::KeyK if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_wave() > 0,
+                        /* Laplacian Smooth (L) and Remesh in Blocks mode (I) modifiers. */
+                        KeyCode::KeyL if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_laplacian_smooth() > 0,
+                        KeyCode::KeyI if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_remesh() > 0,
                         /* Editing the stack (the active modifier is marked `>` in the viewport text): Ctrl + Alt + Up /
                          * Down select it, `]` / `[` raise / lower its main value, Page Up / Page Down move it in the
                          * stack and Ctrl + Shift + Alt + X removes it. */
