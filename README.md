@@ -111,6 +111,8 @@ location is exact), shear is dropped when a transform is baked, and the parent i
 | Keys | Operator |
 | --- | --- |
 | Shift + G | Select Grouped, Type: adds every visible object of the active object's type |
+| Shift + L | Select Linked, Object Data: adds every visible object whose mesh equals the active object's (meshes are not shared between objects here, so identical geometry stands in for linked data) |
+| Shift + Alt + L | Select Linked, Modifiers: adds every visible mesh with the same modifier stack and Subdivision Surface level as the active object's |
 | Shift + Alt + R | Select Random: adds about half of the visible objects; each press uses the next seed |
 | Shift + H | Hide Unselected: hides every visible object that is not selected (H hides the selection, Alt + H shows everything again and selects it) |
 

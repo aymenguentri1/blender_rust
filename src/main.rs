@@ -1163,6 +1163,13 @@ impl ApplicationHandler for App {
                          * X / Y / Z), Ctrl + Alt + J toggles Merge (1 mm). */
                         KeyCode::KeyO if ctrl_k && alt_k && !shift_k => geometry = self.scene.cycle_array_offset() > 0,
                         KeyCode::KeyJ if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_array_merge() > 0,
+                        /* `object.select_linked`: Shift + L Object Data, Shift + Alt + L Modifiers. */
+                        KeyCode::KeyL if shift_k && !ctrl_k && !alt_k => {
+                            self.scene.select_linked_data();
+                        }
+                        KeyCode::KeyL if shift_k && alt_k && !ctrl_k => {
+                            self.scene.select_linked_modifiers();
+                        }
                         /* Set Origin > Origin to Center of Mass (Volume). */
                         KeyCode::KeyM if ctrl_k && shift_k && alt_k => geometry = self.scene.origin_to_center_of_mass() > 0,
                         /* `object.select_grouped` by type (Shift + G) and `object.select_random` (Shift + Alt + R). */
