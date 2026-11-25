@@ -191,6 +191,8 @@ struct App {
     wire: bool,
     /// `View3D::flag2 & V3D_HIDE_OVERLAYS` (`wm.context_toggle` of `space_data.overlay.show_overlays`, Shift + Alt + Z).
     overlays_hidden: bool,
+    /// The statistics overlay (Shift + Alt + O): object, vertex, face and triangle counts in the info text.
+    show_stats: bool,
     /// Workbench temporal anti-aliasing accumulation of the main region.
     taa: taa::TaaState,
     /// `Scene::r.cfra`, the current frame; `None` is the startup frame 1.
@@ -1108,6 +1110,36 @@ impl ApplicationHandler for App {
                             };
                             geometry = self.scene.mirror_objects(axis) > 0;
                         }
+                        /* Object > Transform > Align Objects (Shift + Alt + 1 / 2 / 3 aligns the centers on X / Y / Z to the
+                         * active object, add Ctrl for the negative sides), Randomize Transform (Ctrl + Shift + R). */
+                        KeyCode::Digit1 | KeyCode::Digit2 | KeyCode::Digit3 if shift_k && alt_k => {
+                            let axis = match code {
+                                KeyCode::Digit1 => 0,
+                                KeyCode::Digit2 => 1,
+                                _ => 2,
+                            };
+                            let mode = if ctrl_k { scene::AlignMode::NegativeSides } else { scene::AlignMode::Centers };
+                            geometry = self.scene.align_objects(axis, mode, scene::AlignTo::Active) > 0;
+                        }
+                        KeyCode::KeyR if ctrl_k && shift_k && !alt_k => {
+                            geometry = self.scene.randomize_transform(&scene::Randomize::default()) > 0;
+                        }
+                        /* `object.select_grouped` by relationship: Ctrl + Shift + G Children, Shift + Alt + G Immediate
+                         * Children, Ctrl + Shift + Alt + G Parent, Ctrl + Shift + Alt + S Siblings. */
+                        KeyCode::KeyG if ctrl_k && shift_k && !alt_k => {
+                            self.scene.select_grouped(scene::GroupKind::Children);
+                        }
+                        KeyCode::KeyG if shift_k && alt_k && !ctrl_k => {
+                            self.scene.select_grouped(scene::GroupKind::ChildrenImmediate);
+                        }
+                        KeyCode::KeyG if ctrl_k && shift_k && alt_k => {
+                            self.scene.select_grouped(scene::GroupKind::Parent);
+                        }
+                        KeyCode::KeyS if ctrl_k && shift_k && alt_k => {
+                            self.scene.select_grouped(scene::GroupKind::Siblings);
+                        }
+                        /* Set Origin > Origin to Center of Mass (Volume). */
+                        KeyCode::KeyM if ctrl_k && shift_k && alt_k => geometry = self.scene.origin_to_center_of_mass() > 0,
                         /* `object.select_grouped` by type (Shift + G) and `object.select_random` (Shift + Alt + R). */
                         KeyCode::KeyG if shift_k && !ctrl_k && !alt_k => {
                             self.scene.select_grouped_type();
@@ -1303,6 +1335,12 @@ impl ApplicationHandler for App {
                         self.overlays_hidden = !self.overlays_hidden;
                         gfx.window.request_redraw();
                     }
+                    return;
+                }
+                /* The statistics overlay (Shift + Alt + O): counts of the visible objects under the info text. */
+                if code == KeyCode::KeyO && shift_k && alt_k && !ctrl_k && !key_event.repeat {
+                    self.show_stats = !self.show_stats;
+                    gfx.window.request_redraw();
                     return;
                 }
                 /* `view3d.toggle_shading` with `type = WIREFRAME` on Shift + Z: switches between wire and solid
@@ -1597,7 +1635,7 @@ impl ApplicationHandler for App {
                         if let Some(user) = self.user.as_ref().filter(|_| !self.overlays_hidden) {
                             overlay_extra::draw_extras(&mut buf, w, h, layout.main, user, &self.rv3d, &self.scene);
                             overlay_cursor::draw_cursor(&mut buf, w, h, layout.main, user, &self.rv3d, self.cursor3d, self.cursor3d_quat);
-                            overlay_text::draw(&mut buf, w, h, layout.main, user, &self.v3d, &self.rv3d, self.frame.unwrap_or(1), &overlay_text::ObjectInfo::of(&self.scene));
+                            overlay_text::draw(&mut buf, w, h, layout.main, user, &self.v3d, &self.rv3d, self.frame.unwrap_or(1), &{ let info = overlay_text::ObjectInfo::of(&self.scene); if self.show_stats { info.with_stats(&self.scene) } else { info } });
                         }
                     }
                     area::fill_rect(&mut buf, w, h, layout.topbar, theme::SPACE_TOPBAR_HEADER.to_xrgb());
