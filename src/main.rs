@@ -53,6 +53,7 @@ mod taa;
 mod mesh;
 mod mesh_ops;
 mod mesh_deform;
+mod mesh_wire;
 mod modifiers;
 #[allow(dead_code)]
 mod scene;
@@ -974,6 +975,9 @@ impl ApplicationHandler for App {
                         /* Displace (G) and Triangulate (R) modifiers; Bend is the second step of the Simple Deform cycle. */
                         KeyCode::KeyG if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_displace() > 0,
                         KeyCode::KeyR if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_triangulate_modifier() > 0,
+                        /* Cast (C: Sphere, then Cylinder, then off) and Wireframe (Q) modifiers. */
+                        KeyCode::KeyC if ctrl_k && alt_k && !shift_k => geometry = self.scene.cycle_cast() > 0,
+                        KeyCode::KeyQ if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_wireframe() > 0,
                         /* `mesh.subdivide` (one cut, no smoothing) and `mesh.separate` by loose parts (P). */
                         KeyCode::KeyD if ctrl_k && alt_k && !shift_k => geometry = self.scene.subdivide_simple() > 0,
                         KeyCode::KeyP if plain => geometry = self.scene.separate_loose() > 0,

@@ -14,6 +14,9 @@
 //!    a smooth value noise in 0..1 (Blender's default Clouds texture is also noise based), so coincident
 //!    vertices move together and the mesh stays closed
 //!
+//!  - `MOD_cast`: vertices blend by `factor` towards a sphere (all axes) or a cylinder (X and Y only) around
+//!    the object origin; the radius is the average distance of the vertices when it is 0
+//!
 //! None of them change the topology, so faces are shared with the input mesh.
 
 use crate::mesh::{Mesh, V3};
@@ -46,7 +49,68 @@ impl DeformMode {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CastShape {
+    Sphere,
+    Cylinder,
+}
+
+impl CastShape {
+    pub fn label(self) -> &'static str {
+        match self {
+            CastShape::Sphere => "Sphere",
+            CastShape::Cylinder => "Cylinder",
+        }
+    }
+    /// The next shape in the cycle, or `None` after the last one (the modifier is then removed).
+    pub fn next(self) -> Option<CastShape> {
+        match self {
+            CastShape::Sphere => Some(CastShape::Cylinder),
+            CastShape::Cylinder => None,
+        }
+    }
+}
+
 impl Mesh {
+    /// The Cast modifier. `radius` 0 means the average distance of the vertices (measured in the cast plane).
+    pub fn casted(&self, shape: CastShape, factor: f32, radius: f32) -> Mesh {
+        let plane = |v: V3| -> V3 {
+            match shape {
+                CastShape::Sphere => v,
+                CastShape::Cylinder => [v[0], v[1], 0.0],
+            }
+        };
+        let len = |v: V3| plane(v).iter().map(|c| c * c).sum::<f32>().sqrt();
+        let r = if radius > 0.0 {
+            radius
+        } else if self.verts.is_empty() {
+            0.0
+        } else {
+            self.verts.iter().map(|&v| len(v)).sum::<f32>() / self.verts.len() as f32
+        };
+        let verts = self
+            .verts
+            .iter()
+            .map(|&v| {
+                let l = len(v);
+                if l < 1e-9 {
+                    return v;
+                }
+                let k = r / l;
+                let target = match shape {
+                    CastShape::Sphere => [v[0] * k, v[1] * k, v[2] * k],
+                    CastShape::Cylinder => [v[0] * k, v[1] * k, v[2]],
+                };
+                [
+                    v[0] + (target[0] - v[0]) * factor,
+                    v[1] + (target[1] - v[1]) * factor,
+                    v[2] + (target[2] - v[2]) * factor,
+                ]
+            })
+            .collect();
+        Mesh { verts, faces: self.faces.clone() }
+    }
+
     /// The Smooth modifier: `repeat` rounds of moving each vertex `factor` of the way to its neighbour average.
     pub fn smoothed(&self, factor: f32, repeat: u32) -> Mesh {
         let n = self.verts.len();
@@ -232,5 +296,21 @@ mod tests {
         assert_eq!(cube.displaced(0.0, 0.5, 1.0), cube);
         let n = value_noise([0.3, 1.7, -2.2]);
         assert!((0.0..=1.0).contains(&n));
+    }
+
+    #[test]
+    fn full_cast_puts_every_vertex_on_the_sphere_or_cylinder() {
+        let cube = Mesh::cube(2.0);
+        let s = cube.casted(CastShape::Sphere, 1.0, 0.0);
+        for v in &s.verts {
+            let l = v.iter().map(|c| c * c).sum::<f32>().sqrt();
+            assert!((l - 3.0f32.sqrt()).abs() < 1e-4);
+        }
+        let c = cube.casted(CastShape::Cylinder, 1.0, 2.0);
+        for (a, v) in cube.verts.iter().zip(&c.verts) {
+            assert!(((v[0] * v[0] + v[1] * v[1]).sqrt() - 2.0).abs() < 1e-4);
+            assert_eq!(a[2], v[2]);
+        }
+        assert_eq!(cube.casted(CastShape::Sphere, 0.0, 1.0), cube);
     }
 }
