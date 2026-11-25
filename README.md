@@ -50,10 +50,11 @@ are required:
 
 | Control | Action |
 | --- | --- |
-| Add Modifier | Opens a list of all 17 modifier kinds; a click appends one (with its defaults) and closes the list |
+| Add Modifier | Opens a list of all 18 modifier kinds; a click appends one (with its defaults) and closes the list. Shrinkwrap (Nearest Surface Point, offset 0 m) snaps the vertices onto another object's surface, uses the target's base mesh and follows it when it moves; it has no key chord because it needs a target |
 | Modifier name | Makes it the active modifier (highlighted) |
 | `^` / `v` | Move it up / down in the stack |
 | `x` | Remove it |
+| `Target:` (Shrinkwrap only) | Cycles the target through the other mesh objects, then no target |
 | `-` / `+` (value row) | Lower / raise its main value, like Ctrl + Alt + `[` / `]` |
 
 Every panel edit is one undo step (Ctrl + Z). Not modelled: collapsing panels, per-setting fields, the viewport /

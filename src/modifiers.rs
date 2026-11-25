@@ -40,6 +40,15 @@ pub enum Modifier {
     LaplacianSmooth { factor: f32, repeat: u32 },
     /// Remesh, Blocks mode: voxel size in metres.
     Remesh { voxel: f32 },
+    /// Nearest Surface Point wrap onto the object with id `target`, keeping `offset` metres away.
+    Shrinkwrap { target: Option<u32>, offset: f32 },
+}
+
+/// What a modifier needs from the rest of the scene: the target meshes, already in the space of the object
+/// that owns the stack (built by `Scene`).
+#[derive(Clone, Debug, Default)]
+pub struct EvalCtx {
+    pub targets: std::collections::HashMap<u32, Mesh>,
 }
 
 impl Modifier {
@@ -112,6 +121,10 @@ impl Modifier {
         Modifier::Wave { height: 0.1, width: 1.5, speed: 0.25, time: 0.0 }
     }
 
+    pub fn shrinkwrap() -> Modifier {
+        Modifier::Shrinkwrap { target: None, offset: 0.0 }
+    }
+
     pub fn laplacian_smooth() -> Modifier {
         Modifier::LaplacianSmooth { factor: 0.5, repeat: 2 }
     }
@@ -142,6 +155,7 @@ impl Modifier {
             Modifier::weld(),
             Modifier::screw(),
             Modifier::remesh(),
+            Modifier::shrinkwrap(),
         ]
     }
 
@@ -169,6 +183,7 @@ impl Modifier {
             Modifier::Wave { .. } => "Wave",
             Modifier::LaplacianSmooth { .. } => "Laplacian Smooth",
             Modifier::Remesh { .. } => "Remesh",
+            Modifier::Shrinkwrap { .. } => "Shrinkwrap",
         }
     }
 
@@ -202,6 +217,7 @@ impl Modifier {
             Modifier::Wave { height, .. } => format!(" {} m", num(*height)),
             Modifier::LaplacianSmooth { factor, repeat } => format!(" {} x{repeat}", num(*factor)),
             Modifier::Remesh { voxel } => format!(": Blocks {} m", num(*voxel)),
+            Modifier::Shrinkwrap { offset, .. } => format!(" {} m", num(*offset)),
         };
         format!("{}{}", self.label(), detail)
     }
@@ -211,7 +227,8 @@ impl Modifier {
     /// 0.01 m, Smooth factor 0.1 (0 to 2), Twist / Bend 5 degrees, Taper / Stretch 0.1, Displace strength
     /// 0.05 m, Cast factor 0.1 (0 to 1), Decimate ratio 0.05 (0.01 to 1), Edge Split angle 5 degrees
     /// (0 to 180), Wireframe thickness 0.005 m, Weld distance 0.001 m, Screw angle 15 degrees (1 to 360),
-    /// Wave height 0.05 m, Laplacian Smooth factor 0.1 (0 to 2), Remesh voxel size 0.01 m (min 0.01). Mirror and Triangulate have no value.
+    /// Wave height 0.05 m, Laplacian Smooth factor 0.1 (0 to 2), Remesh voxel size 0.01 m (min 0.01),
+    /// Shrinkwrap offset 0.01 m. Mirror and Triangulate have no value.
     pub fn adjust(&mut self, steps: i32) -> bool {
         let n = steps as f32;
         let round = |x: f32| (x * 10000.0).round() / 10000.0;
@@ -239,12 +256,22 @@ impl Modifier {
             Modifier::Wave { height, .. } => *height = round(*height + 0.05 * n),
             Modifier::LaplacianSmooth { factor, .. } => *factor = round((*factor + 0.1 * n).clamp(0.0, 2.0)),
             Modifier::Remesh { voxel } => *voxel = round((*voxel + 0.01 * n).max(0.01)),
+            Modifier::Shrinkwrap { offset, .. } => *offset = round((*offset + 0.01 * n).clamp(-10.0, 10.0)),
         }
         *self != before
     }
 
     pub fn apply(&self, mesh: &Mesh) -> Mesh {
+        self.apply_with(mesh, &EvalCtx::default())
+    }
+
+    /// `apply()` with the scene context; a Shrinkwrap without a (found) target leaves the mesh alone.
+    pub fn apply_with(&self, mesh: &Mesh, ctx: &EvalCtx) -> Mesh {
         match self {
+            Modifier::Shrinkwrap { target, offset } => match target.and_then(|t| ctx.targets.get(&t)) {
+                Some(t) => mesh.shrinkwrapped(t, *offset),
+                None => mesh.clone(),
+            },
             Modifier::Mirror { axes, merge, threshold } => {
                 let mut m = mesh.clone();
                 for (axis, on) in axes.iter().enumerate() {
@@ -276,7 +303,11 @@ impl Modifier {
 
 /// The result of the whole stack.
 pub fn evaluate(mesh: &Mesh, stack: &[Modifier]) -> Mesh {
-    stack.iter().fold(mesh.clone(), |m, md| md.apply(&m))
+    evaluate_with(mesh, stack, &EvalCtx::default())
+}
+
+pub fn evaluate_with(mesh: &Mesh, stack: &[Modifier], ctx: &EvalCtx) -> Mesh {
+    stack.iter().fold(mesh.clone(), |m, md| md.apply_with(&m, ctx))
 }
 
 #[cfg(test)]
@@ -387,13 +418,25 @@ mod tests {
     }
 
     #[test]
+    fn shrinkwrap_uses_its_target_from_the_context() {
+        let cube = Mesh::cube(2.0);
+        let mut ctx = EvalCtx::default();
+        let m = Modifier::Shrinkwrap { target: Some(7), offset: 0.0 };
+        assert_eq!(evaluate_with(&cube, &[m.clone()], &ctx), cube, "no target found: unchanged");
+        ctx.targets.insert(7, Mesh::uv_sphere(16, 8, 2.0));
+        let r = evaluate_with(&cube, &[m], &ctx);
+        assert_ne!(r.verts, cube.verts);
+        assert_eq!(Modifier::shrinkwrap().summary(), "Shrinkwrap 0 m");
+    }
+
+    #[test]
     fn the_catalog_has_every_kind_once() {
         let c = Modifier::catalog();
-        assert_eq!(c.len(), 17);
+        assert_eq!(c.len(), 18);
         let mut names: Vec<&str> = c.iter().map(|m| m.label()).collect();
         names.sort();
         names.dedup();
-        assert_eq!(names.len(), 17);
+        assert_eq!(names.len(), 18);
         /* Every entry evaluates on a cube without panicking. */
         for m in &c {
             let _ = m.apply(&Mesh::cube(2.0));

@@ -504,7 +504,7 @@ fn mul_m4_m4m4(a: &Mat4, b: &Mat4) -> Mat4 {
 
 /// `invert_m4_m4()` (Gauss-Jordan with row pivoting, `invert_m4_m4_fallback()`). Like Blender,
 /// a singular matrix leaves the partially computed inverse.
-fn invert_m4_m4(mat: &Mat4) -> Mat4 {
+pub(crate) fn invert_m4_m4(mat: &Mat4) -> Mat4 {
     let mut inverse = IDENTITY;
     let mut t = *mat;
 

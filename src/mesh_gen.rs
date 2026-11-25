@@ -19,9 +19,15 @@
 //!    an empty cell become quads. It needs a closed mesh; an open one has no inside and gives an empty mesh.
 //!    Blender's Smooth, Sharp and Voxel modes are not modelled.
 //!
+//!  - `MOD_shrinkwrap`, Nearest Surface Point: every vertex moves onto the closest point of the target's
+//!    triangles, then `offset` metres away from the surface towards the side the vertex came from (the
+//!    triangle normal when it was already on the surface). The target is the base mesh of the other object
+//!    (its own modifiers are ignored). Blender's other wrap methods, the wrap mode and the vertex group are
+//!    not modelled; the search is brute force, so keep the target below a few thousand triangles.
+//!
 //! Screw and Remesh change the topology; Wave and Laplacian Smooth keep the faces of their input.
 
-use crate::mesh::{Mesh, V3};
+use crate::mesh::{add, cross, dot, normalized, scale, sub, Mesh, V3};
 use std::collections::HashMap;
 
 pub const SCREW_STEPS: u32 = 16;
@@ -180,6 +186,42 @@ impl Mesh {
         out
     }
 
+    /// The Shrinkwrap modifier (Nearest Surface Point); `target` is in the space of `self`.
+    pub fn shrinkwrapped(&self, target: &Mesh, offset: f32) -> Mesh {
+        let tris: Vec<[V3; 3]> = target
+            .triangles()
+            .into_iter()
+            .map(|(_, t)| [target.verts[t[0] as usize], target.verts[t[1] as usize], target.verts[t[2] as usize]])
+            .collect();
+        if tris.is_empty() {
+            return self.clone();
+        }
+        let verts = self
+            .verts
+            .iter()
+            .map(|&p| {
+                let mut best = (f32::MAX, p, 0usize);
+                for (i, t) in tris.iter().enumerate() {
+                    let q = closest_on_triangle(p, t);
+                    let d = sub(p, q);
+                    let d2 = dot(d, d);
+                    if d2 < best.0 {
+                        best = (d2, q, i);
+                    }
+                }
+                let (d2, q, i) = best;
+                if offset == 0.0 {
+                    return q;
+                }
+                let t = &tris[i];
+                let n = normalized(cross(sub(t[1], t[0]), sub(t[2], t[0])));
+                let dir = if d2 > 1e-12 { normalized(sub(p, q)) } else { n };
+                add(q, scale(dir, offset))
+            })
+            .collect();
+        Mesh { verts, faces: self.faces.clone() }
+    }
+
     /// The Wave modifier: a circular sine ripple along Z, see the module documentation.
     pub fn waved(&self, height: f32, width: f32, speed: f32, time: f32) -> Mesh {
         let w = width.max(1e-4);
@@ -194,6 +236,41 @@ impl Mesh {
             .collect();
         Mesh { verts, faces: self.faces.clone() }
     }
+}
+
+/// The closest point of triangle `t` to `p` (Ericson, Real-Time Collision Detection 5.1.5).
+pub(crate) fn closest_on_triangle(p: V3, t: &[V3; 3]) -> V3 {
+    let (a, b, c) = (t[0], t[1], t[2]);
+    let (ab, ac, ap) = (sub(b, a), sub(c, a), sub(p, a));
+    let (d1, d2) = (dot(ab, ap), dot(ac, ap));
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return a;
+    }
+    let bp = sub(p, b);
+    let (d3, d4) = (dot(ab, bp), dot(ac, bp));
+    if d3 >= 0.0 && d4 <= d3 {
+        return b;
+    }
+    let vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        return add(a, scale(ab, d1 / (d1 - d3)));
+    }
+    let cp = sub(p, c);
+    let (d5, d6) = (dot(ab, cp), dot(ac, cp));
+    if d6 >= 0.0 && d5 <= d6 {
+        return c;
+    }
+    let vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        return add(a, scale(ac, d2 / (d2 - d6)));
+    }
+    let va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0 {
+        let w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return add(b, scale(sub(c, b), w));
+    }
+    let denom = 1.0 / (va + vb + vc);
+    add(a, add(scale(ab, vb * denom), scale(ac, vc * denom)))
 }
 
 #[cfg(test)]
@@ -241,6 +318,35 @@ mod tests {
         assert!((r.signed_volume() - 8.0).abs() < 1e-3);
         /* A plane is open: nothing is inside. */
         assert!(Mesh::plane(2.0).remeshed_blocks(0.5).faces.is_empty());
+    }
+
+    #[test]
+    fn shrinkwrap_snaps_onto_the_target_surface() {
+        /* A cube's vertices pulled onto a bigger sphere end up on the sphere's surface (within the facets). */
+        let sphere = Mesh::uv_sphere(32, 16, 2.0);
+        let cube = Mesh::cube(2.0);
+        let w = cube.shrinkwrapped(&sphere, 0.0);
+        assert_eq!(w.faces, cube.faces);
+        for v in &w.verts {
+            let r = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+            assert!((r - 2.0).abs() < 0.1, "{r}");
+        }
+        /* The offset keeps the side the vertex came from: a big cube's corners land outside the sphere. */
+        let off = Mesh::cube(8.0).shrinkwrapped(&sphere, 0.5);
+        assert!(off.verts.iter().all(|v| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt() > 2.3));
+        /* An empty target changes nothing. */
+        assert_eq!(cube.shrinkwrapped(&Mesh::default(), 0.0), cube);
+    }
+
+    #[test]
+    fn closest_point_handles_face_edge_and_corner() {
+        let t = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+        let f = closest_on_triangle([0.2, 0.2, 3.0], &t);
+        assert!((f[0] - 0.2).abs() < 1e-6 && (f[1] - 0.2).abs() < 1e-6 && f[2] == 0.0);
+        assert_eq!(closest_on_triangle([2.0, -1.0, 0.0], &t), [1.0, 0.0, 0.0]);
+        assert_eq!(closest_on_triangle([-1.0, -1.0, 0.0], &t), [0.0, 0.0, 0.0]);
+        let e = closest_on_triangle([1.0, 1.0, 0.0], &t);
+        assert!((e[0] - 0.5).abs() < 1e-6 && (e[1] - 0.5).abs() < 1e-6);
     }
 
     #[test]
