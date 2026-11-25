@@ -594,6 +594,39 @@ impl Scene {
         })
     }
 
+    /// Adds a Wireframe modifier to the selected meshes, or removes the one they have.
+    pub fn toggle_wireframe(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::Wireframe { .. })) {
+                Some(i) => {
+                    stack.remove(i);
+                }
+                None => stack.push(Modifier::wireframe()),
+            }
+            true
+        })
+    }
+
+    /// Cast: adds it as Sphere, then each call moves it on to Cylinder and finally removes it.
+    pub fn cycle_cast(&mut self) -> usize {
+        use crate::mesh_deform::CastShape;
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::Cast { .. })) {
+                Some(i) => {
+                    let shape = if let Modifier::Cast { shape, .. } = &stack[i] { *shape } else { unreachable!() };
+                    match shape.next() {
+                        Some(next) => stack[i] = Modifier::cast(next),
+                        None => {
+                            stack.remove(i);
+                        }
+                    }
+                }
+                None => stack.push(Modifier::cast(CastShape::Sphere)),
+            }
+            true
+        })
+    }
+
     /// Adds a Weld modifier to the selected meshes, or removes the one they have.
     pub fn toggle_weld(&mut self) -> usize {
         self.edit_modifiers(|stack| {
@@ -1554,6 +1587,21 @@ mod tests {
         assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), 12);
         assert!(s.undo());
         assert!(s.undo());
+        assert!(s.active_object().unwrap().modifiers.is_empty());
+    }
+
+    #[test]
+    fn cast_cycles_and_wireframe_toggles() {
+        let mut s = Scene::startup();
+        assert_eq!(s.cycle_cast(), 1);
+        assert_eq!(s.cycle_cast(), 1);
+        assert_eq!(s.active_object().unwrap().modifiers.len(), 1);
+        assert_eq!(s.cycle_cast(), 1);
+        assert!(s.active_object().unwrap().modifiers.is_empty());
+        assert_eq!(s.toggle_wireframe(), 1);
+        s.update_eval();
+        assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), 96);
+        assert_eq!(s.toggle_wireframe(), 1);
         assert!(s.active_object().unwrap().modifiers.is_empty());
     }
 

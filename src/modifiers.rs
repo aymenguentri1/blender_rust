@@ -5,7 +5,7 @@
 //! offset of (1, 0, 0), Solidify a thickness of 0.01 m and an offset of -1, Bevel a width of 0.1 m.
 
 use crate::mesh::{Mesh, V3};
-use crate::mesh_deform::DeformMode;
+use crate::mesh_deform::{CastShape, DeformMode};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Modifier {
@@ -21,6 +21,10 @@ pub enum Modifier {
     /// Noise displacement along the normals.
     Displace { strength: f32, midlevel: f32, scale: f32 },
     Triangulate,
+    /// Blend towards a sphere or cylinder; radius 0 is the average distance.
+    Cast { shape: CastShape, factor: f32, radius: f32 },
+    /// Frames of the given thickness instead of faces.
+    Wireframe { thickness: f32 },
     /// Merge by distance.
     Weld { distance: f32 },
 }
@@ -63,6 +67,15 @@ impl Modifier {
         Modifier::Displace { strength: 0.2, midlevel: 0.5, scale: 1.0 }
     }
 
+    /// Factor 0.5 as in Blender.
+    pub fn cast(shape: CastShape) -> Modifier {
+        Modifier::Cast { shape, factor: 0.5, radius: 0.0 }
+    }
+
+    pub fn wireframe() -> Modifier {
+        Modifier::Wireframe { thickness: 0.02 }
+    }
+
     pub fn weld() -> Modifier {
         Modifier::Weld { distance: 0.001 }
     }
@@ -78,6 +91,8 @@ impl Modifier {
             Modifier::SimpleDeform { .. } => "Simple Deform",
             Modifier::Displace { .. } => "Displace",
             Modifier::Triangulate => "Triangulate",
+            Modifier::Cast { .. } => "Cast",
+            Modifier::Wireframe { .. } => "Wireframe",
             Modifier::Weld { .. } => "Weld",
         }
     }
@@ -100,6 +115,8 @@ impl Modifier {
             Modifier::SimpleDeform { mode, amount } => mesh.deformed(*mode, *amount),
             Modifier::Displace { strength, midlevel, scale } => mesh.displaced(*strength, *midlevel, *scale),
             Modifier::Triangulate => mesh.triangulated(),
+            Modifier::Cast { shape, factor, radius } => mesh.casted(*shape, *factor, *radius),
+            Modifier::Wireframe { thickness } => mesh.wireframed(*thickness),
             Modifier::Weld { distance } => mesh.merged_by_distance(*distance).0,
         }
     }
@@ -159,5 +176,20 @@ mod tests {
         assert_ne!(r.verts, cube.verts);
         let b = evaluate(&cube, &[Modifier::simple_deform(DeformMode::Bend)]);
         assert_ne!(b.verts, cube.verts);
+    }
+
+    #[test]
+    fn cast_and_wireframe_in_the_stack() {
+        let cube = Mesh::cube(2.0);
+        /* A cube's corners are all equally far out, so the default (average) radius leaves it alone. */
+        assert_eq!(evaluate(&cube, &[Modifier::cast(CastShape::Sphere)]).verts, cube.verts);
+        let c = evaluate(&cube, &[Modifier::Cast { shape: CastShape::Sphere, factor: 0.5, radius: 2.0 }]);
+        assert_eq!(c.faces, cube.faces);
+        assert_ne!(c.verts, cube.verts);
+        let w = evaluate(&cube, &[Modifier::wireframe()]);
+        assert_eq!(w.faces.len(), 96);
+        /* Wireframe after Triangulate frames the triangles: 12 * 3 * 4. */
+        let t = evaluate(&cube, &[Modifier::Triangulate, Modifier::wireframe()]);
+        assert_eq!(t.faces.len(), 12 * 3 * 4);
     }
 }
