@@ -65,6 +65,7 @@ keys act on:
 | Ctrl + Alt + Page Down / Page Up | Move it down / up in the stack |
 | Ctrl + Shift + Alt + X | Remove it |
 | Ctrl + Shift + Alt + A | Apply it: bakes the active modifier into the mesh and takes it off the stack. Like Blender it is applied on its own to the base mesh (the modifiers above it are not part of the result) and the rest of the stack then acts on the baked mesh |
+| Ctrl + Shift + Alt + D | Duplicate it: a copy with the same settings goes right after it and becomes the active modifier |
 
 The line above shows the real active object (`Collection | Cube`).
 
@@ -79,6 +80,7 @@ are required:
 | `^` / `v` | Move it up / down in the stack |
 | `x` | Remove it |
 | `Apply` | Bakes it into the mesh (Blender's Apply, Ctrl + A over the modifier), same as Ctrl + Shift + Alt + A |
+| `Duplicate` | Inserts a copy right after it (Blender's Duplicate, Shift + D over the modifier), same as Ctrl + Shift + Alt + D |
 | `Target:` (Shrinkwrap only) | Cycles the target through the other mesh objects, then no target |
 | `-` / `+` (value row) | Lower / raise its main value, like Ctrl + Alt + `[` / `]` |
 
