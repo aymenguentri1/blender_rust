@@ -22,7 +22,7 @@ use crate::area::Rcti;
 use crate::mesh::V3;
 use crate::overlay_cursor::{draw_segment_gradient, project_segment};
 use crate::overlay_grid::srgb_to_linearrgb;
-use crate::scene::{mat4_mul_dir, mat4_mul_point, EmptyKind, Object, ObjectData, Scene};
+use crate::scene::{mat4_mul_dir, mat4_mul_point, EmptyKind, LightKind, Object, ObjectData, Scene};
 use crate::theme::{Rgba, SPACE_VIEW3D_ACTIVE, SPACE_VIEW3D_SELECT, SPACE_VIEW3D_WIRE};
 use crate::userdef::UserDef;
 use crate::view3d::RegionView3D;
@@ -70,7 +70,7 @@ fn world_segments(o: &Object, rv3d: &RegionView3D, winx: i32, winy: i32) -> Vec<
     let m = o.world_matrix();
     match o.data {
         ObjectData::Camera => camera_segments().into_iter().map(|(a, b)| (mat4_mul_point(&m, a), mat4_mul_point(&m, b))).collect(),
-        ObjectData::Light => {
+        ObjectData::Light(kind) => {
             let zfac = rv3d.calc_zfac(o.loc);
             let d = rv3d.win_to_delta(winx, winy, zfac, LIGHT_RADIUS_PX, 0.0);
             let radius = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
@@ -84,10 +84,59 @@ fn world_segments(o: &Object, rv3d: &RegionView3D, winx: i32, winy: i32) -> Vec<
             if o.loc[2].abs() > 1e-4 {
                 segs.push((o.loc, [o.loc[0], o.loc[1], 0.0]));
             }
+            if kind == LightKind::Sun {
+                /* The 8 rays of the icon: two dashes each, in pixels (`light_icon_sun_rays`, ring radius 9). */
+                let px = radius / LIGHT_RADIUS_PX;
+                for k in 0..8 {
+                    let a = std::f32::consts::TAU * k as f32 / 8.0;
+                    let at = |scale: f32| -> V3 { std::array::from_fn(|i| o.loc[i] + px * 9.0 * scale * (a.cos() * ax[i] + a.sin() * ay[i])) };
+                    segs.push((at(1.6), at(1.9)));
+                    segs.push((at(2.2), at(2.5)));
+                }
+            }
+            segs.extend(light_segments(kind).into_iter().map(|(a, b)| (mat4_mul_point(&m, a), mat4_mul_point(&m, b))));
             segs
         }
         ObjectData::Empty(kind) => empty_segments(kind).into_iter().map(|(a, b)| (mat4_mul_point(&m, a), mat4_mul_point(&m, b))).collect(),
         ObjectData::Mesh(_) => Vec::new(),
+    }
+}
+
+/// The shape of a light type in object space (the circle and the ground line are drawn by the caller).
+/// Sun: the direction line (`light_sun_lines`). Spot: the cone of `light_spot_lines` at the fixed size of 10 for the
+/// default 45 degree angle and 0.15 blend, as the cap ring, the blend ring and the four edges that reach the axis
+/// planes (Blender draws the view dependent silhouette). Area: the 1 m square of the Add operator (`light_area_square_lines`).
+/// The distance marker of the direction line is not modelled.
+pub fn light_segments(kind: LightKind) -> Vec<Seg> {
+    match kind {
+        LightKind::Point => Vec::new(),
+        LightKind::Sun => vec![([0.0; 3], [0.0, 0.0, -20.0])],
+        LightKind::Spot => {
+            let spotsize = 45.0f32.to_radians();
+            let blend = 0.15f32;
+            let a = (spotsize * 0.5).cos();
+            let c = a * blend - a - blend;
+            let (a2, c2) = (a * a, c * c);
+            let blend_ratio = ((a2 - a2 * c2) / (c2 - a2 * c2)).sqrt();
+            let cap = (spotsize * 0.5).tan() * 10.0;
+            let ring = |r: f32| -> Vec<Seg> {
+                let pt = |i: usize| -> V3 {
+                    let t = std::f32::consts::TAU * (i % 32) as f32 / 32.0;
+                    [r * t.cos(), r * t.sin(), -10.0]
+                };
+                (0..32).map(|i| (pt(i), pt(i + 1))).collect()
+            };
+            let mut segs = ring(cap);
+            segs.extend(ring(cap * blend_ratio));
+            for (x, y) in [(cap, 0.0), (-cap, 0.0), (0.0, cap), (0.0, -cap)] {
+                segs.push(([0.0; 3], [x, y, -10.0]));
+            }
+            segs
+        }
+        LightKind::Area => {
+            let c: [V3; 4] = [[-0.5, -0.5, 0.0], [-0.5, 0.5, 0.0], [0.5, 0.5, 0.0], [0.5, -0.5, 0.0]];
+            (0..4).map(|i| (c[i], c[(i + 1) % 4])).collect()
+        }
     }
 }
 
@@ -163,7 +212,7 @@ pub fn empty_segments(kind: EmptyKind) -> Vec<Seg> {
 }
 
 fn is_extra(o: &Object) -> bool {
-    matches!(o.data, ObjectData::Camera | ObjectData::Light | ObjectData::Empty(_)) && !o.hidden
+    matches!(o.data, ObjectData::Camera | ObjectData::Light(_) | ObjectData::Empty(_)) && !o.hidden
 }
 
 /// Draws the cameras and lights of `scene` into `region` (inclusive Blender rect, y up) of the `0x00RRGGBB`
@@ -349,6 +398,22 @@ mod tests {
         assert_eq!(dist_to_segment([5.0, 3.0], [0.0, 0.0], [10.0, 0.0]), 3.0);
         assert_eq!(dist_to_segment([-4.0, 3.0], [0.0, 0.0], [10.0, 0.0]), 5.0);
         assert_eq!(dist_to_segment([1.0, 1.0], [2.0, 2.0], [2.0, 2.0]), 2.0f32.sqrt());
+    }
+
+    #[test]
+    fn every_light_type_has_its_shape() {
+        assert!(light_segments(LightKind::Point).is_empty());
+        assert_eq!(light_segments(LightKind::Sun), vec![([0.0; 3], [0.0, 0.0, -20.0])]);
+        let area = light_segments(LightKind::Area);
+        assert_eq!(area.len(), 4);
+        assert!(area.iter().all(|(a, b)| a[2] == 0.0 && b[2] == 0.0 && a[0].abs() == 0.5));
+        let spot = light_segments(LightKind::Spot);
+        assert_eq!(spot.len(), 32 + 32 + 4);
+        /* The cap ring of a 45 degree cone at distance 10 has radius 10 * tan(22.5 degrees); the blend ring is inside. */
+        let r = |s: &Seg| (s.0[0] * s.0[0] + s.0[1] * s.0[1]).sqrt();
+        assert!((r(&spot[0]) - 4.1421).abs() < 1e-3);
+        assert!(r(&spot[32]) < r(&spot[0]) && r(&spot[32]) > 0.9 * r(&spot[0]));
+        assert!(spot.iter().all(|(a, b)| a[2] <= 0.0 && b[2] <= 0.0));
     }
 
     #[test]

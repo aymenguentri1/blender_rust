@@ -40,10 +40,33 @@ pub enum ObjectData {
     Mesh(Mesh),
     /// Drawn as a frustum by `overlay_extra`.
     Camera,
-    /// Drawn as a circle by `overlay_extra`.
-    Light,
+    /// Drawn as a circle (and the shape of its type) by `overlay_extra`.
+    Light(LightKind),
     /// `OB_EMPTY` with its `empty_drawtype`, drawn by `overlay_extra`.
     Empty(EmptyKind),
+}
+
+/// `Light.type` (`eLightType`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LightKind {
+    Point,
+    Sun,
+    Spot,
+    Area,
+}
+
+impl LightKind {
+    pub const ALL: [LightKind; 4] = [LightKind::Point, LightKind::Sun, LightKind::Spot, LightKind::Area];
+
+    /// `get_light_defname()`: the name of a new light object.
+    pub fn label(self) -> &'static str {
+        match self {
+            LightKind::Point => "Point",
+            LightKind::Sun => "Sun",
+            LightKind::Spot => "Spot",
+            LightKind::Area => "Area",
+        }
+    }
 }
 
 /// `Object.empty_display_type` (the Image type is not modelled); the size is always 1.
@@ -264,7 +287,7 @@ impl Scene {
         camera.rot = [63.559_3 * deg, 0.0, 46.691_9 * deg];
         let cube = s.new_object("Cube", ObjectData::Mesh(Mesh::cube(2.0)));
         cube.selected = true;
-        let light = s.new_object("Light", ObjectData::Light);
+        let light = s.new_object("Light", ObjectData::Light(LightKind::Point));
         light.loc = [4.076_245, 1.005_454, 5.903_862];
         s.active = s.objects.iter().find(|o| o.name == "Cube").map(|o| o.id);
         s
@@ -481,7 +504,7 @@ impl Scene {
     }
 
     /// `OBJECT_OT_*_add` for every entry of the Add menu (mesh primitives, `object.empty_add` (every type but Image),
-    /// `object.camera_add`, `object.light_add` (Point)): the new object is aligned to the world, selected and
+    /// `object.camera_add`, `object.light_add` (every type)): the new object is aligned to the world, selected and
     /// active, and the others are deselected.
     pub fn add_item(&mut self, item: crate::add_menu::AddItem, location: V3) -> u32 {
         use crate::add_menu::AddItem;
@@ -491,7 +514,7 @@ impl Scene {
             AddItem::Mesh(p) => ObjectData::Mesh(p.build()),
             AddItem::Empty(k) => ObjectData::Empty(k),
             AddItem::Camera => ObjectData::Camera,
-            AddItem::Light => ObjectData::Light,
+            AddItem::Light(k) => ObjectData::Light(k),
         };
         let o = self.new_object(item.object_name(), data);
         o.loc = location;
@@ -2837,7 +2860,7 @@ mod tests {
     fn add_item_creates_selected_active_objects_of_each_kind() {
         use crate::add_menu::AddItem;
         let mut s = Scene::startup();
-        for (item, name) in [(AddItem::Empty(EmptyKind::PlainAxes), "Empty"), (AddItem::Camera, "Camera.001"), (AddItem::Light, "Light.001")] {
+        for (item, name) in [(AddItem::Empty(EmptyKind::PlainAxes), "Empty"), (AddItem::Camera, "Camera.001"), (AddItem::Light(LightKind::Point), "Point")] {
             let id = s.add_item(item, [1.0, 2.0, 3.0]);
             let o = &s.objects[s.index_of(id).unwrap()];
             assert_eq!(o.name, name);
@@ -2845,7 +2868,7 @@ mod tests {
             assert!(o.selected && s.active == Some(id) && s.selected_count() == 1);
             assert!(o.mesh().is_none());
         }
-        assert!(matches!(s.objects.last().unwrap().data, ObjectData::Light));
+        assert!(matches!(s.objects.last().unwrap().data, ObjectData::Light(LightKind::Point)));
         assert!(s.undo(), "adding is one undo step");
         assert_eq!(s.objects.len(), 5);
         let mesh = s.add_item(AddItem::Mesh(Primitive::Cube), [0.0; 3]);
