@@ -191,6 +191,14 @@ impl Mesh {
     /// The Bevel modifier with one segment: a chamfer of `width` on every edge between two faces and a cap on
     /// every closed vertex. Open boundaries are not bevelled (their faces still shrink).
     pub fn beveled(&self, width: f32) -> Mesh {
+        self.beveled_segments(width, 1)
+    }
+
+    /// The Bevel modifier with `segments` segments: the chamfer strip of every edge and the rim of every cap get
+    /// `segments - 1` more vertices on a quadratic curve that bulges towards the original edge (one segment is the
+    /// plain chamfer).
+    pub fn beveled_segments(&self, width: f32, segments: u32) -> Mesh {
+        let segments = segments.clamp(1, 32) as usize;
         let shortest = self.edges().iter().map(|e| {
             let d = sub(self.verts[e.a as usize], self.verts[e.b as usize]);
             dot(d, d).sqrt()
@@ -232,6 +240,25 @@ impl Mesh {
                 directed.entry(key).and_modify(|e| *e = None).or_insert(Some((f, i)));
             }
         }
+        /* The vertices strictly between the two corners of an edge end, in the order of the strip: the key is the
+         * edge (a < b) and whether the end is `b`. */
+        let mut inner: HashMap<(u32, u32, bool), Vec<u32>> = HashMap::new();
+        let mut rim = |out: &mut Mesh, key: (u32, u32, bool), p: u32, q: u32, v: V3| -> Vec<u32> {
+            let mut row = vec![p];
+            let mut mids = Vec::new();
+            for k in 1..segments {
+                let t = k as f32 / segments as f32;
+                let (pp, qq) = (out.verts[p as usize], out.verts[q as usize]);
+                let pos: V3 = std::array::from_fn(|c| (1.0 - t) * (1.0 - t) * pp[c] + 2.0 * t * (1.0 - t) * v[c] + t * t * qq[c]);
+                let id = out.verts.len() as u32;
+                out.verts.push(pos);
+                mids.push(id);
+            }
+            row.extend(mids.iter().copied());
+            row.push(q);
+            inner.insert(key, mids);
+            row
+        };
         for (f, face) in self.faces.iter().enumerate() {
             for i in 0..face.len() {
                 let (a, b) = (face[i], face[(i + 1) % face.len()]);
@@ -239,7 +266,11 @@ impl Mesh {
                     continue;
                 }
                 if let (Some(Some((_, _))), Some(Some((g, j)))) = (directed.get(&(a, b)), directed.get(&(b, a))) {
-                    out.faces.push(vec![corner(f, i + 1), corner(f, i), corner(*g, *j + 1), corner(*g, *j)]);
+                    let row_a = rim(&mut out, (a, b, false), corner(f, i), corner(*g, *j + 1), self.verts[a as usize]);
+                    let row_b = rim(&mut out, (a, b, true), corner(f, i + 1), corner(*g, *j), self.verts[b as usize]);
+                    for k in 0..segments {
+                        out.faces.push(vec![row_b[k], row_a[k], row_a[k + 1], row_b[k + 1]]);
+                    }
                 }
             }
         }
@@ -256,6 +287,7 @@ impl Mesh {
             let list = &corners_of[&v];
             let (f0, i0) = list[0];
             let mut cap = vec![corner(f0, i0)];
+            let mut corners = 1;
             let (mut f, mut i) = (f0, i0);
             let mut closed = false;
             for _ in 0..list.len() {
@@ -263,17 +295,27 @@ impl Mesh {
                 let prev = face[(i + face.len() - 1) % face.len()];
                 match directed.get(&(v, prev)) {
                     Some(Some((g, j))) => {
+                        /* The rim of the edge between the two corners, from this face's corner to the next one. */
+                        let (a, b) = if v < prev { (v, prev) } else { (prev, v) };
+                        if let Some(mids) = inner.get(&(a, b, v == b)) {
+                            if v == b {
+                                cap.extend(mids.iter().copied());
+                            } else {
+                                cap.extend(mids.iter().rev().copied());
+                            }
+                        }
                         (f, i) = (*g, *j);
                         if (f, i) == (f0, i0) {
                             closed = true;
                             break;
                         }
                         cap.push(corner(f, i));
+                        corners += 1;
                     }
                     _ => break,
                 }
             }
-            if closed && cap.len() == list.len() && cap.len() >= 3 {
+            if closed && corners == list.len() && corners >= 3 {
                 out.faces.push(cap);
             }
         }
@@ -646,5 +688,33 @@ mod tests {
         let m = Mesh::ico_sphere(2, 1.0).beveled(0.02);
         assert!(m.edges().iter().all(|e| e.faces == 2));
         assert!(m.signed_volume() > 0.0);
+    }
+
+    #[test]
+    fn a_segmented_bevel_of_a_cube_is_closed_and_round() {
+        let c = Mesh::cube(2.0);
+        let one = c.beveled_segments(0.2, 1);
+        assert_eq!(one, c.beveled(0.2));
+        for n in [2usize, 3, 4] {
+            let m = c.beveled_segments(0.2, n as u32);
+            assert_eq!(m.verts.len(), 24 + 12 * 2 * (n - 1), "{n} segments");
+            assert_eq!(m.faces.len(), 6 + 12 * n + 8, "{n} segments");
+            assert!(m.edges().iter().all(|e| e.faces == 2), "{n} segments: not closed");
+            assert!(m.signed_volume() > 0.0 && m.signed_volume() < 8.0, "{n}: {}", m.signed_volume());
+        }
+        /* More segments follow the curve, so the volume grows towards the original (the curve bulges outwards). */
+        let v1 = c.beveled_segments(0.2, 1).signed_volume();
+        let v4 = c.beveled_segments(0.2, 4).signed_volume();
+        assert!(v4 > v1, "{v4} <= {v1}");
+    }
+
+    #[test]
+    fn segmented_bevel_keeps_the_bounds_and_clamps_the_segments() {
+        let c = Mesh::cube(2.0);
+        let m = c.beveled_segments(0.2, 5);
+        let (lo, hi) = m.bounds().unwrap();
+        assert!((0..3).all(|k| (lo[k] + 1.0).abs() < 1e-4 && (hi[k] - 1.0).abs() < 1e-4));
+        assert_eq!(c.beveled_segments(0.2, 0), c.beveled(0.2), "0 counts as 1");
+        assert_eq!(c.beveled_segments(0.0, 4), c);
     }
 }

@@ -883,6 +883,22 @@ impl Scene {
         })
     }
 
+    /// Cycles the segments of the first Bevel modifier of each selected mesh: 1, 2, 3, 4, 6, 8, then 1 again.
+    pub fn cycle_bevel_segments(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            let Some(Modifier::Bevel { segments, .. }) = stack.iter_mut().find(|m| matches!(m, Modifier::Bevel { .. })) else { return false };
+            *segments = match *segments {
+                1 => 2,
+                2 => 3,
+                3 => 4,
+                4 => 6,
+                6 => 8,
+                _ => 1,
+            };
+            true
+        })
+    }
+
     /// Adds a Bevel modifier to the selected meshes, or removes the one they have.
     pub fn toggle_bevel(&mut self) -> usize {
         self.edit_modifiers(|stack| {

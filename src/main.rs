@@ -1170,6 +1170,8 @@ impl ApplicationHandler for App {
                         KeyCode::KeyL if shift_k && alt_k && !ctrl_k => {
                             self.scene.select_linked_modifiers();
                         }
+                        /* Bevel modifier: Ctrl + Alt + `.` cycles the segments (1, 2, 3, 4, 6, 8). */
+                        KeyCode::Period if ctrl_k && alt_k && !shift_k => geometry = self.scene.cycle_bevel_segments() > 0,
                         /* Set Origin > Origin to Center of Mass (Volume). */
                         KeyCode::KeyM if ctrl_k && shift_k && alt_k => geometry = self.scene.origin_to_center_of_mass() > 0,
                         /* `object.select_grouped` by type (Shift + G) and `object.select_random` (Shift + Alt + R). */

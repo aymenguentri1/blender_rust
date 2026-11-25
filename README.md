@@ -17,6 +17,7 @@ Blender has no keys for modifiers (they live in the properties editor), so these
 | Ctrl + Alt + J | Array modifier: toggle Merge (1 mm): vertices that touch are joined, here across the whole array (Blender joins only neighbouring copies) |
 | Ctrl + Alt + W | Solidify modifier: toggle (0.01 m, offset -1) |
 | Ctrl + Alt + B | Bevel modifier: toggle (one segment, 0.1 m, clamped under half the shortest edge) |
+| Ctrl + Alt + `.` | Bevel modifier: cycles the segments 1 -> 2 -> 3 -> 4 -> 6 -> 8 -> 1 (the rim follows a curve bulging towards the original edge, not Blender's superellipse profile; the stack line shows `x3`) |
 | Ctrl + Alt + M | Smooth modifier: toggle (factor 0.5, 1 repeat) |
 | Ctrl + Alt + T | Simple Deform modifier (Z axis): each press cycles Twist (45 degrees) -> Bend (45 degrees) -> Taper (0.5) -> Stretch (0.5) -> off |
 | Ctrl + Alt + E | Weld modifier: toggle (merge by distance, 1 mm) |
