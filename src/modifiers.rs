@@ -121,6 +121,34 @@ impl Modifier {
         Modifier::Remesh { voxel: 0.1 }
     }
 
+    /// One default instance of every modifier kind, in the order of the Add Modifier list of the properties editor.
+    pub fn catalog() -> Vec<Modifier> {
+        use crate::mesh_deform::{CastShape, DeformMode};
+        vec![
+            Modifier::mirror(0),
+            Modifier::array(2),
+            Modifier::solidify(),
+            Modifier::bevel(),
+            Modifier::smooth(),
+            Modifier::laplacian_smooth(),
+            Modifier::simple_deform(DeformMode::Twist),
+            Modifier::displace(),
+            Modifier::wave(),
+            Modifier::cast(CastShape::Sphere),
+            Modifier::triangulate(),
+            Modifier::decimate(0.5),
+            Modifier::edge_split(),
+            Modifier::wireframe(),
+            Modifier::weld(),
+            Modifier::screw(),
+            Modifier::remesh(),
+        ]
+    }
+
+    pub fn triangulate() -> Modifier {
+        Modifier::Triangulate
+    }
+
     /// The name shown in the modifier panel.
     pub fn label(&self) -> &'static str {
         match self {
@@ -356,6 +384,20 @@ mod tests {
         assert!(m.adjust(1) && m.summary() == "Remesh: Blocks 0.11 m");
         assert!(m.adjust(-100) && m == Modifier::Remesh { voxel: 0.01 });
         assert!(!m.adjust(-1));
+    }
+
+    #[test]
+    fn the_catalog_has_every_kind_once() {
+        let c = Modifier::catalog();
+        assert_eq!(c.len(), 17);
+        let mut names: Vec<&str> = c.iter().map(|m| m.label()).collect();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), 17);
+        /* Every entry evaluates on a cube without panicking. */
+        for m in &c {
+            let _ = m.apply(&Mesh::cube(2.0));
+        }
     }
 
     #[test]

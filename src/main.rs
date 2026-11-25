@@ -64,6 +64,7 @@ mod transform;
 mod overlay_outline;
 mod overlay_extra;
 mod add_menu;
+mod modifier_panel;
 
 use std::{num::NonZeroU32, sync::Arc};
 
@@ -208,6 +209,8 @@ struct App {
     xform: Option<transform::Transform>,
     /// The open Shift + A popup menu: the window position (y up) it was opened at.
     add_menu: Option<[i32; 2]>,
+    /// The Add Modifier list of the properties editor is open.
+    mod_add_open: bool,
 }
 
 /// After a change of geometry, visibility or transforms: builds the modifier results and restarts the TAA
@@ -652,6 +655,15 @@ impl ApplicationHandler for App {
                     }
                     self.scene.select_pick(hit, extend);
                     gfx.window.request_redraw();
+                } else if let Some(window) = modifier_panel::window_rect(user, layout.properties).filter(|w| w.isect_pt_v(self.cursor)) {
+                    /* The Modifiers panel of the properties editor acts on the active object. */
+                    let widgets = modifier_panel::widgets(user, window, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open));
+                    if let Some(action) = modifier_panel::action_at(&widgets, self.cursor) {
+                        if modifier_panel::apply(&mut self.scene, &mut self.mod_add_open, action) {
+                            scene_changed(&mut self.scene, &mut self.taa);
+                        }
+                        gfx.window.request_redraw();
+                    }
                 } else if let Some(window) = outliner_draw::window_rect(user, layout.outliner).filter(|w| w.isect_pt_v(self.cursor)) {
                     if let Some(row) = outliner_draw::row_at(user, window, self.cursor[1]) {
                         let rows = self.scene.outliner_rows();
@@ -1414,6 +1426,13 @@ impl ApplicationHandler for App {
                         if let Some(window) = outliner_draw::window_rect(user, layout.outliner) {
                             outliner_draw::draw_row_stripes(&mut buf, w, h, user, window);
                             outliner_draw::draw_tree_rows(&mut buf, w, h, user, window, &outliner_draw::scene_rows(&self.scene));
+                        }
+                    }
+                    /* Modifiers panel of the properties editor. */
+                    if let Some(user) = self.user.as_ref() {
+                        if let Some(window) = modifier_panel::window_rect(user, layout.properties) {
+                            let widgets = modifier_panel::widgets(user, window, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open));
+                            modifier_panel::draw(&mut buf, w, h, user, &widgets);
                         }
                     }
                     /* `ED_time_scrub_draw()` background of the timeline (`draw_background()`, `TH_TIME_SCRUB_BACKGROUND`).
