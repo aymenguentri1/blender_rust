@@ -873,7 +873,7 @@ impl ApplicationHandler for App {
                         KeyCode::Tab => {
                             if let Some(e) = self.field_edit.take() {
                                 let changed = e.commit(&mut self.scene);
-                                self.field_edit = transform_panel::Edit::start(&self.scene, e.field.step(if shift_k { -1 } else { 1 }));
+                                self.field_edit = transform_panel::Edit::start(&self.scene, e.field.step_for(&self.scene, if shift_k { -1 } else { 1 }));
                                 if changed {
                                     scene_changed(&mut self.scene, &mut self.taa);
                                 }

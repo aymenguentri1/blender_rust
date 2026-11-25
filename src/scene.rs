@@ -113,6 +113,21 @@ impl Object {
         m
     }
 
+    /// The size of the evaluated mesh bounds in the object's own (unscaled) space; zero without a mesh.
+    pub fn local_size(&self) -> V3 {
+        match self.evaluated().and_then(|m| m.bounds()) {
+            Some((lo, hi)) => [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]],
+            None => [0.0; 3],
+        }
+    }
+
+    /// `Object.dimensions`: the bounds size times the scale, `None` for an object without a mesh.
+    pub fn dimensions(&self) -> Option<V3> {
+        self.mesh()?;
+        let s = self.local_size();
+        Some([s[0] * self.scale[0].abs(), s[1] * self.scale[1].abs(), s[2] * self.scale[2].abs()])
+    }
+
     pub fn mesh(&self) -> Option<&Mesh> {
         match &self.data {
             ObjectData::Mesh(m) => Some(m),
@@ -1356,6 +1371,10 @@ impl Scene {
             TransformProp::Location => self.objects[i].loc[axis],
             TransformProp::Rotation => self.objects[i].rot[axis].to_degrees(),
             TransformProp::Scale => self.objects[i].scale[axis],
+            TransformProp::Dimensions => match self.objects[i].dimensions() {
+                Some(d) if value > 0.0 && self.objects[i].local_size()[axis] > 1e-9 => d[axis],
+                _ => return false,
+            },
         };
         if (current - value).abs() < 1e-6 {
             return false;
@@ -1366,6 +1385,11 @@ impl Scene {
             TransformProp::Location => o.loc[axis] = value,
             TransformProp::Rotation => o.rot[axis] = value.to_radians(),
             TransformProp::Scale => o.scale[axis] = value,
+            /* The sign of the scale (a mirrored axis) stays. */
+            TransformProp::Dimensions => {
+                let sign = if o.scale[axis] < 0.0 { -1.0 } else { 1.0 };
+                o.scale[axis] = sign * value / o.local_size()[axis];
+            }
         }
         o.eval = None;
         true
@@ -1713,6 +1737,8 @@ pub enum TransformProp {
     /// Edited in degrees, stored in radians.
     Rotation,
     Scale,
+    /// The size of the evaluated mesh bounds times the scale (meshes only); editing it sets the scale.
+    Dimensions,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
