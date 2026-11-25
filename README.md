@@ -159,6 +159,15 @@ smaller than the grid step can be missed; X-ray and wire shading test the projec
 Cameras, lights and empties are hit by their origin. A press that starts on an object still selects it at once (the
 Tweak tool's drag-to-move is not modelled). The code is in `src/select_box.rs` and `Scene::select_box`.
 
+### Copy and paste
+| Keys | Operator |
+| --- | --- |
+| Ctrl + C | Copy (`VIEW3D_OT_copybuffer`): the selected objects and the active one go to an in-app clipboard |
+| Ctrl + V | Paste (`VIEW3D_OT_pastebuffer`): the copies appear at their copied transforms (named `Cube.001`...), selected, with the copied active object active; one undo step. Pasting works after the originals are deleted. Parents copied together stay parents of each other; a parent that is not in the scene any more is dropped |
+
+The buffer lives in the running program only (Blender writes a `.blend` file to the temp folder, so it also pastes into
+other Blender sessions; this port does not). Code: `Scene::copy_selected` / `Scene::paste` in `src/scene.rs`.
+
 ### Align, randomize and group
 | Keys | Operator |
 | --- | --- |

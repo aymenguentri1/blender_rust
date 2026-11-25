@@ -202,6 +202,8 @@ struct App {
     zoom_border: Option<ZoomBorder>,
     /// The running `view3d.select_box` gesture.
     box_select: Option<BoxSelect>,
+    /// The Ctrl + C buffer of `view3d.copybuffer`.
+    clipboard: scene::Clipboard,
     /// Depth buffer of the main region from the last redraw (`rw * rh`, 1.0 where nothing is drawn).
     scene_depth: Vec<f32>,
     /// `View3D::shading.flag & V3D_SHADING_XRAY` of the solid shading.
@@ -1297,6 +1299,13 @@ impl ApplicationHandler for App {
                         KeyCode::KeyC if shift_k && alt_k && !ctrl_k => geometry = self.scene.origin_to_point(self.cursor3d) > 0,
                         /* Object > Join, Apply > All Transforms, Convert to Mesh (applies the modifiers), Set Origin >
                          * Origin to Geometry (the Shift + Ctrl + Alt + C pie of Blender). */
+                        /* `view3d.copybuffer` / `view3d.pastebuffer` (Ctrl + C / Ctrl + V). */
+                        KeyCode::KeyC if ctrl_k && !shift_k && !alt_k => {
+                            if let Some(c) = self.scene.copy_selected() {
+                                self.clipboard = c;
+                            }
+                        }
+                        KeyCode::KeyV if ctrl_k && !shift_k && !alt_k => geometry = self.scene.paste(&self.clipboard) > 0,
                         KeyCode::KeyJ if ctrl_k && !shift_k && !alt_k => geometry = self.scene.join_selected() > 0,
                         /* Modifier > Apply (Ctrl + Shift + Alt + A): bakes the active modifier into the mesh. */
                         KeyCode::KeyA if ctrl_k && shift_k && alt_k => geometry = self.scene.apply_active_modifier(),
