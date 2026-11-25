@@ -26,7 +26,7 @@ use crate::modifiers::{self, Modifier};
 use crate::view3d::{Mat4, RegionView3D};
 
 pub mod ops;
-pub use ops::{AlignMode, AlignTo, ApplyMask, GroupKind, Randomize};
+pub use ops::{snap_to_grid, AlignMode, AlignTo, ApplyMask, GroupKind, Randomize};
 
 pub type Mat3 = [[f32; 3]; 3];
 

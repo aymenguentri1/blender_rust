@@ -17,6 +17,8 @@
 //!    the children of an applied object in place
 //!  - `VIEW3D_OT_snap_selected_to_grid` (Selection to Grid)
 //!  - `VIEW3D_OT_localview`: shows only the selected objects until it is toggled off
+//!  - `OBJECT_OT_parent_no_inverse_set` (Make Parent without Inverse, with and without Keep Transform)
+//!  - `OBJECT_OT_make_links_data` with `type = OBDATA` (Link Object Data), and the grid snap of the 3D cursor
 //!
 //! Deviations: Randomize Transform uses its own hash instead of Blender's random number generator, so a given seed
 //! does not give the same numbers, and its defaults (1 m, 15 degrees, 20 %) differ because Blender's are all zero
@@ -579,7 +581,8 @@ impl Scene {
                 continue;
             }
             let at = mat4_mul_point(&self.full_world(i, 0), [0.0; 3]);
-            let d: V3 = std::array::from_fn(|k| (at[k] / grid).round() * grid - at[k]);
+            let snapped = snap_to_grid(at, grid);
+            let d: V3 = std::array::from_fn(|k| snapped[k] - at[k]);
             if d.iter().any(|x| x.abs() > 1e-6) {
                 moves.push((i, d));
             }
@@ -624,6 +627,80 @@ impl Scene {
                 true
             }
         }
+    }
+}
+
+/// Rounds every coordinate to the nearest multiple of `grid` (`snap_curs_to_grid`); a non-positive or NaN grid
+/// leaves the point alone.
+pub fn snap_to_grid(p: V3, grid: f32) -> V3 {
+    if !(grid > 0.0) {
+        return p;
+    }
+    p.map(|c| (c / grid).round() * grid)
+}
+
+impl Scene {
+    /// `OBJECT_OT_parent_no_inverse_set`: the active object becomes the parent of the other selected objects with an
+    /// identity parent inverse. Without `keep_transform` they end up at the parent's origin (their location is
+    /// cleared, rotation and scale stay as local values); with it their local transform is recomputed from the
+    /// parent so that they stay where they are in the world. Parenting to a descendant is refused. Returns how many
+    /// objects were parented.
+    pub fn parent_set_no_inverse(&mut self, keep_transform: bool) -> usize {
+        let Some(active) = self.active.filter(|&id| self.index_of(id).is_some_and(|i| !self.objects[i].hidden)) else {
+            return 0;
+        };
+        let ai = self.index_of(active).unwrap();
+        let children: Vec<usize> = (0..self.objects.len())
+            .filter(|&i| {
+                let o = &self.objects[i];
+                o.selected && !o.hidden && o.id != active && !self.is_descendant(ai, o.id)
+            })
+            .collect();
+        if children.is_empty() {
+            return 0;
+        }
+        self.push_undo();
+        /* All world matrices first: reparenting one selected object moves the selected objects below it. */
+        let worlds: Vec<Mat4> = children.iter().map(|&i| self.full_world(i, 0)).collect();
+        let inv_parent = crate::view3d::invert_m4_m4(&self.full_world(ai, 0));
+        for (&i, world) in children.iter().zip(&worlds) {
+            let o = &mut self.objects[i];
+            o.parent = Some(active);
+            o.parent_inv = IDENTITY4;
+            if keep_transform {
+                let (loc, rot, scale) = decompose(&mat4_mul(&inv_parent, world));
+                o.loc = loc;
+                o.rot = rot;
+                o.scale = scale;
+            } else {
+                o.loc = [0.0; 3];
+            }
+            o.eval = None;
+        }
+        self.refresh_parents();
+        children.len()
+    }
+
+    /// `OBJECT_OT_make_links_data` (Link Object Data): the other selected meshes take the geometry of the active
+    /// mesh, and its shading flag, which this port keeps on the object. Meshes are not shared between objects here,
+    /// so they get copies (the original keeps editing independent). Objects that already match are left alone.
+    /// Returns how many objects changed.
+    pub fn link_object_data(&mut self) -> usize {
+        let Some(src) = self.active_object().filter(|o| o.mesh().is_some()) else { return 0 };
+        let (id, mesh, smooth) = (src.id, src.mesh().unwrap().clone(), src.smooth);
+        let wants = |o: &Object| o.selected && !o.hidden && o.id != id && o.mesh().is_some_and(|m| *m != mesh || o.smooth != smooth);
+        if !self.objects.iter().any(|o| wants(o)) {
+            return 0;
+        }
+        self.push_undo();
+        let mut n = 0;
+        for o in self.objects.iter_mut().filter(|o| wants(o)) {
+            o.data = ObjectData::Mesh(mesh.clone());
+            o.smooth = smooth;
+            o.eval = None;
+            n += 1;
+        }
+        n
     }
 }
 
@@ -1340,5 +1417,165 @@ mod apply_snap_local_tests {
         assert!(s.undo());
         assert!(s.in_local_view(), "still in local view after undoing a step taken inside it");
         assert_eq!(s.objects[bi].loc[0], 3.0);
+    }
+}
+
+#[cfg(test)]
+mod link_and_parent_tests {
+    use super::*;
+    use crate::mesh::Primitive;
+
+    fn close(a: V3, b: V3) -> bool {
+        (0..3).all(|k| (a[k] - b[k]).abs() < 1e-4)
+    }
+
+    fn origin(s: &Scene, i: usize) -> V3 {
+        mat4_mul_point(&s.objects[i].world_matrix(), [0.0; 3])
+    }
+
+    /// A rotated and scaled parent (active) and a child at (4, 0, 0), both selected.
+    fn pair() -> (Scene, usize, usize) {
+        let mut s = Scene::startup();
+        let p = s.active.unwrap();
+        let pi = s.index_of(p).unwrap();
+        s.objects[pi].loc = [0.0, 1.0, 0.0];
+        s.objects[pi].rot = [0.0, 0.0, std::f32::consts::FRAC_PI_2];
+        s.objects[pi].scale = [2.0, 2.0, 2.0];
+        let c = s.add_primitive(Primitive::Cube, [4.0, 0.0, 0.0]);
+        let ci = s.index_of(c).unwrap();
+        s.objects[ci].rot = [0.0, 0.2, 0.0];
+        s.refresh_parents();
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        s.objects[pi].selected = true;
+        s.objects[ci].selected = true;
+        s.active = Some(p);
+        (s, pi, ci)
+    }
+
+    #[test]
+    fn without_inverse_the_child_lands_on_the_parent_origin() {
+        let (mut s, pi, ci) = pair();
+        let rot = s.objects[ci].rot;
+        assert_eq!(s.parent_set_no_inverse(false), 1);
+        let c = &s.objects[ci];
+        assert_eq!(c.parent, Some(s.objects[pi].id));
+        assert_eq!(c.parent_inv, IDENTITY4);
+        assert_eq!((c.loc, c.rot), ([0.0; 3], rot));
+        assert!(close(origin(&s, ci), [0.0, 1.0, 0.0]), "{:?}", origin(&s, ci));
+        /* It follows the parent from there. */
+        s.objects[pi].loc = [3.0, 1.0, 0.0];
+        s.refresh_parents();
+        assert!(close(origin(&s, ci), [3.0, 1.0, 0.0]));
+    }
+
+    #[test]
+    fn keep_transform_leaves_the_child_in_place_with_an_identity_inverse() {
+        let (mut s, pi, ci) = pair();
+        let before = mat4_mul_point(&s.objects[ci].world_matrix(), [1.0, 0.5, -0.5]);
+        assert_eq!(s.parent_set_no_inverse(true), 1);
+        assert_eq!(s.objects[ci].parent_inv, IDENTITY4);
+        assert!(close(mat4_mul_point(&s.objects[ci].world_matrix(), [1.0, 0.5, -0.5]), before));
+        /* The local location is the offset in the parent's space: (4,0,0) - (0,1,0) turned back and halved. */
+        assert!(close(s.objects[ci].loc, [-0.5, -2.0, 0.0]), "{:?}", s.objects[ci].loc);
+        s.objects[pi].loc[0] += 2.0;
+        s.refresh_parents();
+        /* Moving the parent 2 m in X moves the child from (4, 0, 0) to (6, 0, 0). */
+        assert!(close(origin(&s, ci), [6.0, 0.0, 0.0]), "{:?}", origin(&s, ci));
+    }
+
+    #[test]
+    fn reparenting_a_selected_chain_uses_the_worlds_from_before() {
+        /* Cube <- A (selected) <- B (selected): making the new active the parent of both keeps B under A. */
+        let mut s = Scene::startup();
+        let cube = s.active.unwrap();
+        let a = s.add_primitive(Primitive::Cube, [2.0, 0.0, 0.0]);
+        let b = s.add_primitive(Primitive::Cube, [5.0, 0.0, 0.0]);
+        let new_parent = s.add_primitive(Primitive::Cube, [0.0, 7.0, 0.0]);
+        let (ai, bi) = (s.index_of(a).unwrap(), s.index_of(b).unwrap());
+        s.objects[bi].parent = Some(a);
+        s.refresh_parents();
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        s.objects[ai].selected = true;
+        s.objects[bi].selected = true;
+        let ni = s.index_of(new_parent).unwrap();
+        s.objects[ni].selected = true;
+        s.active = Some(new_parent);
+        let (wa, wb) = (origin(&s, ai), origin(&s, bi));
+        assert_eq!(s.parent_set_no_inverse(true), 2);
+        assert!(close(origin(&s, ai), wa) && close(origin(&s, bi), wb), "{:?} {:?}", origin(&s, ai), origin(&s, bi));
+        let _ = cube;
+    }
+
+    #[test]
+    fn parenting_without_inverse_refuses_cycles_nothing_selected_and_undoes() {
+        let (mut s, pi, ci) = pair();
+        s.parent_set_no_inverse(true);
+        /* The parent is now a descendant-free root; making the child the parent of the parent is a cycle. */
+        s.objects[pi].selected = true;
+        s.objects[ci].selected = true;
+        s.active = Some(s.objects[ci].id);
+        assert_eq!(s.parent_set_no_inverse(false), 0);
+        assert_eq!(s.objects[pi].parent, None);
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        assert_eq!(s.parent_set_no_inverse(false), 0);
+        let (mut s, _, ci) = pair();
+        let before = s.objects[ci].loc;
+        s.parent_set_no_inverse(false);
+        assert!(s.undo());
+        assert_eq!((s.objects[ci].parent, s.objects[ci].loc), (None, before));
+    }
+
+    #[test]
+    fn link_object_data_copies_the_active_mesh_to_the_other_selected_meshes() {
+        let mut s = Scene::startup();
+        let sphere = s.add_primitive(Primitive::UvSphere, [3.0, 0.0, 0.0]);
+        let other = s.add_primitive(Primitive::Cone, [-3.0, 0.0, 0.0]);
+        let (si, oi, ci) = (s.index_of(sphere).unwrap(), s.index_of(other).unwrap(), s.objects.iter().position(|o| o.name == "Cube").unwrap());
+        s.objects[si].smooth = true;
+        for o in &mut s.objects {
+            o.selected = o.mesh().is_some();
+        }
+        s.active = Some(sphere);
+        let (loc_c, name_c) = (s.objects[ci].loc, s.objects[ci].name.clone());
+        assert_eq!(s.link_object_data(), 2);
+        let sphere_mesh = s.objects[si].mesh().unwrap().clone();
+        assert!(s.objects[ci].mesh().unwrap() == &sphere_mesh && s.objects[oi].mesh().unwrap() == &sphere_mesh);
+        assert!(s.objects[ci].smooth && s.objects[oi].smooth);
+        /* Transforms and names are the objects' own. */
+        assert_eq!((s.objects[ci].loc, s.objects[ci].name.clone()), (loc_c, name_c));
+        assert_eq!(s.link_object_data(), 0, "already linked");
+        assert!(s.undo());
+        assert_ne!(s.objects[ci].mesh().unwrap(), &sphere_mesh);
+    }
+
+    #[test]
+    fn link_object_data_needs_an_active_mesh_and_skips_other_types() {
+        let mut s = Scene::startup();
+        let cam = s.objects.iter().position(|o| o.name == "Camera").unwrap();
+        for o in &mut s.objects {
+            o.selected = true;
+        }
+        s.active = Some(s.objects[cam].id);
+        assert_eq!(s.link_object_data(), 0, "the camera has no mesh to give");
+        assert!(!s.can_undo());
+        let cube = s.objects.iter().find(|o| o.name == "Cube").unwrap().id;
+        s.active = Some(cube);
+        assert_eq!(s.link_object_data(), 0, "no other mesh is selected");
+        assert!(!s.can_undo());
+    }
+
+    #[test]
+    fn the_cursor_snaps_to_the_grid() {
+        assert_eq!(snap_to_grid([1.4, -2.6, 0.5], 1.0), [1.0, -3.0, 1.0]);
+        assert_eq!(snap_to_grid([0.74, 0.76, -0.24], 0.5), [0.5, 1.0, 0.0]);
+        assert_eq!(snap_to_grid([1.4, 2.0, 3.0], 0.0), [1.4, 2.0, 3.0]);
+        assert_eq!(snap_to_grid([1.4, 2.0, 3.0], -1.0), [1.4, 2.0, 3.0]);
+        assert_eq!(snap_to_grid([1.4, 2.0, 3.0], f32::NAN), [1.4, 2.0, 3.0]);
     }
 }
