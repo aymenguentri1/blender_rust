@@ -59,6 +59,37 @@ struct Item {
     scale: V3,
 }
 
+/// `scene.tool_settings.transform_pivot_point` (the modes that make sense for whole objects).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PivotPoint {
+    /// `V3D_AROUND_CENTER_MEDIAN`: the median of the selected origins.
+    #[default]
+    Median,
+    /// `V3D_AROUND_CURSOR`: the 3D cursor.
+    Cursor,
+    /// `V3D_AROUND_LOCAL_ORIGINS`: every object rotates and scales about its own origin.
+    Individual,
+}
+
+impl PivotPoint {
+    /// The next mode of the cycle Median -> 3D Cursor -> Individual Origins.
+    pub fn next(self) -> PivotPoint {
+        match self {
+            PivotPoint::Median => PivotPoint::Cursor,
+            PivotPoint::Cursor => PivotPoint::Individual,
+            PivotPoint::Individual => PivotPoint::Median,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            PivotPoint::Median => "Median Point",
+            PivotPoint::Cursor => "3D Cursor",
+            PivotPoint::Individual => "Individual Origins",
+        }
+    }
+}
+
 pub struct Transform {
     pub mode: Mode,
     pub axis: Option<Axis>,
@@ -71,6 +102,8 @@ pub struct Transform {
     start: [i32; 2],
     items: Vec<Item>,
     pivot: V3,
+    /// Individual Origins: each item rotates and scales about its own origin.
+    individual: bool,
     zfac: f32,
     pushed_undo: bool,
 }
@@ -122,7 +155,13 @@ impl Transform {
     /// Starts the operator on the selected objects; `None` when nothing is selected. `mval` is the cursor in
     /// region pixels (y up). `push_undo` is false when an operator that already pushed a step starts it (Shift + D).
     pub fn begin(mode: Mode, scene: &mut Scene, mval: [i32; 2], rv3d: &RegionView3D, push_undo: bool) -> Option<Transform> {
-        let pivot = scene.median_origin()?;
+        Self::begin_with_pivot(mode, scene, mval, rv3d, push_undo, PivotPoint::Median, [0.0; 3])
+    }
+
+    /// `begin()` with a pivot point setting; `cursor` is the 3D cursor, used by `PivotPoint::Cursor`.
+    pub fn begin_with_pivot(mode: Mode, scene: &mut Scene, mval: [i32; 2], rv3d: &RegionView3D, push_undo: bool, pivot_point: PivotPoint, cursor: V3) -> Option<Transform> {
+        let median = scene.median_origin()?;
+        let pivot = if pivot_point == PivotPoint::Cursor { cursor } else { median };
         /* An object whose parent is selected too moves with it and is left out (`transform_object_deselect`). */
         let items: Vec<Item> = (0..scene.objects.len())
             .filter(|&i| scene.objects[i].selected && !scene.objects[i].hidden && !scene.has_selected_ancestor(i))
@@ -144,6 +183,7 @@ impl Transform {
             start: mval,
             items,
             pivot,
+            individual: pivot_point == PivotPoint::Individual,
             zfac: rv3d.calc_zfac(pivot),
             pushed_undo: push_undo,
         })
@@ -288,8 +328,9 @@ impl Transform {
             angle = 0.0;
         }
         let r = axis_angle_to_mat3(axis, angle);
-        let pivot = self.pivot;
+        let (pivot, individual) = (self.pivot, self.individual);
         self.set_items(scene, |it| {
+            let pivot = if individual { it.world } else { pivot };
             let rel = [it.world[0] - pivot[0], it.world[1] - pivot[1], it.world[2] - pivot[2]];
             let rotated = mat3_mul_v3(&r, rel);
             let loc = moved(it, std::array::from_fn(|k| rotated[k] - rel[k]));
@@ -328,8 +369,9 @@ impl Transform {
                 }
             }
         }
-        let pivot = self.pivot;
+        let (pivot, individual) = (self.pivot, self.individual);
         self.set_items(scene, |it| {
+            let pivot = if individual { it.world } else { pivot };
             let loc = moved(it, std::array::from_fn(|k| (it.world[k] - pivot[k]) * (f[k] - 1.0)));
             let scale = std::array::from_fn(|k| it.scale[k] * f[k]);
             (loc, it.rot, scale)
@@ -372,6 +414,80 @@ mod tests {
 
     fn cube(scene: &Scene) -> &crate::scene::Object {
         scene.objects.iter().find(|o| o.name == "Cube").unwrap()
+    }
+
+    fn two_cubes() -> Scene {
+        let mut scene = Scene::startup();
+        let id = scene.add_primitive(crate::mesh::Primitive::Cube, [4.0, 0.0, 0.0]);
+        for o in &mut scene.objects {
+            o.selected = o.mesh().is_some();
+        }
+        scene.active = Some(id);
+        scene
+    }
+
+    fn obj<'a>(scene: &'a Scene, name: &str) -> &'a crate::scene::Object {
+        scene.objects.iter().find(|o| o.name == name).unwrap()
+    }
+
+    #[test]
+    fn scale_about_the_median_moves_the_origins_apart() {
+        let rv3d = view();
+        let mut scene = two_cubes();
+        let mut t = Transform::begin(Mode::Scale, &mut scene, [100, 50], &rv3d, true).unwrap();
+        t.numeric = "2".into();
+        t.apply(&mut scene, [100, 50], &rv3d, W, H);
+        /* Origins at 0 and 4, median 2: they go to -2 and 6. */
+        assert!((obj(&scene, "Cube").loc[0] + 2.0).abs() < 1e-4);
+        assert!((obj(&scene, "Cube.001").loc[0] - 6.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn scale_about_individual_origins_keeps_the_locations() {
+        let rv3d = view();
+        let mut scene = two_cubes();
+        let mut t = Transform::begin_with_pivot(Mode::Scale, &mut scene, [100, 50], &rv3d, true, PivotPoint::Individual, [0.0; 3]).unwrap();
+        t.numeric = "2".into();
+        t.apply(&mut scene, [100, 50], &rv3d, W, H);
+        assert!(obj(&scene, "Cube").loc[0].abs() < 1e-4);
+        assert!((obj(&scene, "Cube.001").loc[0] - 4.0).abs() < 1e-4);
+        assert_eq!(obj(&scene, "Cube").scale, [2.0; 3]);
+        assert_eq!(obj(&scene, "Cube.001").scale, [2.0; 3]);
+    }
+
+    #[test]
+    fn scale_about_the_3d_cursor() {
+        let rv3d = view();
+        let mut scene = two_cubes();
+        let mut t = Transform::begin_with_pivot(Mode::Scale, &mut scene, [100, 50], &rv3d, true, PivotPoint::Cursor, [4.0, 0.0, 0.0]).unwrap();
+        t.numeric = "2".into();
+        t.apply(&mut scene, [100, 50], &rv3d, W, H);
+        /* The cube at the cursor stays, the one at the origin moves to -4. */
+        assert!((obj(&scene, "Cube").loc[0] + 4.0).abs() < 1e-4);
+        assert!((obj(&scene, "Cube.001").loc[0] - 4.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn rotate_about_individual_origins_only_turns_the_objects() {
+        let rv3d = view();
+        let mut scene = two_cubes();
+        let mut t = Transform::begin_with_pivot(Mode::Rotate, &mut scene, [150, 50], &rv3d, true, PivotPoint::Individual, [0.0; 3]).unwrap();
+        t.axis = Some(Axis::Z);
+        t.numeric = "90".into();
+        t.apply(&mut scene, [150, 50], &rv3d, W, H);
+        assert!((obj(&scene, "Cube.001").loc[0] - 4.0).abs() < 1e-4);
+        assert!((obj(&scene, "Cube.001").rot[2].abs() - std::f32::consts::FRAC_PI_2).abs() < 1e-3);
+    }
+
+    #[test]
+    fn pivot_point_cycles_through_the_three_modes() {
+        let mut p = PivotPoint::default();
+        assert_eq!(p, PivotPoint::Median);
+        p = p.next();
+        assert_eq!((p, p.label()), (PivotPoint::Cursor, "3D Cursor"));
+        p = p.next();
+        assert_eq!(p, PivotPoint::Individual);
+        assert_eq!(p.next(), PivotPoint::Median);
     }
 
     #[test]

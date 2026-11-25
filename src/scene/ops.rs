@@ -272,6 +272,12 @@ impl Scene {
         n
     }
 
+    /// The world position of the active object's origin (`VIEW3D_OT_snap_cursor_to_active`).
+    pub fn active_origin(&self) -> Option<V3> {
+        let w = self.active_object()?.world_matrix()[3];
+        Some([w[0], w[1], w[2]])
+    }
+
     /// The numbers of the statistics overlay for the visible objects (the evaluated meshes, so modifiers count).
     pub fn statistics(&self) -> Stats {
         let mut s = Stats::default();
@@ -511,6 +517,16 @@ mod tests {
         assert!((0..3).all(|k| approx(before.0[k], after.0[k]) && approx(before.1[k], after.1[k])));
         s.undo();
         assert!(approx(s.objects[i].loc[0], 0.0));
+    }
+
+    #[test]
+    fn active_origin_is_the_world_position_of_the_active_object() {
+        let mut s = cubes();
+        let id = s.objects.iter().find(|o| o.name == "Cube.001").unwrap().id;
+        s.active = Some(id);
+        assert_eq!(s.active_origin(), Some([5.0, 1.0, 0.0]));
+        s.active = None;
+        assert_eq!(s.active_origin(), None);
     }
 
     #[test]

@@ -125,6 +125,12 @@ location is exact), shear is dropped when a transform is baked, and the parent i
 
 All but the overlay are undoable (Align pushes no step when nothing moves). The code is in `src/scene/ops.rs`.
 
+### Pivot point
+Period cycles the transform pivot point (Blender's pivot pie): Median Point (default), 3D Cursor and Individual Origins.
+G, R and S and Shift + D use it: the 3D cursor mode rotates and scales about the cursor, Individual Origins turns and
+scales each object about its own origin without moving it. A non-default mode is listed as `Pivot: ...` in the info
+text. Bounding Box Center and Active Element are not modelled.
+
 ### Snapping and the 3D cursor
 Blender's Shift + S pie has no pie here, so each entry is one chord:
 
@@ -134,6 +140,7 @@ Blender's Shift + S pie has no pie here, so each entry is one chord:
 | Ctrl + Shift + S | Selection to Cursor (keeps the relative offsets) |
 | Shift + Alt + S | Cursor to World Origin |
 | Shift + Alt + C | Origin to 3D Cursor |
+| Ctrl + Shift + C | Cursor to Active |
 
 All of them are undoable and operate on every selected mesh. The geometry code lives in `src/mesh_ops.rs`
 (mirror, array, solidify, normals, merge) and `src/mesh_deform.rs` (smooth, simple deform, displace, cast), `src/mesh_wire.rs` (wireframe), `src/mesh_reduce.rs` (decimate, edge split), `src/modifiers.rs` (the stack); the operators are in `src/scene.rs`.
