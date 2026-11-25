@@ -22,6 +22,8 @@ Blender has no keys for modifiers (they live in the properties editor), so these
 | Ctrl + Alt + R | Triangulate modifier: toggle |
 | Ctrl + Alt + C | Cast modifier: each press cycles Sphere (factor 0.5) -> Cylinder -> off |
 | Ctrl + Alt + Q | Wireframe modifier: toggle (0.02 m frames; stack it after Triangulate to frame triangles) |
+| Ctrl + Alt + V | Decimate modifier (collapse): each press cycles ratio 0.5 -> 0.25 -> 0.1 -> off |
+| Ctrl + Alt + N | Edge Split modifier: toggle (30 degrees) |
 | Alt + C | Convert to Mesh: bakes the modifiers and the subdivision level into the mesh |
 
 ### Object and mesh operators
@@ -48,4 +50,4 @@ Blender's Shift + S pie has no pie here, so each entry is one chord:
 | Shift + Alt + C | Origin to 3D Cursor |
 
 All of them are undoable and operate on every selected mesh. The geometry code lives in `src/mesh_ops.rs`
-(mirror, array, solidify, normals, merge) and `src/mesh_deform.rs` (smooth, simple deform, displace, cast), `src/mesh_wire.rs` (wireframe), `src/modifiers.rs` (the stack); the operators are in `src/scene.rs`.
+(mirror, array, solidify, normals, merge) and `src/mesh_deform.rs` (smooth, simple deform, displace, cast), `src/mesh_wire.rs` (wireframe), `src/mesh_reduce.rs` (decimate, edge split), `src/modifiers.rs` (the stack); the operators are in `src/scene.rs`.
