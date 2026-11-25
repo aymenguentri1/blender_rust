@@ -75,6 +75,12 @@ render toggles and scrolling (rows that do not fit are left out).
 | Ctrl + Alt + H | Convex Hull: replaces each selected mesh with the hull of its vertices (coplanar triangles joined into n-gons, so a box stays six quads; flat or collinear meshes are left alone) |
 | Ctrl + Shift + X / Y / Z | Mirror: reflects the selected objects through the median point along that global axis and flips their orientation and scale (Blender's Ctrl + M, one chord per axis) |
 
+### Add menu
+Shift + A opens one list of twelve entries: the nine mesh primitives, then Empty (Plain Axes, drawn as three lines
+through the origin), Camera and Light (Point). The new object is placed at the 3D cursor, aligned to the world, selected and
+active, and is one undo step. Blender nests the meshes in a Mesh submenu and offers more empty, light and camera
+types; those are not modelled.
+
 ### Parenting
 | Keys | Operator |
 | --- | --- |

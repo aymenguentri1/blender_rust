@@ -1,4 +1,4 @@
-//! The overlay shapes of the camera and light objects.
+//! The overlay shapes of the camera, light and empty objects.
 //!
 //! Modelled on Blender:
 //!  - the camera (`overlay_camera.hh`, `BKE_camera_view_frame_ex()`, blenkernel/intern/camera.cc:738): the
@@ -10,6 +10,10 @@
 //!  - the light (`overlay_light.hh`): a circle that always faces the viewer at a fixed size in pixels, and the
 //!    line down to the ground plane (`z = 0`) for a light that is not on it. The other light shapes (sun
 //!    direction line, spot cone, area rectangle) are not modelled.
+//!
+//!  - the empty (`overlay_empty.hh`, `OB_PLAINAXES`): three lines through the origin along the local axes, one
+//!    unit long on each side (display size 1 m). The other empty shapes (arrows, circle, cube, sphere, cone,
+//!    image) are not modelled.
 //!
 //! Colours are those of the wire of the object: `TH_WIRE` unselected, `TH_SELECT` selected, `TH_ACTIVE` active.
 //! The lines are not depth tested. Hidden objects are not drawn.
@@ -82,12 +86,25 @@ fn world_segments(o: &Object, rv3d: &RegionView3D, winx: i32, winy: i32) -> Vec<
             }
             segs
         }
+        ObjectData::Empty => plain_axes().into_iter().map(|(a, b)| (mat4_mul_point(&m, a), mat4_mul_point(&m, b))).collect(),
         ObjectData::Mesh(_) => Vec::new(),
     }
 }
 
+/// The empty's Plain Axes in object space.
+pub fn plain_axes() -> Vec<Seg> {
+    (0..3)
+        .map(|k| {
+            let (mut a, mut b) = ([0.0; 3], [0.0; 3]);
+            a[k] = -1.0;
+            b[k] = 1.0;
+            (a, b)
+        })
+        .collect()
+}
+
 fn is_extra(o: &Object) -> bool {
-    matches!(o.data, ObjectData::Camera | ObjectData::Light) && !o.hidden
+    matches!(o.data, ObjectData::Camera | ObjectData::Light | ObjectData::Empty) && !o.hidden
 }
 
 /// Draws the cameras and lights of `scene` into `region` (inclusive Blender rect, y up) of the `0x00RRGGBB`
@@ -273,5 +290,31 @@ mod tests {
         assert_eq!(dist_to_segment([5.0, 3.0], [0.0, 0.0], [10.0, 0.0]), 3.0);
         assert_eq!(dist_to_segment([-4.0, 3.0], [0.0, 0.0], [10.0, 0.0]), 5.0);
         assert_eq!(dist_to_segment([1.0, 1.0], [2.0, 2.0], [2.0, 2.0]), 2.0f32.sqrt());
+    }
+
+    #[test]
+    fn the_empty_is_three_axes_through_the_origin_and_can_be_picked_and_drawn() {
+        let segs = plain_axes();
+        assert_eq!(segs.len(), 3);
+        assert!(segs.iter().all(|(a, b)| (0..3).filter(|&k| a[k] != 0.0 || b[k] != 0.0).count() == 1));
+
+        let mut s = Scene::startup();
+        for o in &mut s.objects {
+            o.hidden = true;
+        }
+        let id = s.add_item(crate::add_menu::AddItem::Empty, [0.0; 3]);
+        let rv3d = view();
+        assert_eq!(pick(&s, &rv3d, W, H, [W / 2, H / 2]), Some(id), "the origin is the view centre");
+        assert_eq!(pick(&s, &rv3d, W, H, [2, 2]), None);
+
+        let mut buf = vec![0u32; (W * H) as usize];
+        let region = Rcti { xmin: 0, xmax: W - 1, ymin: 0, ymax: H - 1 };
+        let user = UserDef::from_window_scale(1.0);
+        draw_extras(&mut buf, W as usize, H as usize, region, &user, &rv3d, &s);
+        assert!(buf.iter().any(|&p| p != 0), "something was drawn");
+        s.objects.iter_mut().for_each(|o| o.hidden = true);
+        let mut blank = vec![0u32; (W * H) as usize];
+        draw_extras(&mut blank, W as usize, H as usize, region, &user, &rv3d, &s);
+        assert!(blank.iter().all(|&p| p == 0), "hidden objects are not drawn");
     }
 }

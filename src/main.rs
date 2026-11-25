@@ -575,8 +575,8 @@ impl ApplicationHandler for App {
                     if let Some(user) = self.user.as_ref() {
                         let size = gfx.window.inner_size();
                         let menu = add_menu::layout(user, pos, size.width as i32, size.height as i32);
-                        if let Some(prim) = add_menu::item_at(&menu, self.cursor) {
-                            self.scene.add_primitive(prim, self.cursor3d);
+                        if let Some(item) = add_menu::item_at(&menu, self.cursor) {
+                            self.scene.add_item(item, self.cursor3d);
                             scene_changed(&mut self.scene, &mut self.taa);
                         }
                     }

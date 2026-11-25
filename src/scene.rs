@@ -35,9 +35,12 @@ const UNDO_MAX: usize = 32;
 #[derive(Clone, Debug, PartialEq)]
 pub enum ObjectData {
     Mesh(Mesh),
-    /// Not drawn (there is no camera or light drawing yet), but listed in the outliner.
+    /// Drawn as a frustum by `overlay_extra`.
     Camera,
+    /// Drawn as a circle by `overlay_extra`.
     Light,
+    /// `OB_EMPTY` with `OB_PLAINAXES`: three lines through the origin, drawn by `overlay_extra`.
+    Empty,
 }
 
 #[derive(Clone, Debug)]
@@ -414,9 +417,23 @@ impl Scene {
 
     /// `OBJECT_OT_*_add`: the new object is the only selected one and becomes active.
     pub fn add_primitive(&mut self, prim: Primitive, location: V3) -> u32 {
+        self.add_item(crate::add_menu::AddItem::Mesh(prim), location)
+    }
+
+    /// `OBJECT_OT_*_add` for every entry of the Add menu (mesh primitives, `object.empty_add` (Plain Axes),
+    /// `object.camera_add`, `object.light_add` (Point)): the new object is aligned to the world, selected and
+    /// active, and the others are deselected.
+    pub fn add_item(&mut self, item: crate::add_menu::AddItem, location: V3) -> u32 {
+        use crate::add_menu::AddItem;
         self.push_undo();
         self.select_all(SelectAction::Deselect);
-        let o = self.new_object(prim.object_name(), ObjectData::Mesh(prim.build()));
+        let data = match item {
+            AddItem::Mesh(p) => ObjectData::Mesh(p.build()),
+            AddItem::Empty => ObjectData::Empty,
+            AddItem::Camera => ObjectData::Camera,
+            AddItem::Light => ObjectData::Light,
+        };
+        let o = self.new_object(item.object_name(), data);
         o.loc = location;
         o.selected = true;
         let id = o.id;
@@ -2594,5 +2611,24 @@ mod tests {
                 assert!((a[c][r] - b[c][r]).abs() < 1e-4, "{a:?} {b:?}");
             }
         }
+    }
+
+    #[test]
+    fn add_item_creates_selected_active_objects_of_each_kind() {
+        use crate::add_menu::AddItem;
+        let mut s = Scene::startup();
+        for (item, name) in [(AddItem::Empty, "Empty"), (AddItem::Camera, "Camera.001"), (AddItem::Light, "Light.001")] {
+            let id = s.add_item(item, [1.0, 2.0, 3.0]);
+            let o = &s.objects[s.index_of(id).unwrap()];
+            assert_eq!(o.name, name);
+            assert_eq!(o.loc, [1.0, 2.0, 3.0]);
+            assert!(o.selected && s.active == Some(id) && s.selected_count() == 1);
+            assert!(o.mesh().is_none());
+        }
+        assert!(matches!(s.objects.last().unwrap().data, ObjectData::Light));
+        assert!(s.undo(), "adding is one undo step");
+        assert_eq!(s.objects.len(), 5);
+        let mesh = s.add_item(AddItem::Mesh(Primitive::Cube), [0.0; 3]);
+        assert!(s.objects[s.index_of(mesh).unwrap()].mesh().is_some());
     }
 }
