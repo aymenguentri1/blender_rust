@@ -1,0 +1,482 @@
+//! Solid mode drawing of the default cube with the workbench studio lighting.
+//!
+//! Ported from Blender:
+//!  - `BKE_studiolight_default()`            (blenkernel/intern/studiolight.cc:752-805): the four lights
+//!    of the internal "Default" studio light; the startup 3D viewport has an empty `studio_light`
+//!    name, so `BKE_studiolight_find()` falls back to it
+//!  - `get_light_data_from_studio_solidlight()`, `SceneResources::init()`
+//!                                           (draw/engines/workbench/workbench_resources.cc:67-165): the
+//!    light directions are used as they are (view space) because `V3D_SHADING_WORLD_ORIENTATION` is not
+//!    set; the ambient colour is black and specular is on (`V3D_SHADING_SPECULAR_HIGHLIGHT`)
+//!  - `get_world_lighting()`                 (workbench/shaders/workbench_world_light.bsl.hh)
+//!  - the composite `frag()`                 (workbench/shaders/workbench_composite.bsl.hh): the incident
+//!    vector comes from the pixel ray, the normal is the (view space) face normal, back faces flip it
+//!  - `Material::pack_data()`, `float_pair_encode()` / `float_pair_decode()`, `material_data_get()`
+//!                                           (workbench_private.hh:143, shaders/workbench_common.bsl.hh,
+//!    shaders/workbench_material.bsl.hh): the roughness / metallic quantisation
+//!  - `drw_view_incident_vector()`           (draw/intern/shaders/draw_view_lib.glsl:86)
+//!
+//! The cube is the startup scene's `Cube` (2 m at the origin, flat shaded) with the default material
+//! (`DNA_material_types.h`: base colour 0.8, roughness 0.4, metallic 0). Colours are shaded in linear
+//! space and stored as sRGB (the "Standard" view transform). Cavity, shadows, outlines and
+//! anti-aliasing are not modelled.
+
+use crate::area::Rcti;
+use crate::colorspace_lut::{linear_to_srgb8, srgb8_to_linear};
+use crate::view3d::RegionView3D;
+
+type V3 = [f32; 3];
+
+/// `SolidLight` of the studio light: view space direction, diffuse colour with its wrap, specular colour.
+struct SolidLight {
+    direction: V3,
+    diffuse: V3,
+    wrap: f32,
+    specular: V3,
+}
+
+/// `BKE_studiolight_default()`; the ambient colour is zero.
+const LIGHTS: [SolidLight; 4] = [
+    SolidLight {
+        direction: [-0.352546, 0.170931, -0.920051],
+        diffuse: [0.033103; 3],
+        wrap: 0.526620,
+        specular: [0.266761; 3],
+    },
+    SolidLight {
+        direction: [-0.408163, 0.346939, 0.844415],
+        diffuse: [0.521083, 0.538226, 0.538226],
+        wrap: 0.0,
+        specular: [0.599030; 3],
+    },
+    SolidLight {
+        direction: [0.521739, 0.826087, 0.212999],
+        diffuse: [0.038403, 0.034357, 0.049530],
+        wrap: 0.478261,
+        specular: [0.106102, 0.125981, 0.158523],
+    },
+    SolidLight {
+        direction: [0.624519, -0.562067, -0.542269],
+        diffuse: [0.090838, 0.082080, 0.072255],
+        wrap: 0.2,
+        specular: [0.106535, 0.084771, 0.066080],
+    },
+];
+
+/// `Material::r, g, b`, `roughness` and `metallic` of the default material.
+const BASE_COLOR: V3 = [0.8; 3];
+const ROUGHNESS: f32 = 0.4;
+const METALLIC: f32 = 0.0;
+
+/// The cube faces: outward normal and the four corners, counter-clockwise seen from outside.
+const FACES: [(V3, [V3; 4]); 6] = [
+    ([1.0, 0.0, 0.0], [[1.0, -1.0, -1.0], [1.0, 1.0, -1.0], [1.0, 1.0, 1.0], [1.0, -1.0, 1.0]]),
+    ([-1.0, 0.0, 0.0], [[-1.0, -1.0, -1.0], [-1.0, -1.0, 1.0], [-1.0, 1.0, 1.0], [-1.0, 1.0, -1.0]]),
+    ([0.0, 1.0, 0.0], [[-1.0, 1.0, -1.0], [-1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, -1.0]]),
+    ([0.0, -1.0, 0.0], [[-1.0, -1.0, -1.0], [1.0, -1.0, -1.0], [1.0, -1.0, 1.0], [-1.0, -1.0, 1.0]]),
+    ([0.0, 0.0, 1.0], [[-1.0, -1.0, 1.0], [1.0, -1.0, 1.0], [1.0, 1.0, 1.0], [-1.0, 1.0, 1.0]]),
+    ([0.0, 0.0, -1.0], [[-1.0, -1.0, -1.0], [-1.0, 1.0, -1.0], [1.0, 1.0, -1.0], [1.0, -1.0, -1.0]]),
+];
+
+fn dot(a: V3, b: V3) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn saturate(x: f32) -> f32 {
+    x.clamp(0.0, 1.0)
+}
+
+fn normalize(v: V3) -> V3 {
+    let len = dot(v, v).sqrt();
+    if len > 0.0 {
+        [v[0] / len, v[1] / len, v[2] / len]
+    } else {
+        v
+    }
+}
+
+/// `fast_rcp()`: `intBitsToFloat(0x7eef370b - floatBitsToInt(v))`.
+fn fast_rcp(v: f32) -> f32 {
+    f32::from_bits(0x7eef_370b_u32.wrapping_sub(v.to_bits()))
+}
+
+/// `wrapped_lighting()`.
+fn wrapped_lighting(nl: f32, w: f32) -> f32 {
+    let w_1 = w + 1.0;
+    ((nl + w) * fast_rcp(w_1 * w_1)).clamp(0.0, 1.0)
+}
+
+/// The roughness and metallic the composite pass sees: `pack_data()` stores the square root of the
+/// roughness as 8 bit, `float_pair_encode()` keeps 5 bits of roughness and 3 bits of metallic.
+fn material_roughness_metallic() -> (f32, f32) {
+    let to_uchar = |v: f32| ((v * 255.0 + 0.5) as u32).min(255) as f32 / 255.0;
+    let roughness = to_uchar(ROUGHNESS.sqrt());
+    let metallic = to_uchar(METALLIC);
+    let (iv1, iv2) = ((roughness * 31.0) as i32, (metallic * 7.0) as i32);
+    (iv1 as f32 / 31.0, iv2 as f32 / 7.0)
+}
+
+/// `get_world_lighting()` with specular on and a black ambient colour; `n` and `i` are in view space.
+fn world_lighting(roughness: f32, metallic: f32, n: V3, i: V3) -> V3 {
+    let diffuse_color = BASE_COLOR.map(|c| c * (1.0 - metallic));
+    let specular_base = BASE_COLOR.map(|c| 0.05 * (1.0 - metallic) + c * metallic);
+
+    /* `R = -reflect(I, N)`. */
+    let n_dot_i = dot(n, i);
+    let r = [2.0 * n_dot_i * n[0] - i[0], 2.0 * n_dot_i * n[1] - i[1], 2.0 * n_dot_i * n[2] - i[2]];
+
+    let mut specular_light = [0.0f32; 3];
+    let mut diffuse_light = [0.0f32; 3];
+    for l in &LIGHTS {
+        let half_dir = normalize([l.direction[0] + i[0], l.direction[1] + i[1], l.direction[2] + i[2]]);
+        let wrapped_nl = dot(l.direction, r);
+        let spec_angle = saturate(dot(half_dir, n));
+        let spec_nl = saturate(dot(l.direction, n));
+
+        /* Reduce gloss for smooth light. */
+        let gloss = (1.0 - roughness) * (1.0 - l.wrap);
+        let shininess = (10.0 * gloss + 1.0).exp2();
+        let spec_light = spec_angle.powf(shininess) * spec_nl * (shininess * 0.125 + 1.0);
+
+        /* Simulate env. light. */
+        let w = l.wrap + (1.0 - l.wrap) * roughness;
+        let spec_env = wrapped_lighting(wrapped_nl, w);
+        let k = l.wrap * l.wrap;
+        let spec_light = spec_light * (1.0 - k) + spec_env * k;
+
+        let diff_light = wrapped_lighting(dot(l.direction, n), l.wrap);
+        for c in 0..3 {
+            specular_light[c] += spec_light * l.specular[c];
+            diffuse_light[c] += diff_light * l.diffuse[c];
+        }
+    }
+
+    /* `brdf_approx()`. */
+    let fresnel = (-8.35 * saturate(n_dot_i)).exp2() * (1.0 - roughness);
+    let specular_color = specular_base.map(|c| c * (1.0 - fresnel) + fresnel);
+    let spec_energy = dot(specular_color, [0.33333; 3]);
+
+    std::array::from_fn(|c| {
+        diffuse_light[c] * diffuse_color[c] * (1.0 - spec_energy) + specular_light[c] * specular_color[c]
+    })
+}
+
+/// `drw_view_incident_vector()` for the pixel ray through `ndc` (the composite pass uses a point at
+/// `z = 0.5` of the screen, so only the ray direction matters). The perspective ray is
+/// `((ndc_x + winmat[2][0]) / winmat[0][0], (ndc_y + winmat[2][1]) / winmat[1][1], -1)`.
+fn incident_vector(rv3d: &RegionView3D, ndc: [f32; 2]) -> V3 {
+    if rv3d.ortho {
+        return [0.0, 0.0, 1.0];
+    }
+    let w = &rv3d.winmat;
+    normalize([-(ndc[0] + w[2][0]) / w[0][0], -(ndc[1] + w[2][1]) / w[1][1], 1.0])
+}
+
+/// Clips a polygon in clip space against the near plane `z >= -w`.
+fn clip_near(poly: &[[f32; 4]]) -> Vec<[f32; 4]> {
+    let mut out = Vec::with_capacity(poly.len() + 1);
+    for i in 0..poly.len() {
+        let (a, b) = (poly[i], poly[(i + 1) % poly.len()]);
+        let (da, db) = (a[2] + a[3], b[2] + b[3]);
+        if da >= 0.0 {
+            out.push(a);
+        }
+        if (da >= 0.0) != (db >= 0.0) {
+            let t = da / (da - db);
+            out.push(std::array::from_fn(|k| a[k] + (b[k] - a[k]) * t));
+        }
+    }
+    out
+}
+
+/// Clips a world space polygon against the view clipping planes (`RV3D_CLIPPING`): the part with
+/// `dot(plane, (co, 1)) >= 0` stays, like the clip distances of `set_clipping_distances()`
+/// (workbench/shaders/workbench_prepass.bsl.hh:36-50).
+fn clip_world(poly: &[V3], planes: &[[f32; 4]; 4]) -> Vec<V3> {
+    let mut poly = poly.to_vec();
+    for pl in planes {
+        let dist = |v: V3| pl[0] * v[0] + pl[1] * v[1] + pl[2] * v[2] + pl[3];
+        let mut out = Vec::with_capacity(poly.len() + 1);
+        for i in 0..poly.len() {
+            let (a, b) = (poly[i], poly[(i + 1) % poly.len()]);
+            let (da, db) = (dist(a), dist(b));
+            if da >= 0.0 {
+                out.push(a);
+            }
+            if (da >= 0.0) != (db >= 0.0) {
+                let t = da / (da - db);
+                out.push(std::array::from_fn(|k| a[k] + (b[k] - a[k]) * t));
+            }
+        }
+        poly = out;
+    }
+    poly
+}
+
+fn edge(a: &[f32], b: &[f32], c: &[f32]) -> f32 {
+    (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+}
+
+/// `View3DShading::xray_alpha` default (`SHADING_XRAY_ALPHA()` of a solid shading with `V3D_SHADING_XRAY`).
+const SHADING_XRAY_ALPHA: f32 = 0.5;
+
+/// The `TransparentPass` targets (workbench_mesh_passes.cc:240-305): `accumulation_tx` (colour sum),
+/// `reveal_tx` (weight sum) and the revealage kept in the alpha of `accumulation_tx`, cleared to 1.
+struct Xray {
+    alpha: f32,
+    accum: Vec<V3>,
+    weight: Vec<f32>,
+    reveal: Vec<f32>,
+}
+
+/// `linear_zdepth()` and `calculate_transparent_weight()` (workbench/shaders/workbench_prepass.bsl.hh:54-90):
+/// `frag_z` is the window depth in [0, 1].
+fn transparent_weight(frag_z: f32, winmat: &[[f32; 4]; 4]) -> f32 {
+    let z = if winmat[3][3] == 0.0 {
+        let d = 2.0 * frag_z - 1.0;
+        -winmat[3][2] / (d + winmat[2][2])
+    } else {
+        frag_z * (-2.0 / winmat[2][2])
+    };
+    /* Eq 7 of McGuire and Bavoil, optimised. */
+    let a = z.abs() / 5.0;
+    let mut b = z.abs() / 200.0;
+    b *= b;
+    let w = 10.0 / ((1e-5 + a * a) + b * (b * b));
+    w.clamp(1e-2, 3e2)
+}
+
+
+struct Target<'a> {
+    buf: &'a mut [u32],
+    width: usize,
+    height: usize,
+    region: Rcti,
+    rw: i32,
+    rh: i32,
+    depth: Vec<f32>,
+    roughness: f32,
+    metallic: f32,
+    /// `Some` in X-ray mode (`SceneState::xray_mode`): every face goes to the transparent pass.
+    xray: Option<Xray>,
+}
+
+impl Target<'_> {
+    /// `TransparentResolvePass`: `accumulation / weight` blended over the buffer with the alpha
+    /// `1 - revealage`, in linear space.
+    fn resolve_xray(&mut self) {
+        let Some(x) = self.xray.as_ref() else { return };
+        for py in 0..self.rh {
+            for px in 0..self.rw {
+                let di = (py * self.rw + px) as usize;
+                let weight = x.weight[di];
+                if weight <= 0.0 {
+                    continue;
+                }
+                let a = 1.0 - x.reveal[di];
+                if a <= 0.0 {
+                    continue;
+                }
+                let (bx, by) = (self.region.xmin + px, self.region.ymin + py);
+                if bx < 0 || by < 0 || bx as usize >= self.width || by as usize >= self.height {
+                    continue;
+                }
+                let idx = (self.height - 1 - by as usize) * self.width + bx as usize;
+                let d = self.buf[idx];
+                let mut out = 0u32;
+                for (k, shift) in [16u32, 8, 0].into_iter().enumerate() {
+                    let src = x.accum[di][k] / weight.max(1e-4);
+                    let dst = srgb8_to_linear((d >> shift) & 0xff);
+                    out |= linear_to_srgb8(src * a + dst * (1.0 - a)) << shift;
+                }
+                self.buf[idx] = out;
+            }
+        }
+    }
+    /// Rasterises one triangle (region pixels, depth in [0, 1]) with the depth test `LESS_EQUAL`.
+    /// A triangle that is clockwise on screen is a back face and has its normal flipped.
+    fn triangle(&mut self, mut t: [[f32; 3]; 3], n_view: V3, rv3d: &RegionView3D) {
+        let mut area = edge(&t[0], &t[1], &t[2]);
+        if area == 0.0 {
+            return;
+        }
+        let mut n = n_view;
+        if area < 0.0 {
+            t.swap(1, 2);
+            area = -area;
+            /* `frag_transparent()` does not flip the normal of back faces. */
+            if self.xray.is_none() {
+                n = [-n[0], -n[1], -n[2]];
+            }
+        }
+
+        let min_x = t[0][0].min(t[1][0]).min(t[2][0]);
+        let max_x = t[0][0].max(t[1][0]).max(t[2][0]);
+        let min_y = t[0][1].min(t[1][1]).min(t[2][1]);
+        let max_y = t[0][1].max(t[1][1]).max(t[2][1]);
+        let (x0, x1) = ((min_x.floor() as i32).max(0), (max_x.ceil() as i32).min(self.rw - 1));
+        let (y0, y1) = ((min_y.floor() as i32).max(0), (max_y.ceil() as i32).min(self.rh - 1));
+
+        for py in y0..=y1 {
+            for px in x0..=x1 {
+                let p = [px as f32 + 0.5, py as f32 + 0.5];
+                let w0 = edge(&t[1], &t[2], &p);
+                let w1 = edge(&t[2], &t[0], &p);
+                let w2 = edge(&t[0], &t[1], &p);
+                if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+                    continue;
+                }
+                let z = (w0 * t[0][2] + w1 * t[1][2] + w2 * t[2][2]) / area;
+                if !(0.0..=1.0).contains(&z) {
+                    continue;
+                }
+                let di = (py * self.rw + px) as usize;
+                /* The transparent pass is not depth tested against the cube itself. */
+                if self.xray.is_none() && z > self.depth[di] {
+                    continue;
+                }
+                /* `TransparentDepthPass` writes the nearest depth of the X-ray faces. */
+                self.depth[di] = self.depth[di].min(z);
+
+                let ndc = [p[0] / self.rw as f32 * 2.0 - 1.0, p[1] / self.rh as f32 * 2.0 - 1.0];
+                let i = incident_vector(rv3d, ndc);
+                let c = world_lighting(self.roughness, self.metallic, n, i);
+
+                /* `frag_transparent()`: `alpha = material alpha * xray_alpha`, weighted accumulation. */
+                if let Some(x) = self.xray.as_mut() {
+                    let alpha = x.alpha;
+                    let weight = transparent_weight(z, &rv3d.winmat) * alpha;
+                    for k in 0..3 {
+                        x.accum[di][k] += c[k] * weight;
+                    }
+                    x.weight[di] += weight;
+                    x.reveal[di] *= 1.0 - alpha;
+                    continue;
+                }
+
+                let (x, y) = (self.region.xmin + px, self.region.ymin + py);
+                if x < 0 || y < 0 || x as usize >= self.width || y as usize >= self.height {
+                    continue;
+                }
+                let idx = (self.height - 1 - y as usize) * self.width + x as usize;
+                self.buf[idx] = (linear_to_srgb8(c[0]) << 16) | (linear_to_srgb8(c[1]) << 8) | linear_to_srgb8(c[2]);
+            }
+        }
+    }
+}
+
+/// Draws the default cube into `region` (inclusive Blender rect, y up) of the `0x00RRGGBB` buffer and
+/// returns the region's depth buffer (`rw * rh` values in [0, 1], 1.0 where nothing was drawn, row 0
+/// at the bottom of the region) for the overlays that are depth tested. `rv3d` must have been updated
+/// for the size of the region.
+pub fn draw_cube(buf: &mut [u32], width: usize, height: usize, region: Rcti, rv3d: &RegionView3D, xray: bool) -> Vec<f32> {
+    let (rw, rh) = (region.size_x() + 1, region.size_y() + 1);
+    if rw <= 0 || rh <= 0 {
+        return Vec::new();
+    }
+    let (roughness, metallic) = material_roughness_metallic();
+    let mut target = Target {
+        buf,
+        width,
+        height,
+        region,
+        rw,
+        rh,
+        depth: vec![1.0; (rw * rh) as usize],
+        xray: xray.then(|| Xray {
+            alpha: SHADING_XRAY_ALPHA,
+            accum: vec![[0.0; 3]; (rw * rh) as usize],
+            weight: vec![0.0; (rw * rh) as usize],
+            reveal: vec![1.0; (rw * rh) as usize],
+        }),
+        roughness,
+        metallic,
+    };
+
+    let (p, vm) = (&rv3d.persmat, &rv3d.viewmat);
+    for (normal, quad) in FACES.iter() {
+        let n_view: V3 = std::array::from_fn(|i| vm[0][i] * normal[0] + vm[1][i] * normal[1] + vm[2][i] * normal[2]);
+        let world = match rv3d.clip {
+            Some(planes) => clip_world(quad, &planes),
+            None => quad.to_vec(),
+        };
+        let clip: Vec<[f32; 4]> = world
+            .iter()
+            .map(|v| std::array::from_fn(|i| p[0][i] * v[0] + p[1][i] * v[1] + p[2][i] * v[2] + p[3][i]))
+            .collect();
+        let poly = clip_near(&clip);
+        if poly.len() < 3 || poly.iter().any(|c| c[3] <= 0.0) {
+            continue;
+        }
+        let screen: Vec<[f32; 3]> = poly
+            .iter()
+            .map(|c| {
+                [
+                    ((c[0] / c[3]) * 0.5 + 0.5) * rw as f32,
+                    ((c[1] / c[3]) * 0.5 + 0.5) * rh as f32,
+                    (c[2] / c[3]) * 0.5 + 0.5,
+                ]
+            })
+            .collect();
+        for k in 1..screen.len() - 1 {
+            target.triangle([screen[0], screen[k], screen[k + 1]], n_view, rv3d);
+        }
+    }
+    target.resolve_xray();
+    target.depth
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::view3d::View3D;
+
+    /* Default view, 200x100 region: the +Z face of the cube covers the centre, so the pixel there is
+     * lit (not the background) and its depth is in front of the far plane. */
+    #[test]
+    fn cube_covers_the_view_centre() {
+        let (w, h) = (200usize, 100usize);
+        let bg = crate::theme::SPACE_VIEW3D_BACK.to_xrgb();
+        let mut buf = vec![bg; w * h];
+        let mut rv3d = RegionView3D::default();
+        rv3d.update(&View3D::default(), w as i32, h as i32);
+        let region = Rcti { xmin: 0, xmax: w as i32 - 1, ymin: 0, ymax: h as i32 - 1 };
+        let depth = draw_cube(&mut buf, w, h, region, &rv3d, false);
+
+        assert_eq!(depth.len(), w * h);
+        assert!(depth[50 * w + 100] < 1.0, "{}", depth[50 * w + 100]);
+        assert_ne!(buf[(h - 1 - 50) * w + 100], bg);
+        assert_eq!(depth[0], 1.0);
+        assert_eq!(buf[(h - 1) * w], bg);
+    }
+
+    /* The quantised material: roughness sqrt(0.4) -> 161 / 255 -> 19 / 31, metallic 0. */
+    #[test]
+    fn material_quantisation() {
+        let (r, m) = material_roughness_metallic();
+        assert!((r - 19.0 / 31.0).abs() < 1e-6, "{r}");
+        assert_eq!(m, 0.0);
+    }
+
+    /* X-ray: the cube is blended with the background instead of replacing it, and the depth buffer
+     * still holds the cube. */
+    #[test]
+    fn xray_blends_the_cube() {
+        let (w, h) = (200usize, 100usize);
+        let bg = crate::theme::SPACE_VIEW3D_BACK.to_xrgb();
+        let mut rv3d = RegionView3D::default();
+        rv3d.update(&View3D::default(), w as i32, h as i32);
+        let region = Rcti { xmin: 0, xmax: w as i32 - 1, ymin: 0, ymax: h as i32 - 1 };
+
+        let mut opaque = vec![bg; w * h];
+        let depth_opaque = draw_cube(&mut opaque, w, h, region, &rv3d, false);
+        let mut xray = vec![bg; w * h];
+        let depth_xray = draw_cube(&mut xray, w, h, region, &rv3d, true);
+
+        let centre = (h - 1 - 50) * w + 100;
+        assert_ne!(xray[centre], bg);
+        assert_ne!(xray[centre], opaque[centre]);
+        assert_eq!(depth_xray, depth_opaque);
+        assert_eq!(xray[(h - 1) * w], bg);
+    }
+}
