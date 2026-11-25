@@ -148,6 +148,17 @@ location is exact), shear is dropped when a transform is baked, and the parent i
 | Shift + Alt + R | Select Random: adds about half of the visible objects; each press uses the next seed |
 | Shift + H | Hide Unselected: hides every visible object that is not selected (H hides the selection, Alt + H shows everything again and selects it) |
 
+### Box select
+| Input | Operator |
+| --- | --- |
+| Left drag on empty space | Select Box (`VIEW3D_OT_select_box`, the default Select Box tool): the objects inside the dashed border replace the selection; Shift extends, Ctrl subtracts. A click without dragging still deselects |
+| B, then left drag | Select Box in extend mode (Ctrl subtracts, Esc cancels); the middle mouse button subtract of Blender is not modelled |
+
+Solid shading respects occlusion by casting a grid of pick rays across the box (at most about 2500), so an object much
+smaller than the grid step can be missed; X-ray and wire shading test the projected triangles of every visible mesh.
+Cameras, lights and empties are hit by their origin. A press that starts on an object still selects it at once (the
+Tweak tool's drag-to-move is not modelled). The code is in `src/select_box.rs` and `Scene::select_box`.
+
 ### Align, randomize and group
 | Keys | Operator |
 | --- | --- |
