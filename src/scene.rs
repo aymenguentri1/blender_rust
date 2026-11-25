@@ -496,6 +496,65 @@ impl Scene {
         }
     }
 
+    /// `VIEW3D_OT_select_box`: the visible objects touched by the region rectangle `rect` (`[xmin, xmax, ymin,
+    /// ymax]`, y up) join, leave or replace the selection. `through` (X-ray or wire shading) tests the projected
+    /// triangles; otherwise a grid of pick rays finds what is visible. Cameras, lights and empties are hit by
+    /// their origin. The active object is left alone. Returns whether the selection changed.
+    pub fn select_box(&mut self, rv3d: &RegionView3D, winx: i32, winy: i32, rect: [i32; 4], mode: crate::select_box::BoxMode, through: bool) -> bool {
+        let mut hits: Vec<u32> = Vec::new();
+        if !through {
+            let step = crate::select_box::sample_step(rect);
+            let mut y = rect[2];
+            while y <= rect[3] {
+                let mut x = rect[0];
+                while x <= rect[1] {
+                    if let Some(id) = self.pick(rv3d, winx, winy, [x, y]) {
+                        if !hits.contains(&id) {
+                            hits.push(id);
+                        }
+                    }
+                    x += step;
+                }
+                y += step;
+            }
+        }
+        for o in self.objects.iter().filter(|o| !o.hidden) {
+            let m = o.world_matrix();
+            let mesh = o.evaluated().filter(|_| matches!(o.data, ObjectData::Mesh(_)));
+            let hit = match mesh {
+                Some(mesh) => {
+                    if !through {
+                        continue;
+                    }
+                    let screen: Vec<Option<[i32; 2]>> = mesh.verts.iter().map(|&v| rv3d.project_int_clip_near(winx, winy, mat4_mul_point(&m, v))).collect();
+                    let inside = |p: [i32; 2]| p[0] >= rect[0] && p[0] <= rect[1] && p[1] >= rect[2] && p[1] <= rect[3];
+                    screen.iter().flatten().any(|&p| inside(p))
+                        || mesh.triangles().iter().any(|(_, t)| {
+                            let pts = [screen[t[0] as usize], screen[t[1] as usize], screen[t[2] as usize]];
+                            match pts {
+                                [Some(a), Some(b), Some(c)] => crate::select_box::triangle_hits_rect(&[[a[0] as f32, a[1] as f32], [b[0] as f32, b[1] as f32], [c[0] as f32, c[1] as f32]], rect),
+                                _ => false,
+                            }
+                        })
+                }
+                None => rv3d.project_int_clip_near(winx, winy, mat4_mul_point(&m, [0.0, 0.0, 0.0])).is_some_and(|p| p[0] >= rect[0] && p[0] <= rect[1] && p[1] >= rect[2] && p[1] <= rect[3]),
+            };
+            if hit && !hits.contains(&o.id) {
+                hits.push(o.id);
+            }
+        }
+        let mut changed = false;
+        if mode == crate::select_box::BoxMode::Set {
+            changed |= self.select_all(SelectAction::Deselect);
+        }
+        for o in self.objects.iter_mut().filter(|o| hits.contains(&o.id)) {
+            let new = mode != crate::select_box::BoxMode::Sub;
+            changed |= o.selected != new;
+            o.selected = new;
+        }
+        changed
+    }
+
     // ----- operators ----------------------------------------------------------------------------
 
     /// `OBJECT_OT_*_add`: the new object is the only selected one and becomes active.
@@ -2339,6 +2398,31 @@ mod tests {
         let id = s.add_primitive(Primitive::UvSphere, [near[0] * 3.0, near[1] * 3.0, near[2] * 3.0]);
         let hit = s.pick(&rv3d, w, h, [100, 50]);
         assert_eq!(hit, Some(id));
+    }
+
+    /* Box select: a box over the cube selects it (solid and through), a box in a corner does not, Set clears the
+     * old selection, Add keeps it and Sub removes only the hit. */
+    #[test]
+    fn box_select_modes() {
+        use crate::select_box::BoxMode;
+        let (w, h) = (200, 100);
+        let mut rv3d = RegionView3D::default();
+        rv3d.viewquat = crate::view3d::STARTUP_VIEWQUAT;
+        rv3d.update(&View3D::default(), w, h);
+        let mut s = Scene::startup();
+        let cube = s.objects[1].id;
+        for through in [false, true] {
+            s.select_all(SelectAction::Deselect);
+            assert!(s.select_box(&rv3d, w, h, [80, 120, 30, 70], BoxMode::Set, through));
+            assert!(s.objects.iter().find(|o| o.id == cube).unwrap().selected, "through={through}");
+            s.select_box(&rv3d, w, h, [0, 10, 0, 10], BoxMode::Set, through);
+            assert!(s.objects.iter().all(|o| !o.selected), "Set with nothing under the box clears, through={through}");
+            s.select_box(&rv3d, w, h, [80, 120, 30, 70], BoxMode::Add, through);
+            s.select_box(&rv3d, w, h, [0, 10, 0, 10], BoxMode::Add, through);
+            assert!(s.objects.iter().find(|o| o.id == cube).unwrap().selected, "Add keeps, through={through}");
+            s.select_box(&rv3d, w, h, [80, 120, 30, 70], BoxMode::Sub, through);
+            assert!(!s.objects.iter().find(|o| o.id == cube).unwrap().selected, "Sub removes, through={through}");
+        }
     }
 
     #[test]

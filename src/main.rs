@@ -71,6 +71,7 @@ mod icons;
 mod view3d_header;
 mod modifier_panel;
 mod transform_panel;
+mod select_box;
 
 use std::{num::NonZeroU32, sync::Arc};
 
@@ -131,6 +132,18 @@ struct ZoomBorder {
 }
 
 
+/// The running `view3d.select_box`: armed by B (waits for the press, `armed`) or started by a press on empty
+/// space of the viewport (the Select Box tool). `start` and `cur` are region pixels, y up; the box only shows and
+/// acts once the cursor has moved `select_box::DRAG_THRESHOLD` pixels (`dragging`), otherwise the release is the
+/// click on nothing that deselects.
+struct BoxSelect {
+    armed: bool,
+    start: Option<[i32; 2]>,
+    cur: [i32; 2],
+    dragging: bool,
+    mode: select_box::BoxMode,
+}
+
 /// `Scene::r.frs / frs_sec_base` of the startup scene (24 fps).
 const PLAY_FPS: f64 = 24.0;
 
@@ -187,6 +200,8 @@ struct App {
     cursor_drag: Option<CursorDrag>,
     /// The running `view3d.zoom_border` box gesture.
     zoom_border: Option<ZoomBorder>,
+    /// The running `view3d.select_box` gesture.
+    box_select: Option<BoxSelect>,
     /// Depth buffer of the main region from the last redraw (`rw * rh`, 1.0 where nothing is drawn).
     scene_depth: Vec<f32>,
     /// `View3D::shading.flag & V3D_SHADING_XRAY` of the solid shading.
@@ -358,6 +373,18 @@ impl ApplicationHandler for App {
                 /* The popup menu highlights the entry under the cursor. */
                 if self.add_menu.is_some() {
                     gfx.window.request_redraw();
+                }
+                /* `view3d.select_box`: the border follows the cursor once it left the drag threshold. */
+                if let Some(bs) = self.box_select.as_mut() {
+                    if let Some(start) = bs.start {
+                        bs.cur = [x - layout.main.xmin, y - layout.main.ymin];
+                        if !bs.dragging && ((bs.cur[0] - start[0]).abs() > select_box::DRAG_THRESHOLD || (bs.cur[1] - start[1]).abs() > select_box::DRAG_THRESHOLD) {
+                            bs.dragging = true;
+                        }
+                        if bs.dragging {
+                            gfx.window.request_redraw();
+                        }
+                    }
                 }
                 /* Modal object transform (G / R / S): the cursor movement drives the transform. */
                 if let Some(xf) = self.xform.as_mut() {
@@ -686,6 +713,17 @@ impl ApplicationHandler for App {
                     self.cursor_drag = None;
                     return;
                 }
+                /* `WM_gesture_box_modal()` after B: the press sets the start corner (LEFTMOUSE extends, Ctrl subtracts). */
+                if let (Some(bs), Some(layout)) = (self.box_select.as_mut(), self.layout.as_ref()) {
+                    if bs.armed && bs.start.is_none() {
+                        let mval = [self.cursor[0] - layout.main.xmin, self.cursor[1] - layout.main.ymin];
+                        bs.start = Some(mval);
+                        bs.cur = mval;
+                        bs.dragging = true;
+                        bs.mode = if self.modifiers.control_key() { select_box::BoxMode::Sub } else { select_box::BoxMode::Add };
+                        return;
+                    }
+                }
                 /* `view3d.select` on LEFTMOUSE CLICK in the viewport (Shift extends and toggles): the nearest
                  * object under the cursor, or nothing. In the outliner (`outliner.item_activate`) the clicked
                  * object row. */
@@ -725,7 +763,13 @@ impl ApplicationHandler for App {
                         /* Cameras and lights are overlay shapes: a click near their lines picks them. */
                         hit = overlay_extra::pick(&self.scene, &self.rv3d, rw, rh, mval);
                     }
-                    self.scene.select_pick(hit, extend);
+                    if hit.is_none() {
+                        /* The Select Box tool: a press on empty space waits to see whether it is a click (deselect)
+                         * or the start of a box. */
+                        self.box_select = Some(BoxSelect { armed: false, start: Some(mval), cur: mval, dragging: false, mode: select_box::BoxMode::from_keys(extend, self.modifiers.control_key()) });
+                    } else {
+                        self.scene.select_pick(hit, extend);
+                    }
                     gfx.window.request_redraw();
                 } else if let Some(window) = modifier_panel::window_rect(user, layout.properties).filter(|w| w.isect_pt_v(self.cursor)) {
                     /* The Modifiers panel of the properties editor acts on the active object. */
@@ -753,6 +797,21 @@ impl ApplicationHandler for App {
             /* `WM_gesture_box_modal()`: releasing LEFTMOUSE confirms the border and runs `view3d.zoom_border`. */
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
                 self.scrub_drag = false;
+                if let Some(bs) = self.box_select.take() {
+                    if let (Some(start), Some(layout)) = (bs.start, self.layout.as_ref()) {
+                        let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
+                        if bs.dragging {
+                            self.rv3d.update(&self.v3d, rw, rh);
+                            let rect = select_box::rect_of(start, bs.cur);
+                            self.scene.select_box(&self.rv3d, rw, rh, rect, bs.mode, self.xray || self.wire);
+                        } else if !bs.armed {
+                            /* A click on nothing: deselect unless extending. */
+                            self.scene.select_pick(None, bs.mode != select_box::BoxMode::Set);
+                        }
+                        gfx.window.request_redraw();
+                    }
+                    return;
+                }
                 let Some((start, clip)) = self.zoom_border.as_ref().and_then(|z| z.start.map(|s| (s, z.clip))) else { return };
                 self.zoom_border = None;
                 let Some(layout) = self.layout.as_ref() else { return };
@@ -1381,6 +1440,15 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
+                /* `view3d.select_box` on B (`WM_gesture_box_invoke()`): the next drag extends the selection (Ctrl
+                 * subtracts). Not over the header region. */
+                if code == KeyCode::KeyB && !self.modifiers.shift_key() && !self.modifiers.control_key() && !self.modifiers.alt_key() && !key_event.repeat {
+                    let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
+                    if area::in_view3d_main(user, layout.main, self.cursor) && self.xform.is_none() {
+                        self.box_select = Some(BoxSelect { armed: true, start: None, cur: [0, 0], dragging: false, mode: select_box::BoxMode::Add });
+                    }
+                    return;
+                }
                 /* `view3d.zoom_border` on Shift + B (`WM_gesture_box_invoke()`); not over the header region. */
                 if code == KeyCode::KeyB && self.modifiers.shift_key() && !self.modifiers.control_key() && !self.modifiers.alt_key() && !key_event.repeat {
                     let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
@@ -1456,6 +1524,7 @@ impl ApplicationHandler for App {
                 if code == KeyCode::Escape {
                     /* `WM_gesture_box_modal()`: ESC cancels the box gesture. */
                     self.zoom_border = None;
+                    self.box_select = None;
                     /* Transform cancel: the cursor goes back to where the drag started. */
                     if let Some(drag) = self.cursor_drag.take() {
                         if drag.active {
@@ -1721,6 +1790,11 @@ impl ApplicationHandler for App {
                             overlay_extra::draw_extras(&mut buf, w, h, layout.main, user, &self.rv3d, &self.scene);
                             overlay_cursor::draw_cursor(&mut buf, w, h, layout.main, user, &self.rv3d, self.cursor3d, self.cursor3d_quat);
                             overlay_text::draw(&mut buf, w, h, layout.main, user, &self.v3d, &self.rv3d, self.frame.unwrap_or(1), &{ let mut info = overlay_text::ObjectInfo::of(&self.scene); if self.pivot_point != transform::PivotPoint::Median { info.pivot = Some(self.pivot_point.label().to_string()); } if self.show_stats { info.with_stats(&self.scene) } else { info } });
+                        }
+                    }
+                    if let Some(bs) = self.box_select.as_ref().filter(|b| b.dragging) {
+                        if let Some(start) = bs.start {
+                            select_box::draw_box(&mut buf, w, h, layout.main, start, bs.cur);
                         }
                     }
                     area::fill_rect(&mut buf, w, h, layout.topbar, theme::SPACE_TOPBAR_HEADER.to_xrgb());
