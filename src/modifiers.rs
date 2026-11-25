@@ -10,7 +10,8 @@ use crate::mesh_deform::{CastShape, DeformMode};
 #[derive(Clone, Debug, PartialEq)]
 pub enum Modifier {
     Mirror { axes: [bool; 3], merge: bool, threshold: f32 },
-    Array { count: u32, relative: V3, constant: V3 },
+    /// `merge` is the merge distance in metres (0 is off): vertices of neighbouring copies that touch are joined.
+    Array { count: u32, relative: V3, constant: V3, merge: f32 },
     Solidify { thickness: f32, offset: f32 },
     /// One segment, `Offset` width.
     Bevel { width: f32 },
@@ -44,6 +45,22 @@ pub enum Modifier {
     Shrinkwrap { target: Option<u32>, offset: f32 },
 }
 
+/// The offsets the Array key cycles through: a label, the relative offset (a factor of the bounds size) and the
+/// constant one (metres). The first is the default.
+pub const ARRAY_PRESETS: [(&str, V3, V3); 6] = [
+    ("relative X", [1.0, 0.0, 0.0], [0.0; 3]),
+    ("relative Y", [0.0, 1.0, 0.0], [0.0; 3]),
+    ("relative Z", [0.0, 0.0, 1.0], [0.0; 3]),
+    ("+1 m X", [0.0; 3], [1.0, 0.0, 0.0]),
+    ("+1 m Y", [0.0; 3], [0.0, 1.0, 0.0]),
+    ("+1 m Z", [0.0; 3], [0.0, 0.0, 1.0]),
+];
+
+/// Which preset an Array offset is, `None` for a custom one.
+pub fn array_preset(relative: V3, constant: V3) -> Option<usize> {
+    ARRAY_PRESETS.iter().position(|p| p.1 == relative && p.2 == constant)
+}
+
 /// What a modifier needs from the rest of the scene: the target meshes, already in the space of the object
 /// that owns the stack (built by `Scene`).
 #[derive(Clone, Debug, Default)]
@@ -59,7 +76,7 @@ impl Modifier {
     }
 
     pub fn array(count: u32) -> Modifier {
-        Modifier::Array { count: count.max(1), relative: [1.0, 0.0, 0.0], constant: [0.0; 3] }
+        Modifier::Array { count: count.max(1), relative: [1.0, 0.0, 0.0], constant: [0.0; 3], merge: 0.0 }
     }
 
     pub fn solidify() -> Modifier {
@@ -198,7 +215,18 @@ impl Modifier {
                 let names: String = axes.iter().zip(["X", "Y", "Z"]).filter(|(on, _)| **on).map(|(_, n)| n).collect();
                 format!(" {names}")
             }
-            Modifier::Array { count, .. } => format!(" x{count}"),
+            Modifier::Array { count, relative, constant, merge } => {
+                let mut d = format!(" x{count}");
+                if let Some(i) = array_preset(*relative, *constant).filter(|&i| i != 0) {
+                    d.push_str(&format!(" {}", ARRAY_PRESETS[i].0));
+                } else if array_preset(*relative, *constant).is_none() {
+                    d.push_str(" custom offset");
+                }
+                if *merge > 0.0 {
+                    d.push_str(&format!(" merge {} m", num(*merge)));
+                }
+                d
+            }
             Modifier::Solidify { thickness, .. } => format!(" {} m", num(*thickness)),
             Modifier::Bevel { width } => format!(" {} m", num(*width)),
             Modifier::Smooth { factor, repeat } => format!(" {} x{repeat}", num(*factor)),
@@ -281,7 +309,14 @@ impl Modifier {
                 }
                 m
             }
-            Modifier::Array { count, relative, constant } => mesh.arrayed(*count, *relative, *constant),
+            Modifier::Array { count, relative, constant, merge } => {
+                let m = mesh.arrayed(*count, *relative, *constant);
+                if *merge > 0.0 {
+                    m.merged_by_distance(*merge).0
+                } else {
+                    m
+                }
+            }
             Modifier::Solidify { thickness, offset } => mesh.solidified(*thickness, *offset),
             Modifier::Bevel { width } => mesh.beveled(*width),
             Modifier::Smooth { factor, repeat } => mesh.smoothed(*factor, *repeat),
@@ -481,5 +516,33 @@ mod tests {
         s.adjust(3);
         s.adjust(-3);
         assert_eq!(s, Modifier::smooth());
+    }
+
+    #[test]
+    fn array_summary_shows_non_default_offset_and_merge() {
+        assert_eq!(Modifier::array(3).summary(), "Array x3");
+        let m = Modifier::Array { count: 2, relative: [0.0; 3], constant: [0.0, 1.0, 0.0], merge: 0.001 };
+        assert_eq!(m.summary(), "Array x2 +1 m Y merge 0.001 m");
+        let m = Modifier::Array { count: 2, relative: [0.5, 0.0, 0.0], constant: [0.0; 3], merge: 0.0 };
+        assert_eq!(m.summary(), "Array x2 custom offset");
+    }
+
+    #[test]
+    fn array_merge_joins_touching_copies() {
+        /* Two unit cubes side by side along X share a face: 16 vertices become 12 once merged. */
+        let cube = Mesh::cube(1.0);
+        let plain = Modifier::Array { count: 2, relative: [1.0, 0.0, 0.0], constant: [0.0; 3], merge: 0.0 };
+        let merged = Modifier::Array { count: 2, relative: [1.0, 0.0, 0.0], constant: [0.0; 3], merge: 0.001 };
+        assert_eq!(plain.apply(&cube).verts.len(), 16);
+        assert_eq!(merged.apply(&cube).verts.len(), 12);
+    }
+
+    #[test]
+    fn array_presets_are_distinct_and_the_first_is_the_default() {
+        assert_eq!(array_preset([1.0, 0.0, 0.0], [0.0; 3]), Some(0));
+        assert_eq!(array_preset([0.3, 0.0, 0.0], [0.0; 3]), None);
+        for (i, p) in ARRAY_PRESETS.iter().enumerate() {
+            assert_eq!(array_preset(p.1, p.2), Some(i));
+        }
     }
 }

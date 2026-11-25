@@ -765,6 +765,44 @@ mod tests {
     }
 
     #[test]
+    fn array_offset_cycles_through_the_presets_and_wraps() {
+        let mut s = Scene::startup();
+        assert_eq!(s.cycle_array_offset(), 0, "no Array modifier yet");
+        assert!(!s.can_undo());
+        s.set_array(3);
+        let off = |s: &Scene| match &s.active_object().unwrap().modifiers[0] {
+            Modifier::Array { relative, constant, .. } => (*relative, *constant),
+            _ => unreachable!(),
+        };
+        assert_eq!(off(&s), ([1.0, 0.0, 0.0], [0.0; 3]));
+        for i in 1..6 {
+            assert_eq!(s.cycle_array_offset(), 1);
+            assert_eq!(off(&s), (modifiers::ARRAY_PRESETS[i].1, modifiers::ARRAY_PRESETS[i].2));
+        }
+        s.cycle_array_offset();
+        assert_eq!(off(&s), ([1.0, 0.0, 0.0], [0.0; 3]));
+        s.undo();
+        assert_eq!(off(&s).1, [0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn array_constant_offset_moves_the_copies_and_merge_toggles() {
+        let mut s = Scene::startup();
+        s.set_array(2);
+        for _ in 0..3 {
+            s.cycle_array_offset();
+        }
+        s.update_eval();
+        /* +1 m along X: the copy overlaps the 2 m cube, bounds 3 m wide. */
+        let (lo, hi) = s.active_object().unwrap().world_bounds().unwrap();
+        assert!(approx(hi[0] - lo[0], 3.0));
+        assert_eq!(s.toggle_array_merge(), 1);
+        assert!(matches!(s.active_object().unwrap().modifiers[0], Modifier::Array { merge, .. } if merge > 0.0));
+        assert_eq!(s.toggle_array_merge(), 1);
+        assert!(matches!(s.active_object().unwrap().modifiers[0], Modifier::Array { merge, .. } if merge == 0.0));
+    }
+
+    #[test]
     fn statistics_count_the_visible_objects() {
         let mut s = Scene::startup();
         let st = s.statistics();

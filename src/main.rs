@@ -1159,6 +1159,10 @@ impl ApplicationHandler for App {
                         KeyCode::KeyM if shift_k && alt_k && !ctrl_k => {
                             self.scene.select_mirror(true);
                         }
+                        /* Array modifier: Ctrl + Alt + O cycles the offset (relative X / Y / Z, then 1 m constant along
+                         * X / Y / Z), Ctrl + Alt + J toggles Merge (1 mm). */
+                        KeyCode::KeyO if ctrl_k && alt_k && !shift_k => geometry = self.scene.cycle_array_offset() > 0,
+                        KeyCode::KeyJ if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_array_merge() > 0,
                         /* Set Origin > Origin to Center of Mass (Volume). */
                         KeyCode::KeyM if ctrl_k && shift_k && alt_k => geometry = self.scene.origin_to_center_of_mass() > 0,
                         /* `object.select_grouped` by type (Shift + G) and `object.select_random` (Shift + Alt + R). */

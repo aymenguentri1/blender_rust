@@ -807,6 +807,27 @@ impl Scene {
         })
     }
 
+    /// Cycles the offset of the first Array modifier of each selected mesh through `ARRAY_PRESETS` (relative X, Y,
+    /// Z, then 1 m constant along X, Y, Z); a custom offset goes back to relative X. Returns how many changed.
+    pub fn cycle_array_offset(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            let Some(Modifier::Array { relative, constant, .. }) = stack.iter_mut().find(|m| matches!(m, Modifier::Array { .. })) else { return false };
+            let next = modifiers::array_preset(*relative, *constant).map_or(0, |i| (i + 1) % modifiers::ARRAY_PRESETS.len());
+            *relative = modifiers::ARRAY_PRESETS[next].1;
+            *constant = modifiers::ARRAY_PRESETS[next].2;
+            true
+        })
+    }
+
+    /// Toggles Merge (1 mm) on the first Array modifier of each selected mesh.
+    pub fn toggle_array_merge(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            let Some(Modifier::Array { merge, .. }) = stack.iter_mut().find(|m| matches!(m, Modifier::Array { .. })) else { return false };
+            *merge = if *merge > 0.0 { 0.0 } else { 0.001 };
+            true
+        })
+    }
+
     /// Sets the count of the Array modifier of the selected meshes: 2 or more adds or updates it, less removes it.
     pub fn set_array(&mut self, count: u32) -> usize {
         self.edit_modifiers(|stack| {
