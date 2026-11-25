@@ -1388,6 +1388,12 @@ impl ApplicationHandler for App {
                             }
                         }
                         /* `object.transform_apply` with a single option, and Selection to Grid (1 m). */
+                        /* `object.parent_no_inverse_set` (Ctrl + Shift + P, Alt added: Keep Transform), `object.make_links_data`
+                         * Object Data (Ctrl + Shift + L) and Cursor to Grid (Ctrl + Shift + Alt + U). */
+                        KeyCode::KeyP if ctrl_k && shift_k && !alt_k => geometry = self.scene.parent_set_no_inverse(false) > 0,
+                        KeyCode::KeyP if ctrl_k && shift_k && alt_k => geometry = self.scene.parent_set_no_inverse(true) > 0,
+                        KeyCode::KeyL if ctrl_k && shift_k && !alt_k => geometry = self.scene.link_object_data() > 0,
+                        KeyCode::KeyU if ctrl_k && shift_k && alt_k => self.cursor3d = scene::snap_to_grid(self.cursor3d, 1.0),
                         KeyCode::KeyL if ctrl_k && shift_k && alt_k => geometry = self.scene.apply_transform(scene::ApplyMask::LOCATION) > 0,
                         KeyCode::KeyR if ctrl_k && shift_k && alt_k => geometry = self.scene.apply_transform(scene::ApplyMask::ROTATION) > 0,
                         KeyCode::KeyZ if ctrl_k && shift_k && alt_k => geometry = self.scene.apply_transform(scene::ApplyMask::SCALE) > 0,

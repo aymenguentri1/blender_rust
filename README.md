@@ -131,6 +131,8 @@ and lights in submenus and offers the Image empty and more camera types; those a
 | Ctrl + P | Parent (Object, Keep Transform): the active object becomes the parent of the other selected objects, which stay where they are (`parent_inv` stores the inverse parent matrix like Blender's `parentinv`). Parenting an object to one of its own descendants is refused |
 | Alt + P | Clear and Keep Transformation: the object keeps its world transform as its own location, rotation and scale |
 | Shift + Alt + P | Clear Parent: the object falls back to its own local transform |
+| Ctrl + Shift + P | Parent without Inverse (`OBJECT_OT_parent_no_inverse_set`): the active object becomes the parent with an identity parent inverse, so the others land on its origin (their location is cleared, rotation and scale stay as local values) |
+| Ctrl + Shift + Alt + P | The same with Keep Transform: their local transform is recomputed from the parent so they stay where they are. Cycles are refused |
 | Ctrl + `[` / Ctrl + `]` | Select Parent / Select Child (first child by name); add Shift to keep the current selection |
 
 The outliner nests children under their parent. Grab, rotate and scale leave out an object whose parent is also
@@ -207,6 +209,12 @@ All but the overlay are undoable (Align pushes no step when nothing moves). The 
 | Input | Effect |
 | --- | --- |
 | Shift held during G / R / S | Precision mode (`t->mouse.precision`): the mouse movement counts a tenth, for grab, rotate and scale alike. Releasing Shift keeps the value reached (no jump back to the cursor), and further movement counts in full again. Shift + X / Y / Z still picks the plane constraint |
+
+### Link object data and cursor to grid
+| Keys | Operator |
+| --- | --- |
+| Ctrl + Shift + L | Link Object Data (`OBJECT_OT_make_links_data`, Object Data): the other selected meshes get the active mesh's geometry and shading flag; names and transforms stay their own. Meshes are not shared between objects here, so they receive copies, not a live link. Objects that already match are left alone |
+| Ctrl + Shift + Alt + U | Cursor to Grid: rounds the 3D cursor to the nearest metre (`snap_curs_to_grid`) |
 
 ### Pivot point
 Period cycles the transform pivot point (Blender's pivot pie): Median Point (default), 3D Cursor and Individual Origins.
