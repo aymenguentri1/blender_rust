@@ -738,13 +738,21 @@ impl ApplicationHandler for App {
                     gfx.window.request_redraw();
                     return;
                 }
-                /* `view3d.view_all` with `center = True` on Shift + C: the 3D cursor goes back to the
-                 * origin (`View3DCursor::set_matrix(identity)`: location and rotation). With no objects
-                 * there are no bounds, so the view itself does not change. Not over the header region. */
+                /* `view3d.view_all` with `center = True` on Shift + C (`view3d_all_exec()`): the 3D cursor goes
+                 * back to the origin (`View3DCursor::set_matrix(identity)`: location and rotation), then the
+                 * view frames the bounds of the visible objects extended to include the origin
+                 * (`minmax_v3v3_v3(min, max, float3(0))`) with `ED_view3d_smooth_view()`. Not over the header region. */
                 if code == KeyCode::KeyC && self.modifiers.shift_key() && !self.modifiers.control_key() && !self.modifiers.alt_key() && !key_event.repeat {
                     let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
                     if area::in_view3d_main(user, layout.main, self.cursor) {
                         self.cursor3d = [0.0; 3];
+                        let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
+                        smooth_finish(&mut self.rv3d, &mut self.smooth);
+                        let smooth_src = self.rv3d.state_backup();
+                        let min = view3d::DEFAULT_CUBE_MIN.map(|v| v.min(0.0));
+                        let max = view3d::DEFAULT_CUBE_MAX.map(|v| v.max(0.0));
+                        self.rv3d.view_from_minmax(&self.v3d, rw, rh, min, max);
+                        self.smooth = self.rv3d.smooth_view_begin(smooth_src, view3d::SMOOTH_VIEWTX).map(|sms| (sms, std::time::Instant::now()));
                         self.cursor3d_quat = [1.0, 0.0, 0.0, 0.0];
                         gfx.window.request_redraw();
                     }
