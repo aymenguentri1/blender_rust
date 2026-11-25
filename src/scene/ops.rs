@@ -6,6 +6,10 @@
 //!  - `OBJECT_OT_transform_randomize` (location, rotation and scale; a seed that counts up on every call)
 //!  - `OBJECT_OT_select_grouped` for Children, Immediate Children, Parent and Siblings (`Type` lives in `scene`)
 //!  - `OBJECT_OT_origin_set` with `type = ORIGIN_CENTER_OF_VOLUME`: the volume centroid of a closed mesh
+//!  - `VIEW3D_OT_snap_selected_to_active` (Selection to Active)
+//!  - `OBJECT_OT_origin_set` with `type = ORIGIN_CENTER_OF_VOLUME` is joined by the bounding box center
+//!  - `OBJECT_OT_parent_clear` with `type = CLEAR_INVERSE`
+//!  - `OBJECT_OT_select_mirror` (`BLI_string_flip_side_name()`: `.L` / `.R`, `_l` / `_r`, `Left` / `Right`, prefixes too)
 //!  - the statistics overlay (`Scene::statistics`): objects, vertices, faces and triangles
 //!
 //! Deviations: Randomize Transform uses its own hash instead of Blender's random number generator, so a given seed
@@ -72,6 +76,45 @@ pub struct Stats {
     pub verts: usize,
     pub faces: usize,
     pub tris: usize,
+}
+
+/// `BLI_string_flip_side_name()` for the common cases: the name with its left / right token flipped, `None` when it has
+/// none. The token is a prefix or a suffix next to a `.`, `_`, `-` or space, in the case of the original, and a
+/// trailing `.001` style number is kept.
+pub fn flip_side_name(name: &str) -> Option<String> {
+    let (base, num) = match name.rfind('.') {
+        Some(i) if i > 0 && name.len() > i + 1 && name[i + 1..].bytes().all(|b| b.is_ascii_digit()) => (&name[..i], &name[i..]),
+        _ => (name, ""),
+    };
+    let flip = |tok: &str| -> Option<&'static str> {
+        Some(match tok {
+            "L" => "R",
+            "R" => "L",
+            "l" => "r",
+            "r" => "l",
+            "Left" => "Right",
+            "Right" => "Left",
+            "left" => "right",
+            "right" => "left",
+            "LEFT" => "RIGHT",
+            "RIGHT" => "LEFT",
+            _ => return None,
+        })
+    };
+    let is_sep = |c: char| matches!(c, '.' | '_' | '-' | ' ');
+    /* A suffix: `Arm.L`. */
+    if let Some(i) = base.rfind(is_sep) {
+        if let Some(f) = flip(&base[i + 1..]) {
+            return Some(format!("{}{}{}", &base[..=i], f, num));
+        }
+    }
+    /* A prefix: `L_Arm`. */
+    if let Some(i) = base.find(is_sep) {
+        if let Some(f) = flip(&base[..i]) {
+            return Some(format!("{}{}{}", f, &base[i..], num));
+        }
+    }
+    None
 }
 
 /// A small integer hash (lowbias32) mapped to `[-1, 1)`.
@@ -268,6 +311,91 @@ impl Scene {
             o.data = ObjectData::Mesh(moved);
             o.loc = [o.loc[0] + w[0], o.loc[1] + w[1], o.loc[2] + w[2]];
             o.eval = None;
+        }
+        n
+    }
+
+    /// `VIEW3D_OT_snap_selected_to_active`: moves the other selected objects so their origins land on the active
+    /// object's origin. An object that moves with a selected parent is left out, and so is an ancestor of the
+    /// active object. Returns how many objects moved.
+    pub fn selection_to_active(&mut self) -> usize {
+        let Some(ai) = self.active.and_then(|id| self.index_of(id)) else { return 0 };
+        self.refresh_parents();
+        let target = self.objects[ai].world_matrix()[3];
+        let moving: Vec<usize> = (0..self.objects.len())
+            .filter(|&i| {
+                let o = &self.objects[i];
+                i != ai && o.selected && !o.hidden && !self.has_selected_ancestor(i) && !self.is_descendant(ai, o.id)
+            })
+            .filter(|&i| {
+                let w = self.objects[i].world_matrix()[3];
+                (0..3).any(|k| (w[k] - target[k]).abs() > 1e-7)
+            })
+            .collect();
+        if moving.is_empty() {
+            return 0;
+        }
+        self.push_undo();
+        for &i in &moving {
+            let w = self.objects[i].world_matrix()[3];
+            self.translate_world(i, [target[0] - w[0], target[1] - w[1], target[2] - w[2]]);
+        }
+        self.refresh_parents();
+        moving.len()
+    }
+
+    /// `OBJECT_OT_origin_set` (Origin to Geometry, Bounds Center): the center of the mesh bounding box.
+    pub fn origin_to_bounds_center(&mut self) -> usize {
+        let n = self.selected().filter(|o| o.mesh().is_some()).count();
+        if n == 0 {
+            return 0;
+        }
+        self.push_undo();
+        for o in self.objects.iter_mut().filter(|o| o.selected && !o.hidden) {
+            let ObjectData::Mesh(mesh) = &o.data else { continue };
+            let Some((lo, hi)) = mesh.bounds() else { continue };
+            let c = [0.5 * (lo[0] + hi[0]), 0.5 * (lo[1] + hi[1]), 0.5 * (lo[2] + hi[2])];
+            let moved = mesh.mapped(|v| [v[0] - c[0], v[1] - c[1], v[2] - c[2]], false);
+            let w = mat3_mul_v3(&euler_to_mat3(o.rot), [c[0] * o.scale[0], c[1] * o.scale[1], c[2] * o.scale[2]]);
+            o.data = ObjectData::Mesh(moved);
+            o.loc = [o.loc[0] + w[0], o.loc[1] + w[1], o.loc[2] + w[2]];
+            o.eval = None;
+        }
+        n
+    }
+
+    /// `OBJECT_OT_parent_clear` (Clear Parent Inverse): resets the stored inverse parent matrix of the selected
+    /// children, so they follow their parent's transform directly (and usually move). Returns how many changed.
+    pub fn parent_clear_inverse(&mut self) -> usize {
+        let targets: Vec<usize> = (0..self.objects.len())
+            .filter(|&i| {
+                let o = &self.objects[i];
+                o.selected && !o.hidden && o.parent.is_some() && o.parent_inv != IDENTITY4
+            })
+            .collect();
+        if targets.is_empty() {
+            return 0;
+        }
+        self.push_undo();
+        for &i in &targets {
+            self.objects[i].parent_inv = IDENTITY4;
+            self.objects[i].eval = None;
+        }
+        self.refresh_parents();
+        targets.len()
+    }
+
+    /// `OBJECT_OT_select_mirror`: selects the objects whose names are the left / right flip of a selected one's.
+    /// With `extend` the current selection stays. Returns how many objects were newly selected.
+    pub fn select_mirror(&mut self, extend: bool) -> usize {
+        let wanted: Vec<String> = self.objects.iter().filter(|o| o.selected && !o.hidden).filter_map(|o| flip_side_name(&o.name)).collect();
+        let mut n = 0;
+        for o in self.objects.iter_mut().filter(|o| !o.hidden) {
+            let hit = wanted.iter().any(|w| *w == o.name);
+            if hit && !o.selected {
+                n += 1;
+            }
+            o.selected = hit || (extend && o.selected);
         }
         n
     }
@@ -527,6 +655,113 @@ mod tests {
         assert_eq!(s.active_origin(), Some([5.0, 1.0, 0.0]));
         s.active = None;
         assert_eq!(s.active_origin(), None);
+    }
+
+    #[test]
+    fn flipped_names() {
+        assert_eq!(flip_side_name("Arm.L").as_deref(), Some("Arm.R"));
+        assert_eq!(flip_side_name("Arm.R.001").as_deref(), Some("Arm.L.001"));
+        assert_eq!(flip_side_name("leg_l").as_deref(), Some("leg_r"));
+        assert_eq!(flip_side_name("Left_Hand").as_deref(), Some("Right_Hand"));
+        assert_eq!(flip_side_name("hand-RIGHT").as_deref(), Some("hand-LEFT"));
+        assert_eq!(flip_side_name("Cube"), None);
+        assert_eq!(flip_side_name("Cube.001"), None);
+        assert_eq!(flip_side_name("Lamp"), None);
+    }
+
+    fn named(names: &[&str]) -> Scene {
+        let mut s = Scene::startup();
+        s.objects.clear();
+        for n in names {
+            s.add_primitive(Primitive::Cube, [0.0; 3]);
+            s.objects.last_mut().unwrap().name = n.to_string();
+        }
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        s
+    }
+
+    #[test]
+    fn select_mirror_replaces_or_extends() {
+        let mut s = named(&["Arm.L", "Arm.R", "Leg.L", "Body"]);
+        s.objects[0].selected = true;
+        assert_eq!(s.select_mirror(false), 1);
+        assert_eq!(s.selected().map(|o| o.name.as_str()).collect::<Vec<_>>(), ["Arm.R"]);
+        s.objects[3].selected = true;
+        assert_eq!(s.select_mirror(true), 1);
+        assert_eq!(s.selected().map(|o| o.name.as_str()).collect::<Vec<_>>(), ["Arm.L", "Arm.R", "Body"]);
+        let mut s = named(&["Body", "Head"]);
+        s.objects[0].selected = true;
+        assert_eq!(s.select_mirror(false), 0);
+    }
+
+    #[test]
+    fn selection_to_active_moves_the_others_onto_it() {
+        let mut s = cubes();
+        let a = s.objects.iter().find(|o| o.name == "Cube.001").unwrap().id;
+        s.active = Some(a);
+        assert_eq!(s.selection_to_active(), 2);
+        for o in s.objects.iter().filter(|o| o.mesh().is_some()) {
+            assert_eq!(o.loc, [5.0, 1.0, 0.0], "{}", o.name);
+        }
+        assert_eq!(s.selection_to_active(), 0);
+        s.undo();
+        assert_eq!(s.objects.iter().find(|o| o.name == "Cube").unwrap().loc, [0.0; 3]);
+    }
+
+    #[test]
+    fn selection_to_active_leaves_out_children_of_selected_parents() {
+        let mut s = cubes();
+        let parent = s.objects.iter().find(|o| o.name == "Cube.001").unwrap().id;
+        let child = s.objects.iter().position(|o| o.name == "Cube.002").unwrap();
+        s.objects[child].parent = Some(parent);
+        s.refresh_parents();
+        /* Cube is active at the origin; Cube.001 (the parent) moves there. Cube.002 keeps its local (-4, 2, 0)
+         * under it (no inverse was stored), so it goes along instead of being snapped by itself. */
+        assert_eq!(s.selection_to_active(), 1);
+        s.refresh_parents();
+        assert_eq!(s.objects[child].loc, [-4.0, 2.0, 0.0]);
+        let w = s.objects[child].world_matrix()[3];
+        assert!((w[0] + 4.0).abs() < 1e-4 && (w[1] - 2.0).abs() < 1e-4, "{w:?}");
+    }
+
+    #[test]
+    fn origin_to_bounds_center() {
+        let mut s = Scene::startup();
+        let i = s.objects.iter().position(|o| o.name == "Cube").unwrap();
+        /* A lopsided mesh: the vertex mean is not the box center. */
+        s.objects[i].data = ObjectData::Mesh(Mesh {
+            verts: vec![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [4.0, 2.0, 2.0]],
+            faces: vec![vec![0, 1, 3]],
+        });
+        let before = s.objects[i].world_bounds().unwrap();
+        assert_eq!(s.origin_to_bounds_center(), 1);
+        assert_eq!(s.objects[i].loc, [2.0, 1.0, 1.0]);
+        let after = s.objects[i].world_bounds().unwrap();
+        assert!((0..3).all(|k| approx(before.0[k], after.0[k]) && approx(before.1[k], after.1[k])));
+    }
+
+    #[test]
+    fn clear_parent_inverse_resets_it_and_the_child_follows_the_parent() {
+        let mut s = cubes();
+        let parent = s.objects.iter().find(|o| o.name == "Cube.001").unwrap().id;
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        let pi = s.index_of(parent).unwrap();
+        s.objects[pi].selected = true;
+        let ci = s.objects.iter().position(|o| o.name == "Cube.002").unwrap();
+        s.objects[ci].selected = true;
+        s.active = Some(parent);
+        assert_eq!(s.parent_set(), 1);
+        /* Parenting stored the inverse of the parent's matrix, so there is something to clear. */
+        assert_eq!(s.parent_clear_inverse(), 1);
+        s.refresh_parents();
+        /* Local (-4, 2, 0) now sits inside the parent at (5, 1, 0). */
+        let w = s.objects[ci].world_matrix()[3];
+        assert!((w[0] - 1.0).abs() < 1e-4 && (w[1] - 3.0).abs() < 1e-4, "{w:?}");
+        assert_eq!(s.parent_clear_inverse(), 0);
     }
 
     #[test]
