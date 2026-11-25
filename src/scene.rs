@@ -42,8 +42,44 @@ pub enum ObjectData {
     Camera,
     /// Drawn as a circle by `overlay_extra`.
     Light,
-    /// `OB_EMPTY` with `OB_PLAINAXES`: three lines through the origin, drawn by `overlay_extra`.
-    Empty,
+    /// `OB_EMPTY` with its `empty_drawtype`, drawn by `overlay_extra`.
+    Empty(EmptyKind),
+}
+
+/// `Object.empty_display_type` (the Image type is not modelled); the size is always 1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EmptyKind {
+    PlainAxes,
+    Arrows,
+    SingleArrow,
+    Circle,
+    Cube,
+    Sphere,
+    Cone,
+}
+
+impl EmptyKind {
+    pub const ALL: [EmptyKind; 7] = [
+        EmptyKind::PlainAxes,
+        EmptyKind::Arrows,
+        EmptyKind::SingleArrow,
+        EmptyKind::Circle,
+        EmptyKind::Cube,
+        EmptyKind::Sphere,
+        EmptyKind::Cone,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            EmptyKind::PlainAxes => "Plain Axes",
+            EmptyKind::Arrows => "Arrows",
+            EmptyKind::SingleArrow => "Single Arrow",
+            EmptyKind::Circle => "Circle",
+            EmptyKind::Cube => "Cube",
+            EmptyKind::Sphere => "Sphere",
+            EmptyKind::Cone => "Cone",
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -444,7 +480,7 @@ impl Scene {
         self.add_item(crate::add_menu::AddItem::Mesh(prim), location)
     }
 
-    /// `OBJECT_OT_*_add` for every entry of the Add menu (mesh primitives, `object.empty_add` (Plain Axes),
+    /// `OBJECT_OT_*_add` for every entry of the Add menu (mesh primitives, `object.empty_add` (every type but Image),
     /// `object.camera_add`, `object.light_add` (Point)): the new object is aligned to the world, selected and
     /// active, and the others are deselected.
     pub fn add_item(&mut self, item: crate::add_menu::AddItem, location: V3) -> u32 {
@@ -453,7 +489,7 @@ impl Scene {
         self.select_all(SelectAction::Deselect);
         let data = match item {
             AddItem::Mesh(p) => ObjectData::Mesh(p.build()),
-            AddItem::Empty => ObjectData::Empty,
+            AddItem::Empty(k) => ObjectData::Empty(k),
             AddItem::Camera => ObjectData::Camera,
             AddItem::Light => ObjectData::Light,
         };
@@ -2801,7 +2837,7 @@ mod tests {
     fn add_item_creates_selected_active_objects_of_each_kind() {
         use crate::add_menu::AddItem;
         let mut s = Scene::startup();
-        for (item, name) in [(AddItem::Empty, "Empty"), (AddItem::Camera, "Camera.001"), (AddItem::Light, "Light.001")] {
+        for (item, name) in [(AddItem::Empty(EmptyKind::PlainAxes), "Empty"), (AddItem::Camera, "Camera.001"), (AddItem::Light, "Light.001")] {
             let id = s.add_item(item, [1.0, 2.0, 3.0]);
             let o = &s.objects[s.index_of(id).unwrap()];
             assert_eq!(o.name, name);
