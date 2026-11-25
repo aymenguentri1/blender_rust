@@ -555,6 +555,51 @@ impl Scene {
         })
     }
 
+    /// Adds a Smooth modifier to the selected meshes, or removes the one they have.
+    pub fn toggle_smooth_modifier(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::Smooth { .. })) {
+                Some(i) => {
+                    stack.remove(i);
+                }
+                None => stack.push(Modifier::smooth()),
+            }
+            true
+        })
+    }
+
+    /// Adds a Weld modifier to the selected meshes, or removes the one they have.
+    pub fn toggle_weld(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::Weld { .. })) {
+                Some(i) => {
+                    stack.remove(i);
+                }
+                None => stack.push(Modifier::weld()),
+            }
+            true
+        })
+    }
+
+    /// Simple Deform: adds it as Twist, then each call moves it on to Taper, Stretch and finally removes it.
+    pub fn cycle_simple_deform(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::SimpleDeform { .. })) {
+                Some(i) => {
+                    let mode = if let Modifier::SimpleDeform { mode, .. } = &stack[i] { *mode } else { unreachable!() };
+                    match mode.next() {
+                        Some(next) => stack[i] = Modifier::simple_deform(next),
+                        None => {
+                            stack.remove(i);
+                        }
+                    }
+                }
+                None => stack.push(Modifier::simple_deform(crate::mesh_deform::DeformMode::Twist)),
+            }
+            true
+        })
+    }
+
     /// The array count of the first selected mesh with an Array modifier (1 when there is none).
     pub fn array_count(&self) -> u32 {
         self.selected()
@@ -1454,6 +1499,22 @@ mod tests {
         s.update_eval();
         assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), 26);
         assert_eq!(s.toggle_bevel(), 1);
+        assert!(s.active_object().unwrap().modifiers.is_empty());
+    }
+
+    #[test]
+    fn deform_smooth_and_weld_toggle_in_the_stack() {
+        let mut s = Scene::startup();
+        assert_eq!(s.toggle_smooth_modifier(), 1);
+        assert_eq!(s.toggle_weld(), 1);
+        for _ in 0..3 {
+            assert_eq!(s.cycle_simple_deform(), 1);
+        }
+        assert_eq!(s.active_object().unwrap().modifiers.len(), 3);
+        assert_eq!(s.cycle_simple_deform(), 1);
+        assert_eq!(s.active_object().unwrap().modifiers.len(), 2);
+        assert_eq!(s.toggle_smooth_modifier(), 1);
+        assert_eq!(s.toggle_weld(), 1);
         assert!(s.active_object().unwrap().modifiers.is_empty());
     }
 
