@@ -690,6 +690,21 @@ impl Scene {
         n
     }
 
+    /// `rna_Object_name_set` for the active object (F2): the name is made unique among the objects (`Cube.001`
+    /// style) and is one undo step. Returns whether the name changed.
+    pub fn rename_active(&mut self, name: &str) -> bool {
+        let name = name.trim();
+        let Some(id) = self.active else { return false };
+        let Some(i) = self.index_of(id) else { return false };
+        if name.is_empty() || self.objects[i].name == name {
+            return false;
+        }
+        self.push_undo();
+        let unique = self.unique_name(name);
+        self.objects[i].name = unique;
+        true
+    }
+
     /// `OBJECT_OT_hide_view_set`: hides the selected objects.
     pub fn hide_selected(&mut self) -> usize {
         let n = self.selected_count();
@@ -2506,6 +2521,21 @@ mod tests {
         s.delete_selected();
         s.paste(&clip);
         assert_eq!(s.objects.last().unwrap().parent, None);
+    }
+
+    #[test]
+    fn rename_active_is_unique_and_undoable() {
+        let mut s = Scene::startup();
+        let cube = s.active.unwrap();
+        let other = s.objects.iter().find(|o| o.id != cube && matches!(o.data, ObjectData::Light(_))).unwrap().name.clone();
+        assert!(!s.rename_active("Cube"));
+        assert!(!s.rename_active("  "));
+        assert!(s.rename_active(" Hat "));
+        assert_eq!(s.objects.iter().find(|o| o.id == cube).unwrap().name, "Hat");
+        assert!(s.rename_active(&other));
+        assert_eq!(s.objects.iter().find(|o| o.id == cube).unwrap().name, format!("{other}.001"));
+        assert!(s.undo());
+        assert_eq!(s.objects.iter().find(|o| o.id == cube).unwrap().name, "Hat");
     }
 
     #[test]

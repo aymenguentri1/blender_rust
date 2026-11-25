@@ -168,6 +168,14 @@ Tweak tool's drag-to-move is not modelled). The code is in `src/select_box.rs` a
 The buffer lives in the running program only (Blender writes a `.blend` file to the temp folder, so it also pastes into
 other Blender sessions; this port does not). Code: `Scene::copy_selected` / `Scene::paste` in `src/scene.rs`.
 
+### Rename
+| Keys | Operator |
+| --- | --- |
+| F2 | Rename Active Object: a popup with a text field holding the name. Typing inserts at the caret, Backspace / Delete / Left / Right / Home / End edit, Enter applies (one undo step; a name already in use becomes `Name.001`), Esc or a click cancels |
+
+Not modelled: text selection, the clipboard inside the field, and renaming from the outliner (double click). The name is
+limited to 63 bytes like Blender's `MAX_NAME`. Code: `src/rename_popup.rs` and `Scene::rename_active`.
+
 ### Align, randomize and group
 | Keys | Operator |
 | --- | --- |

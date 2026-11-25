@@ -72,6 +72,7 @@ mod view3d_header;
 mod modifier_panel;
 mod transform_panel;
 mod select_box;
+mod rename_popup;
 
 use std::{num::NonZeroU32, sync::Arc};
 
@@ -202,6 +203,8 @@ struct App {
     zoom_border: Option<ZoomBorder>,
     /// The running `view3d.select_box` gesture.
     box_select: Option<BoxSelect>,
+    /// The F2 rename popup.
+    rename: Option<rename_popup::Rename>,
     /// The Ctrl + C buffer of `view3d.copybuffer`.
     clipboard: scene::Clipboard,
     /// Depth buffer of the main region from the last redraw (`rw * rh`, 1.0 where nothing is drawn).
@@ -642,6 +645,10 @@ impl ApplicationHandler for App {
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
                 /* A click in the popup menu runs the entry under the cursor (`object.*_add`: the new object is
                  * placed at the 3D cursor); any click closes the menu, outside it nothing else happens. */
+                if self.rename.take().is_some() {
+                    gfx.window.request_redraw();
+                    return;
+                }
                 if let Some(pos) = self.add_menu.take() {
                     if let Some(user) = self.user.as_ref() {
                         let size = gfx.window.inner_size();
@@ -960,6 +967,39 @@ impl ApplicationHandler for App {
 
                 /* A field of the Transform panel that is being typed into takes the keyboard: Enter applies, ESC
                  * cancels, Backspace deletes, the number characters are typed. */
+                /* The F2 rename popup takes the keyboard while it is open. */
+                if self.rename.is_some() {
+                    let mut outcome = rename_popup::Outcome::Editing;
+                    if let Some(r) = self.rename.as_mut() {
+                        match code {
+                            KeyCode::Enter | KeyCode::NumpadEnter => outcome = rename_popup::Outcome::Apply,
+                            KeyCode::Escape => outcome = rename_popup::Outcome::Cancel,
+                            KeyCode::Backspace => r.backspace(),
+                            KeyCode::Delete => r.delete(),
+                            KeyCode::ArrowLeft => r.left(),
+                            KeyCode::ArrowRight => r.right(),
+                            KeyCode::Home => r.home(),
+                            KeyCode::End => r.end(),
+                            _ => {
+                                if !ctrl_k && !alt_k {
+                                    if let Some(text) = key_event.text.as_ref() {
+                                        r.insert(text);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if outcome != rename_popup::Outcome::Editing {
+                        let edit = self.rename.take();
+                        if let (rename_popup::Outcome::Apply, Some(name)) = (outcome, edit.and_then(|e| e.result())) {
+                            if self.scene.rename_active(&name) {
+                                scene_changed(&mut self.scene, &mut self.taa);
+                            }
+                        }
+                    }
+                    gfx.window.request_redraw();
+                    return;
+                }
                 if self.field_edit.is_some() {
                     match code {
                         KeyCode::Enter | KeyCode::NumpadEnter => {
@@ -1193,6 +1233,12 @@ impl ApplicationHandler for App {
                         KeyCode::KeyX if ctrl_k && alt_k && shift_k => geometry = self.scene.remove_modifier() > 0,
                         /* `mesh.subdivide` (one cut, no smoothing) and `mesh.separate` by loose parts (P). */
                         KeyCode::KeyD if ctrl_k && alt_k && !shift_k => geometry = self.scene.subdivide_simple() > 0,
+                        /* `wm.call_panel` of `TOPBAR_PT_name` on F2: rename the active object. */
+                        KeyCode::F2 if plain => {
+                            if let Some(name) = self.scene.active_object().map(|o| o.name.clone()) {
+                                self.rename = Some(rename_popup::Rename::open(self.cursor, &name));
+                            }
+                        }
                         KeyCode::KeyP if plain => geometry = self.scene.separate_loose() > 0,
                         /* `object.parent_set` (Ctrl + P, Object with Keep Transform), `object.parent_clear` (Alt + P: Clear
                          * and Keep Transformation, Shift + Alt + P: Clear Parent) and `object.select_hierarchy`
@@ -1915,6 +1961,10 @@ impl ApplicationHandler for App {
                             screen_draw::draw_area_border(&mut buf, w, h, user, totrct, vertices);
                             screen_draw::draw_area_outline(&mut buf, w, h, user, totrct, vertices, self.active_area == Some(kind));
                         }
+                    }
+                    if let (Some(edit), Some(user)) = (self.rename.as_ref(), self.user.as_ref()) {
+                        let l = rename_popup::layout(user, edit.pos, w as i32, h as i32);
+                        rename_popup::draw(&mut buf, w, h, user, &l, edit);
                     }
                     /* Popup menus are drawn above everything else. */
                     if let (Some(pos), Some(user)) = (self.add_menu, self.user.as_ref()) {
