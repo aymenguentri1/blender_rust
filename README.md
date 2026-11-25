@@ -203,6 +203,11 @@ All but the overlay are undoable (Align pushes no step when nothing moves). The 
 | Ctrl + Shift + Alt + T | Selection to Grid (`VIEW3D_OT_snap_selected_to_grid`, 1 m): every selected object origin goes to the nearest grid point in world space, also under a rotated or scaled parent. An object that moves with a selected ancestor is left to it |
 | Numpad `/` | Local View (`VIEW3D_OT_localview`): only the selected objects stay visible and the view frames them; press again to leave. Objects you had hidden stay hidden, and so do those you hide inside local view (Alt + H does not bring back what local view hides). Entering needs a selection. It follows undo. Blender also restores the previous view on exit and shows a local-view marker, neither is modelled |
 
+### Transform precision
+| Input | Effect |
+| --- | --- |
+| Shift held during G / R / S | Precision mode (`t->mouse.precision`): the mouse movement counts a tenth, for grab, rotate and scale alike. Releasing Shift keeps the value reached (no jump back to the cursor), and further movement counts in full again. Shift + X / Y / Z still picks the plane constraint |
+
 ### Pivot point
 Period cycles the transform pivot point (Blender's pivot pie): Median Point (default), 3D Cursor and Individual Origins.
 G, R and S and Shift + D use it: the 3D cursor mode rotates and scales about the cursor, Individual Origins turns and
