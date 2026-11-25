@@ -171,6 +171,8 @@ struct App {
     xray: bool,
     /// `View3D::shading.type == OB_WIRE` (toggled with Shift + Z, `view3d.toggle_shading`).
     wire: bool,
+    /// `View3D::flag2 & V3D_HIDE_OVERLAYS` (`wm.context_toggle` of `space_data.overlay.show_overlays`, Shift + Alt + Z).
+    overlays_hidden: bool,
     /// Workbench temporal anti-aliasing accumulation of the main region.
     taa: taa::TaaState,
     /// `Scene::r.cfra`, the current frame; `None` is the startup frame 1.
@@ -724,6 +726,17 @@ impl ApplicationHandler for App {
                     gfx.window.request_redraw();
                     return;
                 }
+                /* `screen.time_jump` on Ctrl + LEFT_ARROW (`backward`) / RIGHT_ARROW (`frame_jump_delta_exec()`,
+                 * screen_ops.cc:4022-4078): the startup scene's `time_jump_delta` is 1 with the unit
+                 * `SCE_TIME_JUMP_SECOND`, so the step is `round(1 * frs_sec / frs_sec_base)` frames (sub-frames are
+                 * off by default), and the frame is clamped at `MINAFRAME`. */
+                if matches!(code, KeyCode::ArrowLeft | KeyCode::ArrowRight) && ctrl_k && !shift_k && !alt_k {
+                    let step = PLAY_FPS.round() as i32;
+                    let delta = if code == KeyCode::ArrowRight { step } else { -step };
+                    self.frame = Some((self.frame.unwrap_or(1) + delta).max(0));
+                    gfx.window.request_redraw();
+                    return;
+                }
                 /* `screen.frame_offset` on LEFT_ARROW / RIGHT_ARROW (delta -1 / +1) and `screen.frame_jump` on
                  * Shift + LEFT_ARROW / RIGHT_ARROW (start / end of the scene range). */
                 if matches!(code, KeyCode::ArrowLeft | KeyCode::ArrowRight) && !ctrl_k && !alt_k {
@@ -810,6 +823,19 @@ impl ApplicationHandler for App {
                         } else {
                             self.zoom_border = Some(ZoomBorder { start: None, clip: true });
                         }
+                    }
+                    return;
+                }
+                /* `wm.context_toggle` of `space_data.overlay.show_overlays` on Shift + Alt + Z (the "3D View" keymap):
+                 * flips `V3D_HIDE_OVERLAYS`. With it set the overlay engine draws no grid (`Grid::init()`,
+                 * overlay_grid.hh:139), no 3D cursor (`is_cursor_visible_3d()`, overlay_cursor.hh:147) and
+                 * `view3d_draw_region_info()` (view3d_draw.cc:1602) no info text. The wireframe of the wire shading
+                 * stays. Not over the header region. */
+                if code == KeyCode::KeyZ && shift_k && alt_k && !ctrl_k && !key_event.repeat {
+                    let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
+                    if area::in_view3d_main(user, layout.main, self.cursor) {
+                        self.overlays_hidden = !self.overlays_hidden;
+                        gfx.window.request_redraw();
                     }
                     return;
                 }
@@ -1083,8 +1109,10 @@ impl ApplicationHandler for App {
                         } else {
                             self.taa.resolve(&mut buf, w, h, layout.main);
                         }
-                        overlay_grid_draw::draw_grid(&mut buf, w, h, layout.main, &self.v3d, &self.rv3d, &self.scene_depth);
-                        if let Some(user) = self.user.as_ref() {
+                        if !self.overlays_hidden {
+                            overlay_grid_draw::draw_grid(&mut buf, w, h, layout.main, &self.v3d, &self.rv3d, &self.scene_depth);
+                        }
+                        if let Some(user) = self.user.as_ref().filter(|_| !self.overlays_hidden) {
                             overlay_cursor::draw_cursor(&mut buf, w, h, layout.main, user, &self.rv3d, self.cursor3d, self.cursor3d_quat);
                             overlay_text::draw(&mut buf, w, h, layout.main, user, &self.rv3d, self.frame.unwrap_or(1));
                         }
