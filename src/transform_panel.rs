@@ -2,7 +2,8 @@
 //!
 //! Blender's Object tab (`properties_object.py`, `OBJECT_PT_transform`) has Location, Rotation and Scale fields
 //! for the active object. This one is reduced to what the software UI can draw: a title row, then for each of
-//! Location (m), Rotation (degrees, XYZ Euler) and Scale a caption row and a row of three fields (X, Y, Z).
+//! Location (m), Rotation (degrees, XYZ Euler), Scale and, for a mesh, Dimensions (m) a caption row and a row of
+//! three fields (X, Y, Z). Typing a dimension sets the scale to match (the evaluated bounds, modifiers included).
 //! A click on a field edits it by typing: the first key replaces the value, Backspace deletes, Enter applies (a
 //! click elsewhere applies too), Tab / Shift + Tab apply and move to the next / previous field, and Escape cancels. Every applied edit is one undo step. Not modelled: dragging
 //! a field to change it, expressions, the lock toggles, the rotation modes and the
@@ -75,10 +76,21 @@ impl Field {
     /// The field `delta` places on in reading order (Location X, Y, Z, then Rotation, then Scale), wrapping round:
     /// where Tab (1) and Shift + Tab (-1) go.
     pub fn step(self, delta: i32) -> Field {
-        let props = [TransformProp::Location, TransformProp::Rotation, TransformProp::Scale];
-        let index = props.iter().position(|&p| p == self.prop).unwrap_or(0) as i32 * 3 + self.axis as i32;
-        let n = (index + delta).rem_euclid(9);
-        Field { prop: props[(n / 3) as usize], axis: (n % 3) as usize }
+        self.step_n(delta, 3)
+    }
+
+    /// `step()` over the first `props` properties (4 when Dimensions is shown too).
+    pub fn step_n(self, delta: i32, props: usize) -> Field {
+        let all = [TransformProp::Location, TransformProp::Rotation, TransformProp::Scale, TransformProp::Dimensions];
+        let props = props.clamp(1, 4) as i32;
+        let index = all.iter().position(|&p| p == self.prop).unwrap_or(0) as i32 * 3 + self.axis as i32;
+        let n = (index + delta).rem_euclid(props * 3);
+        Field { prop: all[(n / 3) as usize], axis: (n % 3) as usize }
+    }
+
+    /// `step_n()` for the properties the active object of `scene` shows (Dimensions needs a mesh).
+    pub fn step_for(self, scene: &Scene, delta: i32) -> Field {
+        self.step_n(delta, if scene.active_object().is_some_and(|o| o.dimensions().is_some()) { 4 } else { 3 })
     }
 }
 
@@ -89,6 +101,7 @@ pub fn value(scene: &Scene, field: Field) -> Option<f32> {
         TransformProp::Location => o.loc[field.axis],
         TransformProp::Rotation => o.rot[field.axis].to_degrees(),
         TransformProp::Scale => o.scale[field.axis],
+        TransformProp::Dimensions => o.dimensions()?[field.axis],
     })
 }
 
@@ -101,7 +114,7 @@ pub fn number(v: f32) -> String {
 
 fn unit(prop: TransformProp) -> &'static str {
     match prop {
-        TransformProp::Location => " m",
+        TransformProp::Location | TransformProp::Dimensions => " m",
         TransformProp::Rotation => "\u{b0}",
         TransformProp::Scale => "",
     }
@@ -143,6 +156,8 @@ pub fn layout(user: &UserDef, window: Rcti, scene: &Scene, edit: Option<&Edit>) 
         out.bottom = top;
         return out;
     }
+    /* Dimensions are one more caption and row of fields, left out when they do not fit. */
+    let with_dims = o.dimensions().is_some() && top - (needed + 2 * (unit_h + gap)) >= window.ymin;
     let mut row = |widgets: &mut Vec<Widget>, top: &mut i32, rect_x: (i32, i32), label: String, style: Style| -> Rcti {
         let rect = Rcti { xmin: rect_x.0, xmax: rect_x.1, ymin: *top - unit_h, ymax: *top - 1 };
         widgets.push(Widget { rect, label, style, action: None, centered: false });
@@ -150,7 +165,11 @@ pub fn layout(user: &UserDef, window: Rcti, scene: &Scene, edit: Option<&Edit>) 
     };
     row(&mut out.widgets, &mut top, (x0, x1), format!("Transform  ({})", o.name), Style::Title);
     top -= unit_h + gap;
-    for (prop, caption) in [(TransformProp::Location, "Location"), (TransformProp::Rotation, "Rotation"), (TransformProp::Scale, "Scale")] {
+    let mut props = vec![(TransformProp::Location, "Location"), (TransformProp::Rotation, "Rotation"), (TransformProp::Scale, "Scale")];
+    if with_dims {
+        props.push((TransformProp::Dimensions, "Dimensions"));
+    }
+    for (prop, caption) in props {
         row(&mut out.widgets, &mut top, (x0, x1), caption.to_string(), Style::Title);
         top -= unit_h + gap;
         let col = (x1 - x0 + 1 - 2 * gap) / 3;
@@ -201,11 +220,11 @@ mod tests {
     }
 
     #[test]
-    fn the_panel_has_nine_fields_that_do_not_overlap_and_leaves_room_below() {
+    fn the_panel_has_twelve_fields_that_do_not_overlap_and_leaves_room_below() {
         let s = Scene::startup();
         let l = lay(&s, None);
-        assert_eq!(l.fields.len(), 9);
-        assert_eq!(l.widgets.len(), 1 + 3 + 9);
+        assert_eq!(l.fields.len(), 12);
+        assert_eq!(l.widgets.len(), 1 + 4 + 12);
         assert!(l.widgets.iter().all(|w| window().isect(&w.rect) == Some(w.rect)));
         for (i, (a, _)) in l.fields.iter().enumerate() {
             for (b, _) in &l.fields[i + 1..] {
@@ -216,6 +235,54 @@ mod tests {
         let f = l.fields[4].0;
         assert_eq!(field_at(&l, [f.cent_x(), f.cent_y()]), Some(Field { prop: TransformProp::Rotation, axis: 1 }));
         assert_eq!(field_at(&l, [0, 0]), None);
+    }
+
+    #[test]
+    fn a_camera_has_no_dimensions() {
+        let mut s = Scene::startup();
+        s.active = s.objects.iter().find(|o| o.name == "Camera").map(|o| o.id);
+        let l = lay(&s, None);
+        assert_eq!(l.fields.len(), 9);
+        assert!(l.fields.iter().all(|(_, f)| f.prop != TransformProp::Dimensions));
+        assert_eq!(Field { prop: TransformProp::Scale, axis: 2 }.step_for(&s, 1), Field { prop: TransformProp::Location, axis: 0 });
+    }
+
+    #[test]
+    fn dimensions_show_the_size_and_typing_one_sets_the_scale() {
+        let mut s = Scene::startup();
+        let dx = Field { prop: TransformProp::Dimensions, axis: 0 };
+        assert_eq!(value(&s, dx), Some(2.0));
+        let labels: Vec<String> = lay(&s, None).widgets.iter().map(|w| w.label.clone()).collect();
+        assert!(labels.contains(&"X: 2 m".to_string()), "{labels:?}");
+        let mut e = Edit::start(&s, dx).unwrap();
+        e.push('5');
+        assert!(e.commit(&mut s));
+        let o = s.active_object().unwrap();
+        assert_eq!(o.scale, [2.5, 1.0, 1.0]);
+        assert_eq!(value(&s, dx), Some(5.0));
+        assert!(s.undo());
+        assert_eq!(s.active_object().unwrap().scale, [1.0; 3]);
+    }
+
+    #[test]
+    fn dimensions_keep_a_mirrored_sign_and_refuse_zero_and_nonmeshes() {
+        let mut s = Scene::startup();
+        let i = s.objects.iter().position(|o| o.name == "Cube").unwrap();
+        s.objects[i].scale = [-1.0, 1.0, 1.0];
+        assert!(s.set_transform_value(TransformProp::Dimensions, 0, 4.0));
+        assert_eq!(s.objects[i].scale[0], -2.0);
+        assert!(!s.set_transform_value(TransformProp::Dimensions, 0, 0.0));
+        assert!(!s.set_transform_value(TransformProp::Dimensions, 0, -3.0));
+        s.active = s.objects.iter().find(|o| o.name == "Light").map(|o| o.id);
+        assert!(!s.set_transform_value(TransformProp::Dimensions, 0, 3.0));
+    }
+
+    #[test]
+    fn dimensions_include_the_modifiers() {
+        let mut s = Scene::startup();
+        s.set_array(2);
+        s.update_eval();
+        assert_eq!(value(&s, Field { prop: TransformProp::Dimensions, axis: 0 }), Some(4.0));
     }
 
     #[test]
