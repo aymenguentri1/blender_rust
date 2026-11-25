@@ -722,7 +722,13 @@ impl RegionView3D {
     /// `DEFAULT_CUBE_MAX`): with `clip_bounds` the bounds are clamped to the view clipping border when
     /// `RV3D_CLIPPING_ENABLED()` (wire and solid shading, both modelled, so only `clip` matters).
     pub fn visible_bounds(&self) -> ([f32; 3], [f32; 3]) {
-        let (mut min, mut max) = (DEFAULT_CUBE_MIN, DEFAULT_CUBE_MAX);
+        self.visible_bounds_of(None)
+    }
+
+    /// `visible_bounds()` for the bounds of the scene's objects (`Scene::bounds()`); `None` (no object with
+    /// bounds) falls back to the default cube like the startup scene.
+    pub fn visible_bounds_of(&self, bounds: Option<([f32; 3], [f32; 3])>) -> ([f32; 3], [f32; 3]) {
+        let (mut min, mut max) = bounds.unwrap_or((DEFAULT_CUBE_MIN, DEFAULT_CUBE_MAX));
         if self.clip.is_some() {
             self.clipping_clamp_minmax(&mut min, &mut max);
         }

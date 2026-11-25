@@ -23,7 +23,9 @@
 
 use crate::area::Rcti;
 use crate::colorspace_lut::{linear_to_srgb8, srgb8_to_linear};
-use crate::view3d::RegionView3D;
+use crate::mesh::Mesh;
+use crate::scene::{mat3_mul_v3, mat4_mul_point, normal_matrix, Scene};
+use crate::view3d::{Mat4, RegionView3D};
 
 type V3 = [f32; 3];
 
@@ -67,16 +69,6 @@ const LIGHTS: [SolidLight; 4] = [
 const BASE_COLOR: V3 = [0.8; 3];
 const ROUGHNESS: f32 = 0.4;
 const METALLIC: f32 = 0.0;
-
-/// The cube faces: outward normal and the four corners, counter-clockwise seen from outside.
-const FACES: [(V3, [V3; 4]); 6] = [
-    ([1.0, 0.0, 0.0], [[1.0, -1.0, -1.0], [1.0, 1.0, -1.0], [1.0, 1.0, 1.0], [1.0, -1.0, 1.0]]),
-    ([-1.0, 0.0, 0.0], [[-1.0, -1.0, -1.0], [-1.0, -1.0, 1.0], [-1.0, 1.0, 1.0], [-1.0, 1.0, -1.0]]),
-    ([0.0, 1.0, 0.0], [[-1.0, 1.0, -1.0], [-1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, -1.0]]),
-    ([0.0, -1.0, 0.0], [[-1.0, -1.0, -1.0], [1.0, -1.0, -1.0], [1.0, -1.0, 1.0], [-1.0, -1.0, 1.0]]),
-    ([0.0, 0.0, 1.0], [[-1.0, -1.0, 1.0], [1.0, -1.0, 1.0], [1.0, 1.0, 1.0], [-1.0, 1.0, 1.0]]),
-    ([0.0, 0.0, -1.0], [[-1.0, -1.0, -1.0], [-1.0, 1.0, -1.0], [1.0, 1.0, -1.0], [1.0, -1.0, -1.0]]),
-];
 
 fn dot(a: V3, b: V3) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -255,6 +247,10 @@ struct Target<'a> {
     rw: i32,
     rh: i32,
     depth: Vec<f32>,
+    /// The object id buffer: `Object::id + 1` of the nearest surface of every pixel, 0 where nothing is drawn.
+    ids: Vec<u32>,
+    /// The id written by the triangles being drawn.
+    cur_id: u32,
     roughness: f32,
     metallic: f32,
     /// `Some` in X-ray mode (`SceneState::xray_mode`): every face goes to the transparent pass.
@@ -294,21 +290,24 @@ impl Target<'_> {
         }
     }
     /// Rasterises one triangle (region pixels, depth in [0, 1]) with the depth test `LESS_EQUAL`.
-    /// A triangle that is clockwise on screen is a back face and has its normal flipped.
-    fn triangle(&mut self, mut t: [[f32; 3]; 3], n_view: V3, rv3d: &RegionView3D) {
+    /// `ns` are the view space normals of its corners: all equal for flat shading, otherwise they are
+    /// interpolated across the triangle (smooth shading). A triangle that is clockwise on screen is a back
+    /// face and has its normals flipped.
+    fn triangle(&mut self, mut t: [[f32; 3]; 3], mut ns: [V3; 3], rv3d: &RegionView3D) {
         let mut area = edge(&t[0], &t[1], &t[2]);
         if area == 0.0 {
             return;
         }
-        let mut n = n_view;
         if area < 0.0 {
             t.swap(1, 2);
+            ns.swap(1, 2);
             area = -area;
             /* `frag_transparent()` does not flip the normal of back faces. */
             if self.xray.is_none() {
-                n = [-n[0], -n[1], -n[2]];
+                ns = ns.map(|n| [-n[0], -n[1], -n[2]]);
             }
         }
+        let flat = ns[0] == ns[1] && ns[1] == ns[2];
 
         let min_x = t[0][0].min(t[1][0]).min(t[2][0]);
         let max_x = t[0][0].max(t[1][0]).max(t[2][0]);
@@ -335,9 +334,18 @@ impl Target<'_> {
                 if self.xray.is_none() && z > self.depth[di] {
                     continue;
                 }
+                /* The object id of the nearest surface (the outline pass reads it). */
+                if z <= self.depth[di] {
+                    self.ids[di] = self.cur_id;
+                }
                 /* `TransparentDepthPass` writes the nearest depth of the X-ray faces. */
                 self.depth[di] = self.depth[di].min(z);
 
+                let n = if flat {
+                    ns[0]
+                } else {
+                    normalize(std::array::from_fn(|k| (w0 * ns[0][k] + w1 * ns[1][k] + w2 * ns[2][k]) / area))
+                };
                 let ndc = [p[0] / self.rw as f32 * 2.0 - 1.0, p[1] / self.rh as f32 * 2.0 - 1.0];
                 let i = incident_vector(rv3d, ndc);
                 let c = world_lighting(self.roughness, self.metallic, n, i);
@@ -365,16 +373,92 @@ impl Target<'_> {
     }
 }
 
-/// Draws the default cube into `region` (inclusive Blender rect, y up) of the `0x00RRGGBB` buffer and
-/// returns the region's depth buffer (`rw * rh` values in [0, 1], 1.0 where nothing was drawn, row 0
-/// at the bottom of the region) for the overlays that are depth tested. `rv3d` must have been updated
+/// The result of `draw_scene()` for the overlays: the depth buffer (`rw * rh` values in [0, 1], 1.0 where
+/// nothing was drawn, row 0 at the bottom of the region) and the object id buffer (`Object::id + 1`, 0 where
+/// nothing was drawn, same layout).
+pub struct SceneRender {
+    pub depth: Vec<f32>,
+    pub ids: Vec<u32>,
+}
+
+/// World space normal to view space (`viewmat` rotation).
+fn normal_to_view(rv3d: &RegionView3D, n: V3) -> V3 {
+    let vm = &rv3d.viewmat;
+    std::array::from_fn(|i| vm[0][i] * n[0] + vm[1][i] * n[1] + vm[2][i] * n[2])
+}
+
+/// Draws one convex or concave world space polygon with a single normal: clipped by the view clipping border and
+/// the near plane, then fanned (the flat shading path).
+fn draw_flat_polygon(target: &mut Target, rv3d: &RegionView3D, poly_world: &[V3], n_view: V3) {
+    let p = &rv3d.persmat;
+    let world = match rv3d.clip {
+        Some(planes) => clip_world(poly_world, &planes),
+        None => poly_world.to_vec(),
+    };
+    let clip: Vec<[f32; 4]> = world
+        .iter()
+        .map(|v| std::array::from_fn(|i| p[0][i] * v[0] + p[1][i] * v[1] + p[2][i] * v[2] + p[3][i]))
+        .collect();
+    let poly = clip_near(&clip);
+    if poly.len() < 3 || poly.iter().any(|c| c[3] <= 0.0) {
+        return;
+    }
+    let (rw, rh) = (target.rw as f32, target.rh as f32);
+    let screen: Vec<[f32; 3]> = poly
+        .iter()
+        .map(|c| [((c[0] / c[3]) * 0.5 + 0.5) * rw, ((c[1] / c[3]) * 0.5 + 0.5) * rh, (c[2] / c[3]) * 0.5 + 0.5])
+        .collect();
+    for k in 1..screen.len() - 1 {
+        target.triangle([screen[0], screen[k], screen[k + 1]], [n_view; 3], rv3d);
+    }
+}
+
+/// Draws one object's evaluated mesh. Flat shaded faces use their own normal; with `smooth` every triangle fully
+/// inside the view uses the interpolated vertex normals, the rest (cut by the near plane or the clipping border)
+/// fall back to the face normal.
+fn draw_mesh(target: &mut Target, rv3d: &RegionView3D, m: &Mat4, mesh: &Mesh, smooth: bool) {
+    let nm = normal_matrix(m);
+    let to_view = |n_local: V3| normal_to_view(rv3d, normalize(mat3_mul_v3(&nm, n_local)));
+    let world: Vec<V3> = mesh.verts.iter().map(|&v| mat4_mul_point(m, v)).collect();
+    let vnormals = smooth.then(|| mesh.vertex_normals());
+    let p = &rv3d.persmat;
+    let (rw, rh) = (target.rw as f32, target.rh as f32);
+
+    for (f, face) in mesh.faces.iter().enumerate() {
+        let face_n = to_view(mesh.face_normal(f));
+        let Some(vn) = vnormals.as_ref() else {
+            let poly: Vec<V3> = face.iter().map(|&i| world[i as usize]).collect();
+            draw_flat_polygon(target, rv3d, &poly, face_n);
+            continue;
+        };
+        for k in 1..face.len().saturating_sub(1) {
+            let tri = [face[0], face[k], face[k + 1]];
+            let clip: [[f32; 4]; 3] = tri.map(|i| {
+                let v = world[i as usize];
+                std::array::from_fn(|r| p[0][r] * v[0] + p[1][r] * v[1] + p[2][r] * v[2] + p[3][r])
+            });
+            let inside = rv3d.clip.is_none() && clip.iter().all(|c| c[3] > 0.0 && c[2] + c[3] >= 0.0);
+            if inside {
+                let screen = clip.map(|c| [((c[0] / c[3]) * 0.5 + 0.5) * rw, ((c[1] / c[3]) * 0.5 + 0.5) * rh, (c[2] / c[3]) * 0.5 + 0.5]);
+                let ns = tri.map(|i| to_view(vn[i as usize]));
+                target.triangle(screen, ns, rv3d);
+            } else {
+                draw_flat_polygon(target, rv3d, &tri.map(|i| world[i as usize]), face_n);
+            }
+        }
+    }
+}
+
+/// Draws the visible mesh objects of `scene` into `region` (inclusive Blender rect, y up) of the `0x00RRGGBB`
+/// buffer, and returns the region's depth and object id buffers for the overlays. `rv3d` must have been updated
 /// for the size of the region.
-pub fn draw_cube(buf: &mut [u32], width: usize, height: usize, region: Rcti, rv3d: &RegionView3D, xray: bool) -> Vec<f32> {
+pub fn draw_scene(buf: &mut [u32], width: usize, height: usize, region: Rcti, rv3d: &RegionView3D, xray: bool, scene: &Scene) -> SceneRender {
     let (rw, rh) = (region.size_x() + 1, region.size_y() + 1);
     if rw <= 0 || rh <= 0 {
-        return Vec::new();
+        return SceneRender { depth: Vec::new(), ids: Vec::new() };
     }
     let (roughness, metallic) = material_roughness_metallic();
+    let n = (rw * rh) as usize;
     let mut target = Target {
         buf,
         width,
@@ -382,54 +466,100 @@ pub fn draw_cube(buf: &mut [u32], width: usize, height: usize, region: Rcti, rv3
         region,
         rw,
         rh,
-        depth: vec![1.0; (rw * rh) as usize],
+        depth: vec![1.0; n],
+        ids: vec![0; n],
+        cur_id: 0,
         xray: xray.then(|| Xray {
             alpha: SHADING_XRAY_ALPHA,
-            accum: vec![[0.0; 3]; (rw * rh) as usize],
-            weight: vec![0.0; (rw * rh) as usize],
-            reveal: vec![1.0; (rw * rh) as usize],
+            accum: vec![[0.0; 3]; n],
+            weight: vec![0.0; n],
+            reveal: vec![1.0; n],
         }),
         roughness,
         metallic,
     };
 
-    let (p, vm) = (&rv3d.persmat, &rv3d.viewmat);
-    for (normal, quad) in FACES.iter() {
-        let n_view: V3 = std::array::from_fn(|i| vm[0][i] * normal[0] + vm[1][i] * normal[1] + vm[2][i] * normal[2]);
-        let world = match rv3d.clip {
-            Some(planes) => clip_world(quad, &planes),
-            None => quad.to_vec(),
-        };
-        let clip: Vec<[f32; 4]> = world
-            .iter()
-            .map(|v| std::array::from_fn(|i| p[0][i] * v[0] + p[1][i] * v[1] + p[2][i] * v[2] + p[3][i]))
-            .collect();
-        let poly = clip_near(&clip);
-        if poly.len() < 3 || poly.iter().any(|c| c[3] <= 0.0) {
-            continue;
-        }
-        let screen: Vec<[f32; 3]> = poly
-            .iter()
-            .map(|c| {
-                [
-                    ((c[0] / c[3]) * 0.5 + 0.5) * rw as f32,
-                    ((c[1] / c[3]) * 0.5 + 0.5) * rh as f32,
-                    (c[2] / c[3]) * 0.5 + 0.5,
-                ]
-            })
-            .collect();
-        for k in 1..screen.len() - 1 {
-            target.triangle([screen[0], screen[k], screen[k + 1]], n_view, rv3d);
-        }
+    for o in scene.objects.iter().filter(|o| !o.hidden) {
+        let Some(mesh) = o.evaluated() else { continue };
+        target.cur_id = o.id + 1;
+        draw_mesh(&mut target, rv3d, &o.world_matrix(), mesh, o.smooth);
     }
     target.resolve_xray();
-    target.depth
+    SceneRender { depth: target.depth, ids: target.ids }
+}
+
+/// The startup scene's cube only (the original entry point of the tests).
+#[cfg(test)]
+pub fn draw_cube(buf: &mut [u32], width: usize, height: usize, region: Rcti, rv3d: &RegionView3D, xray: bool) -> Vec<f32> {
+    draw_scene(buf, width, height, region, rv3d, xray, &Scene::startup()).depth
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mesh::Primitive;
     use crate::view3d::View3D;
+
+    fn render_scene(scene: &Scene) -> (Vec<u32>, SceneRender, usize, usize) {
+        let (w, h) = (200usize, 100usize);
+        let mut buf = vec![crate::theme::SPACE_VIEW3D_BACK.to_xrgb(); w * h];
+        let mut rv3d = RegionView3D::default();
+        rv3d.update(&View3D::default(), w as i32, h as i32);
+        let region = Rcti { xmin: 0, xmax: w as i32 - 1, ymin: 0, ymax: h as i32 - 1 };
+        let r = draw_scene(&mut buf, w, h, region, &rv3d, false, scene);
+        (buf, r, w, h)
+    }
+
+    /* The id buffer holds `Object::id + 1` at the centre, 0 in a corner, and nothing for hidden objects. */
+    #[test]
+    fn the_id_buffer_names_the_nearest_object() {
+        let mut scene = Scene::startup();
+        let cube = scene.objects[1].id;
+        let (_, r, w, _) = render_scene(&scene);
+        assert_eq!(r.ids[50 * w + 100], cube + 1);
+        assert_eq!(r.ids[0], 0);
+        scene.hide_selected();
+        let (_, r, _, _) = render_scene(&scene);
+        assert!(r.ids.iter().all(|&i| i == 0) && r.depth.iter().all(|&d| d == 1.0));
+    }
+
+    #[test]
+    fn a_sphere_in_front_hides_the_cube() {
+        let mut scene = Scene::startup();
+        let rv3d = {
+            let mut r = RegionView3D::default();
+            r.update(&View3D::default(), 200, 100);
+            r
+        };
+        let eye = rv3d.viewinv[2];
+        let sphere = scene.add_primitive(Primitive::UvSphere, [eye[0] * 3.0, eye[1] * 3.0, eye[2] * 3.0]);
+        let (_, r, w, _) = render_scene(&scene);
+        assert_eq!(r.ids[50 * w + 100], sphere + 1);
+    }
+
+    /* Smooth shading interpolates the vertex normals, so the shade changes across a sphere's flat facets: with
+     * flat shading a facet is one colour, smooth shading gives more distinct colours over the same area. */
+    #[test]
+    fn smooth_shading_has_a_gradient_flat_does_not() {
+        let mut scene = Scene::startup();
+        /* The sphere would sit inside the startup cube, which is selected: delete it first. */
+        scene.delete_selected();
+        let id = scene.add_primitive(Primitive::IcoSphere, [0.0; 3]);
+        let distinct = |scene: &Scene| {
+            let (buf, r, w, _) = render_scene(scene);
+            let mut colours = std::collections::HashSet::new();
+            for (i, &obj) in r.ids.iter().enumerate() {
+                if obj == id + 1 {
+                    colours.insert(buf[i / w * w + i % w]);
+                }
+            }
+            colours.len()
+        };
+        let flat = distinct(&scene);
+        scene.set_smooth(true);
+        let smooth = distinct(&scene);
+        assert!(smooth > flat * 2, "flat {flat}, smooth {smooth}");
+    }
 
     /* Default view, 200x100 region: the +Z face of the cube covers the centre, so the pixel there is
      * lit (not the background) and its depth is in front of the far plane. */
