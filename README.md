@@ -26,6 +26,10 @@ Blender has no keys for modifiers (they live in the properties editor), so these
 | Ctrl + Alt + N | Edge Split modifier: toggle (30 degrees) |
 | Alt + C | Convert to Mesh: bakes the modifiers and the subdivision level into the mesh |
 
+The modifier stack of the active object is listed in the info text at the top left of the 3D viewport, one
+`+ ` line per modifier with its main setting (for example `+ Mirror X`, `+ Decimate 0.25`), followed by the
+Subdivision Surface level. The line above shows the real active object (`Collection | Cube`).
+
 ### Object and mesh operators
 | Keys | Operator |
 | --- | --- |

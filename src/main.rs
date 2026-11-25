@@ -1457,7 +1457,7 @@ impl ApplicationHandler for App {
                         if let Some(user) = self.user.as_ref().filter(|_| !self.overlays_hidden) {
                             overlay_extra::draw_extras(&mut buf, w, h, layout.main, user, &self.rv3d, &self.scene);
                             overlay_cursor::draw_cursor(&mut buf, w, h, layout.main, user, &self.rv3d, self.cursor3d, self.cursor3d_quat);
-                            overlay_text::draw(&mut buf, w, h, layout.main, user, &self.v3d, &self.rv3d, self.frame.unwrap_or(1));
+                            overlay_text::draw(&mut buf, w, h, layout.main, user, &self.v3d, &self.rv3d, self.frame.unwrap_or(1), &overlay_text::ObjectInfo::of(&self.scene));
                         }
                     }
                     area::fill_rect(&mut buf, w, h, layout.topbar, theme::SPACE_TOPBAR_HEADER.to_xrgb());
