@@ -4,8 +4,8 @@
 //! for the active object. This one is reduced to what the software UI can draw: a title row, then for each of
 //! Location (m), Rotation (degrees, XYZ Euler) and Scale a caption row and a row of three fields (X, Y, Z).
 //! A click on a field edits it by typing: the first key replaces the value, Backspace deletes, Enter applies (a
-//! click elsewhere applies too) and Escape cancels. Every applied edit is one undo step. Not modelled: dragging
-//! a field to change it, Tab to the next field, expressions, the lock toggles, the rotation modes and the
+//! click elsewhere applies too), Tab / Shift + Tab apply and move to the next / previous field, and Escape cancels. Every applied edit is one undo step. Not modelled: dragging
+//! a field to change it, expressions, the lock toggles, the rotation modes and the
 //! delta transforms.
 //!
 //! The layout and the hit-testing are plain functions of the window rect, so they are tested without a window.
@@ -68,6 +68,17 @@ impl Edit {
     /// Applies the text to the active object. Returns whether the object changed.
     pub fn commit(&self, scene: &mut Scene) -> bool {
         self.parsed().is_some_and(|v| scene.set_transform_value(self.field.prop, self.field.axis, v))
+    }
+}
+
+impl Field {
+    /// The field `delta` places on in reading order (Location X, Y, Z, then Rotation, then Scale), wrapping round:
+    /// where Tab (1) and Shift + Tab (-1) go.
+    pub fn step(self, delta: i32) -> Field {
+        let props = [TransformProp::Location, TransformProp::Rotation, TransformProp::Scale];
+        let index = props.iter().position(|&p| p == self.prop).unwrap_or(0) as i32 * 3 + self.axis as i32;
+        let n = (index + delta).rem_euclid(9);
+        Field { prop: props[(n / 3) as usize], axis: (n % 3) as usize }
     }
 }
 
@@ -245,6 +256,20 @@ mod tests {
         bad.push('-');
         assert_eq!(bad.parsed(), None);
         assert!(!bad.commit(&mut s));
+    }
+
+    #[test]
+    fn tab_steps_through_the_nine_fields_and_wraps() {
+        let first = Field { prop: TransformProp::Location, axis: 0 };
+        assert_eq!(first.step(1), Field { prop: TransformProp::Location, axis: 1 });
+        assert_eq!(Field { prop: TransformProp::Location, axis: 2 }.step(1), Field { prop: TransformProp::Rotation, axis: 0 });
+        assert_eq!(Field { prop: TransformProp::Scale, axis: 2 }.step(1), first, "wraps forwards");
+        assert_eq!(first.step(-1), Field { prop: TransformProp::Scale, axis: 2 }, "and backwards");
+        let mut f = first;
+        for _ in 0..9 {
+            f = f.step(1);
+        }
+        assert_eq!(f, first);
     }
 
     #[test]

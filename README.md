@@ -78,9 +78,10 @@ render toggles and scrolling (rows that do not fit are left out).
 ### Transform panel (properties editor)
 Above the Modifiers panel, the properties editor shows Location (m), Rotation (degrees, XYZ Euler) and Scale of the
 active object as three rows of X / Y / Z fields. Click a field to type into it: the first key replaces the value,
-Backspace deletes, Enter (or a click anywhere else) applies it and Escape cancels. Each applied edit is one undo
+Backspace deletes, Enter (or a click anywhere else) applies it, Tab / Shift + Tab apply it and move to the
+next / previous field, and Escape cancels. Each applied edit is one undo
 step, and the values are the object's own (local) transform, so they also work on a parented object. Not modelled:
-dragging a field, Tab to the next field, expressions, lock toggles, rotation modes and delta transforms.
+dragging a field, expressions, lock toggles, rotation modes and delta transforms.
 
 ### Add menu
 Shift + A opens one list of twelve entries: the nine mesh primitives, then Empty (Plain Axes, drawn as three lines
