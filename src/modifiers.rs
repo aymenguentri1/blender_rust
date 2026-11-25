@@ -23,6 +23,10 @@ pub enum Modifier {
     Triangulate,
     /// Blend towards a sphere or cylinder; radius 0 is the average distance.
     Cast { shape: CastShape, factor: f32, radius: f32 },
+    /// Collapse decimation keeping `ratio` of the triangles.
+    Decimate { ratio: f32 },
+    /// Cut edges sharper than the angle (degrees).
+    EdgeSplit { angle: f32 },
     /// Frames of the given thickness instead of faces.
     Wireframe { thickness: f32 },
     /// Merge by distance.
@@ -76,6 +80,15 @@ impl Modifier {
         Modifier::Wireframe { thickness: 0.02 }
     }
 
+    pub fn decimate(ratio: f32) -> Modifier {
+        Modifier::Decimate { ratio }
+    }
+
+    /// 30 degrees as in Blender.
+    pub fn edge_split() -> Modifier {
+        Modifier::EdgeSplit { angle: 30.0 }
+    }
+
     pub fn weld() -> Modifier {
         Modifier::Weld { distance: 0.001 }
     }
@@ -92,6 +105,8 @@ impl Modifier {
             Modifier::Displace { .. } => "Displace",
             Modifier::Triangulate => "Triangulate",
             Modifier::Cast { .. } => "Cast",
+            Modifier::Decimate { .. } => "Decimate",
+            Modifier::EdgeSplit { .. } => "Edge Split",
             Modifier::Wireframe { .. } => "Wireframe",
             Modifier::Weld { .. } => "Weld",
         }
@@ -116,6 +131,8 @@ impl Modifier {
             Modifier::Displace { strength, midlevel, scale } => mesh.displaced(*strength, *midlevel, *scale),
             Modifier::Triangulate => mesh.triangulated(),
             Modifier::Cast { shape, factor, radius } => mesh.casted(*shape, *factor, *radius),
+            Modifier::Decimate { ratio } => mesh.decimated(*ratio),
+            Modifier::EdgeSplit { angle } => mesh.edge_split(*angle),
             Modifier::Wireframe { thickness } => mesh.wireframed(*thickness),
             Modifier::Weld { distance } => mesh.merged_by_distance(*distance).0,
         }
@@ -191,5 +208,14 @@ mod tests {
         /* Wireframe after Triangulate frames the triangles: 12 * 3 * 4. */
         let t = evaluate(&cube, &[Modifier::Triangulate, Modifier::wireframe()]);
         assert_eq!(t.faces.len(), 12 * 3 * 4);
+    }
+
+    #[test]
+    fn decimate_and_edge_split_in_the_stack() {
+        let sphere = Mesh::uv_sphere(32, 16, 1.0);
+        let d = evaluate(&sphere, &[Modifier::decimate(0.5)]);
+        assert!(d.faces.len() < sphere.triangulated().faces.len());
+        let cube = Mesh::cube(2.0);
+        assert_eq!(evaluate(&cube, &[Modifier::edge_split()]).verts.len(), 24);
     }
 }

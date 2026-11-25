@@ -627,6 +627,39 @@ impl Scene {
         })
     }
 
+    /// Adds an Edge Split modifier to the selected meshes, or removes the one they have.
+    pub fn toggle_edge_split(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::EdgeSplit { .. })) {
+                Some(i) => {
+                    stack.remove(i);
+                }
+                None => stack.push(Modifier::edge_split()),
+            }
+            true
+        })
+    }
+
+    /// Decimate: adds it at a ratio of 0.5, then each call lowers it to 0.25, 0.1 and finally removes it.
+    pub fn cycle_decimate(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::Decimate { .. })) {
+                Some(i) => {
+                    let ratio = if let Modifier::Decimate { ratio } = &stack[i] { *ratio } else { unreachable!() };
+                    if ratio > 0.3 {
+                        stack[i] = Modifier::decimate(0.25);
+                    } else if ratio > 0.15 {
+                        stack[i] = Modifier::decimate(0.1);
+                    } else {
+                        stack.remove(i);
+                    }
+                }
+                None => stack.push(Modifier::decimate(0.5)),
+            }
+            true
+        })
+    }
+
     /// Adds a Weld modifier to the selected meshes, or removes the one they have.
     pub fn toggle_weld(&mut self) -> usize {
         self.edit_modifiers(|stack| {
@@ -1602,6 +1635,22 @@ mod tests {
         s.update_eval();
         assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), 96);
         assert_eq!(s.toggle_wireframe(), 1);
+        assert!(s.active_object().unwrap().modifiers.is_empty());
+    }
+
+    #[test]
+    fn decimate_cycles_and_edge_split_toggles() {
+        let mut s = Scene::startup();
+        for _ in 0..3 {
+            assert_eq!(s.cycle_decimate(), 1);
+        }
+        assert_eq!(s.active_object().unwrap().modifiers.len(), 1);
+        assert_eq!(s.cycle_decimate(), 1);
+        assert!(s.active_object().unwrap().modifiers.is_empty());
+        assert_eq!(s.toggle_edge_split(), 1);
+        s.update_eval();
+        assert_eq!(s.active_object().unwrap().evaluated().unwrap().verts.len(), 24);
+        assert_eq!(s.toggle_edge_split(), 1);
         assert!(s.active_object().unwrap().modifiers.is_empty());
     }
 

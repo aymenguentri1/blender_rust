@@ -54,6 +54,7 @@ mod mesh;
 mod mesh_ops;
 mod mesh_deform;
 mod mesh_wire;
+mod mesh_reduce;
 mod modifiers;
 #[allow(dead_code)]
 mod scene;
@@ -978,6 +979,9 @@ impl ApplicationHandler for App {
                         /* Cast (C: Sphere, then Cylinder, then off) and Wireframe (Q) modifiers. */
                         KeyCode::KeyC if ctrl_k && alt_k && !shift_k => geometry = self.scene.cycle_cast() > 0,
                         KeyCode::KeyQ if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_wireframe() > 0,
+                        /* Decimate (V: ratio 0.5, 0.25, 0.1, off) and Edge Split (N) modifiers. */
+                        KeyCode::KeyV if ctrl_k && alt_k && !shift_k => geometry = self.scene.cycle_decimate() > 0,
+                        KeyCode::KeyN if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_edge_split() > 0,
                         /* `mesh.subdivide` (one cut, no smoothing) and `mesh.separate` by loose parts (P). */
                         KeyCode::KeyD if ctrl_k && alt_k && !shift_k => geometry = self.scene.subdivide_simple() > 0,
                         KeyCode::KeyP if plain => geometry = self.scene.separate_loose() > 0,
