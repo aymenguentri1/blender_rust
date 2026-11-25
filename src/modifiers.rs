@@ -18,6 +18,9 @@ pub enum Modifier {
     Smooth { factor: f32, repeat: u32 },
     /// Twist (radians) / Taper / Stretch (factor) about the Z axis.
     SimpleDeform { mode: DeformMode, amount: f32 },
+    /// Noise displacement along the normals.
+    Displace { strength: f32, midlevel: f32, scale: f32 },
+    Triangulate,
     /// Merge by distance.
     Weld { distance: f32 },
 }
@@ -49,9 +52,15 @@ impl Modifier {
     pub fn simple_deform(mode: DeformMode) -> Modifier {
         let amount = match mode {
             DeformMode::Twist => std::f32::consts::FRAC_PI_4,
+            DeformMode::Bend => std::f32::consts::FRAC_PI_4,
             DeformMode::Taper | DeformMode::Stretch => 0.5,
         };
         Modifier::SimpleDeform { mode, amount }
+    }
+
+    /// Midlevel 0.5 as in Blender; the strength is 0.2 m (Blender's 1 m is huge next to the 2 m default cube).
+    pub fn displace() -> Modifier {
+        Modifier::Displace { strength: 0.2, midlevel: 0.5, scale: 1.0 }
     }
 
     pub fn weld() -> Modifier {
@@ -67,6 +76,8 @@ impl Modifier {
             Modifier::Bevel { .. } => "Bevel",
             Modifier::Smooth { .. } => "Smooth",
             Modifier::SimpleDeform { .. } => "Simple Deform",
+            Modifier::Displace { .. } => "Displace",
+            Modifier::Triangulate => "Triangulate",
             Modifier::Weld { .. } => "Weld",
         }
     }
@@ -87,6 +98,8 @@ impl Modifier {
             Modifier::Bevel { width } => mesh.beveled(*width),
             Modifier::Smooth { factor, repeat } => mesh.smoothed(*factor, *repeat),
             Modifier::SimpleDeform { mode, amount } => mesh.deformed(*mode, *amount),
+            Modifier::Displace { strength, midlevel, scale } => mesh.displaced(*strength, *midlevel, *scale),
+            Modifier::Triangulate => mesh.triangulated(),
             Modifier::Weld { distance } => mesh.merged_by_distance(*distance).0,
         }
     }
@@ -136,5 +149,15 @@ mod tests {
         /* Two touching cubes weld into one closed piece of 12 vertices. */
         let two = evaluate(&cube, &[Modifier::array(2), Modifier::Weld { distance: 0.001 }]);
         assert_eq!(two.verts.len(), 12);
+    }
+
+    #[test]
+    fn displace_and_triangulate_in_the_stack() {
+        let cube = Mesh::cube(2.0);
+        let r = evaluate(&cube, &[Modifier::displace(), Modifier::Triangulate]);
+        assert_eq!(r.faces.len(), 12);
+        assert_ne!(r.verts, cube.verts);
+        let b = evaluate(&cube, &[Modifier::simple_deform(DeformMode::Bend)]);
+        assert_ne!(b.verts, cube.verts);
     }
 }

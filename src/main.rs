@@ -971,6 +971,9 @@ impl ApplicationHandler for App {
                         KeyCode::KeyM if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_smooth_modifier() > 0,
                         KeyCode::KeyT if ctrl_k && alt_k && !shift_k => geometry = self.scene.cycle_simple_deform() > 0,
                         KeyCode::KeyE if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_weld() > 0,
+                        /* Displace (G) and Triangulate (R) modifiers; Bend is the second step of the Simple Deform cycle. */
+                        KeyCode::KeyG if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_displace() > 0,
+                        KeyCode::KeyR if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_triangulate_modifier() > 0,
                         /* `mesh.subdivide` (one cut, no smoothing) and `mesh.separate` by loose parts (P). */
                         KeyCode::KeyD if ctrl_k && alt_k && !shift_k => geometry = self.scene.subdivide_simple() > 0,
                         KeyCode::KeyP if plain => geometry = self.scene.separate_loose() > 0,

@@ -568,6 +568,32 @@ impl Scene {
         })
     }
 
+    /// Adds a Displace modifier to the selected meshes, or removes the one they have.
+    pub fn toggle_displace(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::Displace { .. })) {
+                Some(i) => {
+                    stack.remove(i);
+                }
+                None => stack.push(Modifier::displace()),
+            }
+            true
+        })
+    }
+
+    /// Adds a Triangulate modifier to the selected meshes, or removes the one they have.
+    pub fn toggle_triangulate_modifier(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::Triangulate)) {
+                Some(i) => {
+                    stack.remove(i);
+                }
+                None => stack.push(Modifier::Triangulate),
+            }
+            true
+        })
+    }
+
     /// Adds a Weld modifier to the selected meshes, or removes the one they have.
     pub fn toggle_weld(&mut self) -> usize {
         self.edit_modifiers(|stack| {
@@ -1507,7 +1533,8 @@ mod tests {
         let mut s = Scene::startup();
         assert_eq!(s.toggle_smooth_modifier(), 1);
         assert_eq!(s.toggle_weld(), 1);
-        for _ in 0..3 {
+        /* Twist, Bend, Taper, Stretch. */
+        for _ in 0..4 {
             assert_eq!(s.cycle_simple_deform(), 1);
         }
         assert_eq!(s.active_object().unwrap().modifiers.len(), 3);
@@ -1515,6 +1542,18 @@ mod tests {
         assert_eq!(s.active_object().unwrap().modifiers.len(), 2);
         assert_eq!(s.toggle_smooth_modifier(), 1);
         assert_eq!(s.toggle_weld(), 1);
+        assert!(s.active_object().unwrap().modifiers.is_empty());
+    }
+
+    #[test]
+    fn displace_and_triangulate_toggle_and_evaluate() {
+        let mut s = Scene::startup();
+        assert_eq!(s.toggle_displace(), 1);
+        assert_eq!(s.toggle_triangulate_modifier(), 1);
+        s.update_eval();
+        assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), 12);
+        assert!(s.undo());
+        assert!(s.undo());
         assert!(s.active_object().unwrap().modifiers.is_empty());
     }
 
