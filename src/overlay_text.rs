@@ -11,8 +11,9 @@
 //!  - `draw_frame_info()`                       (view3d_draw.cc:1416-1458): the current frame
 //!  - `ED_view3d_text_colors_get()`             (view3d_utils.cc:91): `TH_TEXT_HI`
 //!
-//! Deviations: the outline shadow of the text is not drawn, the grid unit line (axis views only) is not
-//! drawn, and the active collection and object names are those of the startup scene (`Collection`,
+//! Deviations: the outline shadow of the text is not drawn, the grid unit line of `draw_grid_unit_name()`
+//! (axis views only) ignores `View3D::grid != 1`, and the active collection and object names are those of
+//! the startup scene (`Collection`,
 //! `Cube`) because there is no scene data yet. Locked rotation, camera flips and local view are not
 //! modelled.
 
@@ -20,7 +21,8 @@ use crate::area::Rcti;
 use crate::font;
 use crate::theme;
 use crate::userdef::UserDef;
-use crate::view3d::{RegionView3D, View};
+use crate::overlay_grid::grid_unit_name;
+use crate::view3d::{RegionView3D, View, View3D};
 
 /// `view3d_get_name()` for an unlocked view without a camera object.
 fn view_name(rv3d: &RegionView3D) -> &'static str {
@@ -60,16 +62,21 @@ fn viewport_name(rv3d: &RegionView3D) -> String {
 }
 
 /// The lines of the info text, top to bottom.
-fn lines(rv3d: &RegionView3D, frame: i32) -> [String; 3] {
-    [viewport_name(rv3d), "Collection | Cube".to_string(), frame.to_string()]
+fn lines(v3d: &View3D, rv3d: &RegionView3D, frame: i32) -> Vec<String> {
+    let mut lines = vec![viewport_name(rv3d)];
+    /* `draw_grid_unit_name()` draws the grid unit below the viewport name. */
+    lines.extend(grid_unit_name(v3d, rv3d).map(str::to_string));
+    lines.push("Collection | Cube".to_string());
+    lines.push(frame.to_string());
+    lines
 }
 
 /// Draws the info text into the main region `region` (inclusive window rect, y up).
-pub fn draw(buf: &mut [u32], width: usize, height: usize, region: Rcti, user: &UserDef, rv3d: &RegionView3D, frame: i32) {
+pub fn draw(buf: &mut [u32], width: usize, height: usize, region: Rcti, user: &UserDef, v3d: &View3D, rv3d: &RegionView3D, frame: i32) {
     let line_height = font::UI_DEFAULT_TEXT_POINTS * user.scale_factor * 1.6;
     let x = region.xmin + (0.5 * user.widget_unit as f32) as i32;
     let mut y = region.ymax - (0.1 * user.widget_unit as f32) as i32;
-    for line in lines(rv3d, frame) {
+    for line in lines(v3d, rv3d, frame) {
         y = (y as f32 - line_height) as i32;
         font::draw_text(buf, width, height, user, x, y, &line, theme::SPACE_VIEW3D_TEXT_HI);
     }
@@ -82,7 +89,7 @@ mod tests {
     #[test]
     fn default_view_lines() {
         let rv3d = RegionView3D::default();
-        assert_eq!(lines(&rv3d, 1), ["User Perspective", "Collection | Cube", "1"]);
+        assert_eq!(lines(&View3D::default(), &rv3d, 1), ["User Perspective", "Collection | Cube", "1"]);
     }
 
     #[test]
@@ -93,5 +100,17 @@ mod tests {
         rv3d.view_axis_roll = 1;
         rv3d.clip = Some([[0.0; 4]; 4]);
         assert_eq!(viewport_name(&rv3d), "Top Orthographic 90\u{b0} (Clipped)");
+    }
+
+    /* Top view, 1920x1000: the grid unit line (see `grid_unit_name()`) follows the view name. */
+    #[test]
+    fn grid_unit_line_in_axis_views() {
+        let v3d = View3D::default();
+        let mut rv3d = RegionView3D::default();
+        rv3d.view_axis(View::Top);
+        rv3d.update(&v3d, 1920, 1000);
+        let l = lines(&v3d, &rv3d, 1);
+        assert_eq!(l.len(), 4);
+        assert_eq!(l[1], "10 Centimeters");
     }
 }

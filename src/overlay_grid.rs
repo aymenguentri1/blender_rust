@@ -271,6 +271,37 @@ pub fn grid_init_v3d(v3d: &View3D, rv3d: &RegionView3D) -> Option<GridState> {
     })
 }
 
+/// `name_display` of the metric length units in table order (blenkernel/intern/unit.cc:177-296; the
+/// nanometer and picometer entries are under `#if 0`).
+const METRIC_LEN_DISPLAY_NAMES: [&str; 8] = [
+    "Kilometers",
+    "100 Meters",
+    "10 Meters",
+    "Meters",
+    "10 Centimeters",
+    "Centimeters",
+    "Millimeters",
+    "Micrometers",
+];
+
+/// The unit name that `ED_view3d_grid_view_scale()` (editors/space_view3d/view3d_draw.cc:1186-1225) returns
+/// for an axis-aligned orthographic view: the first grid step whose next step reaches the distance
+/// `10 * 12 / (winx * winmat[0][0])`, named by `BKE_unit_display_name_get(usys, len - i - 1)`. `None` in the
+/// perspective and user views, where `draw_grid_unit_name()` draws nothing. `rv3d` must have been updated.
+pub fn grid_unit_name(v3d: &View3D, rv3d: &RegionView3D) -> Option<&'static str> {
+    if !rv3d.ortho || rv3d.view == View::User {
+        return None;
+    }
+    let dist = 10.0 * 12.0 / (rv3d.winx as f32 * rv3d.winmat[0][0]);
+    let steps = view3d_grid_steps(v3d, false);
+    let mut i = 0;
+    while i < GRID_STEPS_LEN - 1 && steps[i + 1] < dist {
+        i += 1;
+    }
+    Some(METRIC_LEN_DISPLAY_NAMES[GRID_STEPS_LEN - 1 - i])
+}
+
+
 /// The overlay grid colours (`gb.colors.grid`, `grid_emphasis`, `grid_axis_x/y/z`) as linear RGBA.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GridColors {
@@ -733,6 +764,19 @@ mod tests {
         assert!((g.level - 3.388_889).abs() < 1e-3, "{}", g.level);
         assert!((145..=147).contains(&g.num_lines), "{}", g.num_lines);
         assert_eq!(g.num_iters, 1);
+    }
+    /* Top view, 1920x1000: the distance is 0.45, so the steps 1e-6, 0.001, 0.01, 0.1 are below it and
+     * the next one (1) reaches it: step index 3 (0.1 m), named by unit index 7 - 3 = 4. The perspective
+     * view has no unit name. */
+    #[test]
+    fn grid_unit_name_in_axis_views() {
+        let v3d = View3D::default();
+        let mut rv3d = RegionView3D::default();
+        rv3d.update(&v3d, 1920, 1000);
+        assert_eq!(grid_unit_name(&v3d, &rv3d), None);
+        rv3d.view_axis(View::Top);
+        rv3d.update(&v3d, 1920, 1000);
+        assert_eq!(grid_unit_name(&v3d, &rv3d), Some("10 Centimeters"));
     }
     fn default_grid() -> (GridState, RegionView3D) {
         let v3d = View3D::default();
