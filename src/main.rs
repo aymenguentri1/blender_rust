@@ -193,6 +193,8 @@ struct App {
     overlays_hidden: bool,
     /// The statistics overlay (Shift + Alt + O): object, vertex, face and triangle counts in the info text.
     show_stats: bool,
+    /// The transform pivot point (Period cycles it: Median Point, 3D Cursor, Individual Origins).
+    pivot_point: transform::PivotPoint,
     /// Workbench temporal anti-aliasing accumulation of the main region.
     taa: taa::TaaState,
     /// `Scene::r.cfra`, the current frame; `None` is the startup frame 1.
@@ -979,7 +981,7 @@ impl ApplicationHandler for App {
                                 _ => (transform::Mode::Scale, "Scale"),
                             };
                             self.rv3d.update(&self.v3d, rw, rh);
-                            self.xform = transform::Transform::begin(mode, &mut self.scene, mval, &self.rv3d, true);
+                            self.xform = transform::Transform::begin_with_pivot(mode, &mut self.scene, mval, &self.rv3d, true, self.pivot_point, self.cursor3d);
                             if self.xform.is_some() {
                                 set_status_title(&gfx.window, Some(name));
                             }
@@ -996,7 +998,7 @@ impl ApplicationHandler for App {
                             if self.scene.duplicate_selected() > 0 {
                                 self.rv3d.update(&self.v3d, rw, rh);
                                 /* The duplicate and the grab are one undo step. */
-                                self.xform = transform::Transform::begin(transform::Mode::Translate, &mut self.scene, mval, &self.rv3d, false);
+                                self.xform = transform::Transform::begin_with_pivot(transform::Mode::Translate, &mut self.scene, mval, &self.rv3d, false, self.pivot_point, self.cursor3d);
                                 set_status_title(&gfx.window, Some("Duplicate"));
                                 geometry = true;
                             }
@@ -1137,6 +1139,14 @@ impl ApplicationHandler for App {
                         }
                         KeyCode::KeyS if ctrl_k && shift_k && alt_k => {
                             self.scene.select_grouped(scene::GroupKind::Siblings);
+                        }
+                        /* `tool_settings.transform_pivot_point`: Period cycles Median Point, 3D Cursor and Individual
+                         * Origins (Blender's pivot pie). Ctrl + Shift + C is Cursor to Active of the snap pie. */
+                        KeyCode::Period if plain => self.pivot_point = self.pivot_point.next(),
+                        KeyCode::KeyC if ctrl_k && shift_k && !alt_k => {
+                            if let Some(p) = self.scene.active_origin() {
+                                self.cursor3d = p;
+                            }
                         }
                         /* Set Origin > Origin to Center of Mass (Volume). */
                         KeyCode::KeyM if ctrl_k && shift_k && alt_k => geometry = self.scene.origin_to_center_of_mass() > 0,
@@ -1635,7 +1645,7 @@ impl ApplicationHandler for App {
                         if let Some(user) = self.user.as_ref().filter(|_| !self.overlays_hidden) {
                             overlay_extra::draw_extras(&mut buf, w, h, layout.main, user, &self.rv3d, &self.scene);
                             overlay_cursor::draw_cursor(&mut buf, w, h, layout.main, user, &self.rv3d, self.cursor3d, self.cursor3d_quat);
-                            overlay_text::draw(&mut buf, w, h, layout.main, user, &self.v3d, &self.rv3d, self.frame.unwrap_or(1), &{ let info = overlay_text::ObjectInfo::of(&self.scene); if self.show_stats { info.with_stats(&self.scene) } else { info } });
+                            overlay_text::draw(&mut buf, w, h, layout.main, user, &self.v3d, &self.rv3d, self.frame.unwrap_or(1), &{ let mut info = overlay_text::ObjectInfo::of(&self.scene); if self.pivot_point != transform::PivotPoint::Median { info.pivot = Some(self.pivot_point.label().to_string()); } if self.show_stats { info.with_stats(&self.scene) } else { info } });
                         }
                     }
                     area::fill_rect(&mut buf, w, h, layout.topbar, theme::SPACE_TOPBAR_HEADER.to_xrgb());

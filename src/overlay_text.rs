@@ -37,6 +37,8 @@ pub struct ObjectInfo {
     pub active: usize,
     /// The statistics overlay lines (`Scene::statistics`), empty when it is off.
     pub stats: Vec<String>,
+    /// The transform pivot point when it is not the default Median Point.
+    pub pivot: Option<String>,
 }
 
 impl ObjectInfo {
@@ -55,7 +57,7 @@ impl ObjectInfo {
                     modifiers.push(format!("Subdivision Surface {}", o.subsurf));
                 }
                 let active = o.active_modifier.min(o.modifiers.len().saturating_sub(1));
-                ObjectInfo { name: Some(o.name.clone()), modifiers, active, stats: Vec::new() }
+                ObjectInfo { name: Some(o.name.clone()), modifiers, active, stats: Vec::new(), pivot: None }
             }
         }
     }
@@ -109,6 +111,7 @@ fn lines(v3d: &View3D, rv3d: &RegionView3D, frame: i32, object: &ObjectInfo) -> 
     });
     lines.push(frame.to_string());
     lines.extend(object.modifiers.iter().enumerate().map(|(i, m)| format!("{} {m}", if i == object.active { '>' } else { '+' })));
+    lines.extend(object.pivot.iter().map(|p| format!("Pivot: {p}")));
     lines.extend(object.stats.iter().cloned());
     lines
 }
@@ -131,8 +134,16 @@ mod tests {
     #[test]
     fn default_view_lines() {
         let rv3d = RegionView3D::default();
-        let cube = ObjectInfo { name: Some("Cube".to_string()), modifiers: vec![], active: 0, stats: vec![] };
+        let cube = ObjectInfo { name: Some("Cube".to_string()), modifiers: vec![], active: 0, stats: vec![], pivot: None };
         assert_eq!(lines(&View3D::default(), &rv3d, 1, &cube), ["User Perspective", "Collection | Cube", "1"]);
+    }
+
+    #[test]
+    fn a_non_default_pivot_point_is_listed() {
+        let rv3d = RegionView3D::default();
+        let info = ObjectInfo { pivot: Some("3D Cursor".to_string()), ..ObjectInfo::default() };
+        let l = lines(&View3D::default(), &rv3d, 1, &info);
+        assert_eq!(l.last().unwrap(), "Pivot: 3D Cursor");
     }
 
     #[test]
@@ -150,7 +161,7 @@ mod tests {
         let rv3d = RegionView3D::default();
         let none = lines(&View3D::default(), &rv3d, 1, &ObjectInfo::default());
         assert_eq!(none, ["User Perspective", "Collection", "1"]);
-        let info = ObjectInfo { name: Some("Torus".to_string()), modifiers: vec!["Mirror X".to_string(), "Subdivision Surface 2".to_string()], active: 0, stats: vec![] };
+        let info = ObjectInfo { name: Some("Torus".to_string()), modifiers: vec!["Mirror X".to_string(), "Subdivision Surface 2".to_string()], active: 0, stats: vec![], pivot: None };
         let l = lines(&View3D::default(), &rv3d, 1, &info);
         assert_eq!(l[1], "Collection | Torus");
         assert_eq!(&l[3..], ["> Mirror X", "+ Subdivision Surface 2"]);
