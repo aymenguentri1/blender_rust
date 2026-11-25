@@ -13,8 +13,8 @@ pub enum Modifier {
     /// `merge` is the merge distance in metres (0 is off): vertices of neighbouring copies that touch are joined.
     Array { count: u32, relative: V3, constant: V3, merge: f32 },
     Solidify { thickness: f32, offset: f32 },
-    /// One segment, `Offset` width.
-    Bevel { width: f32 },
+    /// `Offset` width, `segments` segments (1 is a chamfer).
+    Bevel { width: f32, segments: u32 },
     /// Neighbour averaging: `factor` per round, `repeat` rounds.
     Smooth { factor: f32, repeat: u32 },
     /// Twist (radians) / Taper / Stretch (factor) about the Z axis.
@@ -84,7 +84,7 @@ impl Modifier {
     }
 
     pub fn bevel() -> Modifier {
-        Modifier::Bevel { width: 0.1 }
+        Modifier::Bevel { width: 0.1, segments: 1 }
     }
 
     pub fn smooth() -> Modifier {
@@ -228,7 +228,8 @@ impl Modifier {
                 d
             }
             Modifier::Solidify { thickness, .. } => format!(" {} m", num(*thickness)),
-            Modifier::Bevel { width } => format!(" {} m", num(*width)),
+            Modifier::Bevel { width, segments } if *segments > 1 => format!(" {} m x{segments}", num(*width)),
+            Modifier::Bevel { width, .. } => format!(" {} m", num(*width)),
             Modifier::Smooth { factor, repeat } => format!(" {} x{repeat}", num(*factor)),
             Modifier::SimpleDeform { mode, amount } => match mode {
                 DeformMode::Twist | DeformMode::Bend => format!(": {} {}\u{b0}", mode.label(), num(amount.to_degrees())),
@@ -265,7 +266,7 @@ impl Modifier {
             Modifier::Mirror { .. } | Modifier::Triangulate => {}
             Modifier::Array { count, .. } => *count = (*count as i64 + steps as i64).clamp(1, 1000) as u32,
             Modifier::Solidify { thickness, .. } => *thickness = round((*thickness + 0.01 * n).max(0.001)),
-            Modifier::Bevel { width } => *width = round((*width + 0.01 * n).max(0.001)),
+            Modifier::Bevel { width, .. } => *width = round((*width + 0.01 * n).max(0.001)),
             Modifier::Smooth { factor, .. } => *factor = round((*factor + 0.1 * n).clamp(0.0, 2.0)),
             Modifier::SimpleDeform { mode, amount } => match mode {
                 DeformMode::Twist | DeformMode::Bend => *amount += 5.0f32.to_radians() * n,
@@ -318,7 +319,7 @@ impl Modifier {
                 }
             }
             Modifier::Solidify { thickness, offset } => mesh.solidified(*thickness, *offset),
-            Modifier::Bevel { width } => mesh.beveled(*width),
+            Modifier::Bevel { width, segments } => mesh.beveled_segments(*width, *segments),
             Modifier::Smooth { factor, repeat } => mesh.smoothed(*factor, *repeat),
             Modifier::SimpleDeform { mode, amount } => mesh.deformed(*mode, *amount),
             Modifier::Displace { strength, midlevel, scale } => mesh.displaced(*strength, *midlevel, *scale),
@@ -544,5 +545,14 @@ mod tests {
         for (i, p) in ARRAY_PRESETS.iter().enumerate() {
             assert_eq!(array_preset(p.1, p.2), Some(i));
         }
+    }
+
+    #[test]
+    fn bevel_segments_show_in_the_summary_and_the_evaluation() {
+        assert_eq!(Modifier::bevel().summary(), "Bevel 0.1 m");
+        let m = Modifier::Bevel { width: 0.1, segments: 3 };
+        assert_eq!(m.summary(), "Bevel 0.1 m x3");
+        let cube = Mesh::cube(2.0);
+        assert!(m.apply(&cube).verts.len() > Modifier::bevel().apply(&cube).verts.len());
     }
 }

@@ -892,6 +892,38 @@ mod tests {
     }
 
     #[test]
+    fn bevel_segments_cycle_and_wrap() {
+        let mut s = Scene::startup();
+        assert_eq!(s.cycle_bevel_segments(), 0, "no Bevel modifier yet");
+        s.toggle_bevel();
+        let seg = |s: &Scene| match &s.active_object().unwrap().modifiers[0] {
+            Modifier::Bevel { segments, .. } => *segments,
+            _ => unreachable!(),
+        };
+        let mut seen = vec![seg(&s)];
+        for _ in 0..6 {
+            assert_eq!(s.cycle_bevel_segments(), 1);
+            seen.push(seg(&s));
+        }
+        assert_eq!(seen, [1, 2, 3, 4, 6, 8, 1]);
+        s.undo();
+        assert_eq!(seg(&s), 8);
+    }
+
+    #[test]
+    fn statistics_follow_the_bevel_segments() {
+        let mut s = Scene::startup();
+        s.toggle_bevel();
+        s.update_eval();
+        let flat = s.statistics();
+        s.cycle_bevel_segments();
+        s.cycle_bevel_segments();
+        s.update_eval();
+        let round = s.statistics();
+        assert!(round.verts > flat.verts && round.faces > flat.faces);
+    }
+
+    #[test]
     fn statistics_count_the_visible_objects() {
         let mut s = Scene::startup();
         let st = s.statistics();
