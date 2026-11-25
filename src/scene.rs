@@ -154,6 +154,8 @@ pub struct Scene {
     next_id: u32,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
+    /// Seed of the next Select Random (it counts up so that repeating the operator picks another set).
+    select_seed: u32,
 }
 
 impl Default for Scene {
@@ -165,7 +167,7 @@ impl Default for Scene {
 impl Scene {
     /// The factory startup scene.
     pub fn startup() -> Scene {
-        let mut s = Scene { objects: Vec::new(), active: None, next_id: 0, undo: Vec::new(), redo: Vec::new() };
+        let mut s = Scene { objects: Vec::new(), active: None, next_id: 0, undo: Vec::new(), redo: Vec::new(), select_seed: 0 };
         let deg = std::f32::consts::PI / 180.0;
         let camera = s.new_object("Camera", ObjectData::Camera);
         camera.loc = [7.358_891, -6.925_791, 4.958_309];
@@ -1223,6 +1225,81 @@ impl Scene {
         created
     }
 
+    /// `mesh.convex_hull` on the selected meshes: each mesh is replaced by the hull of its vertices, with
+    /// coplanar triangles joined into n-gons. Meshes that span no volume are left alone.
+    pub fn convex_hull(&mut self) -> usize {
+        self.edit_meshes(|m| match m.convex_hull() {
+            Some(h) if h.verts.len() != m.verts.len() || h.faces.len() != m.faces.len() => {
+                *m = h;
+                true
+            }
+            _ => false,
+        })
+    }
+
+    /// `TRANSFORM_OT_mirror` (Ctrl + M) in global `axis` (0 = X, 1 = Y, 2 = Z) with the median point as pivot:
+    /// the locations are reflected through the plane of the median, and the orientation and scale are flipped
+    /// the way Blender does it (`M * R * S = (M R M) * (M S)`: the rotation is conjugated by the reflection and
+    /// the scale along the local axis of the same number becomes negative).
+    pub fn mirror_objects(&mut self, axis: usize) -> usize {
+        if axis > 2 {
+            return 0;
+        }
+        let Some(median) = self.median_origin() else { return 0 };
+        self.push_undo();
+        let mut n = 0;
+        let mut flip = [[0.0f32; 3]; 3];
+        for (i, row) in flip.iter_mut().enumerate() {
+            row[i] = if i == axis { -1.0 } else { 1.0 };
+        }
+        for o in self.objects.iter_mut().filter(|o| o.selected && !o.hidden) {
+            o.loc[axis] = 2.0 * median[axis] - o.loc[axis];
+            let r = euler_to_mat3(o.rot);
+            o.rot = mat3_to_euler(&mat3_mul(&flip, &mat3_mul(&r, &flip)));
+            o.scale[axis] = -o.scale[axis];
+            o.eval = None;
+            n += 1;
+        }
+        n
+    }
+
+    /// `OBJECT_OT_select_grouped` (type): selects every visible object of the type of the active one. Returns
+    /// how many objects were newly selected.
+    pub fn select_grouped_type(&mut self) -> usize {
+        let Some(active) = self.active_object() else { return 0 };
+        let kind = std::mem::discriminant(&active.data);
+        let mut n = 0;
+        for o in self.objects.iter_mut().filter(|o| !o.hidden && !o.selected) {
+            if std::mem::discriminant(&o.data) == kind {
+                o.selected = true;
+                n += 1;
+            }
+        }
+        n
+    }
+
+    /// `OBJECT_OT_select_random`: selects about `ratio` of the visible objects. The seed counts up on every
+    /// call. Returns how many objects were newly selected.
+    pub fn select_random(&mut self, ratio: f32) -> usize {
+        let seed = self.select_seed;
+        self.select_seed = self.select_seed.wrapping_add(1);
+        let mut n = 0;
+        for o in self.objects.iter_mut().filter(|o| !o.hidden && !o.selected) {
+            /* A small integer hash (lowbias32) of the object id and the seed, mapped to [0, 1). */
+            let mut h = o.id.wrapping_mul(0x9E37_79B9).wrapping_add(seed.wrapping_mul(0x85EB_CA6B)).wrapping_add(0x1234_5678);
+            h ^= h >> 16;
+            h = h.wrapping_mul(0x7FEB_352D);
+            h ^= h >> 15;
+            h = h.wrapping_mul(0x846C_A68B);
+            h ^= h >> 16;
+            if (h as f32 / 4_294_967_296.0) < ratio {
+                o.selected = true;
+                n += 1;
+            }
+        }
+        n
+    }
+
     /// `mesh.subdivide` (one cut, no smoothing) on the selected meshes.
     pub fn subdivide_simple(&mut self) -> usize {
         self.edit_meshes(|m| {
@@ -2055,5 +2132,77 @@ mod tests {
         assert_eq!(s.objects[i].loc, [1.0, 1.0, 1.0]);
         let after = s.objects[i].world_bounds().unwrap();
         assert!(approx(before.0, after.0) && approx(before.1, after.1), "{before:?} {after:?}");
+    }
+
+    #[test]
+    fn convex_hull_replaces_the_mesh_and_undoes() {
+        let mut s = Scene::startup();
+        let i = s.index_of(cube_id(&s)).unwrap();
+        if let ObjectData::Mesh(m) = &mut s.objects[i].data {
+            m.verts.push([0.0; 3]);
+        }
+        assert_eq!(s.convex_hull(), 1);
+        assert_eq!(s.objects[i].mesh().unwrap().verts.len(), 8);
+        assert_eq!(s.convex_hull(), 0, "already convex");
+        assert!(s.undo());
+        assert_eq!(s.objects[i].mesh().unwrap().verts.len(), 9);
+    }
+
+    #[test]
+    fn mirror_reflects_about_the_median_and_flips_scale() {
+        let mut s = Scene::startup();
+        let a = s.index_of(cube_id(&s)).unwrap();
+        let id = s.add_primitive(Primitive::Cube, [4.0, 0.0, 0.0]);
+        s.objects[a].selected = true;
+        let b = s.index_of(id).unwrap();
+        s.objects[a].loc = [0.0; 3];
+        assert_eq!(s.mirror_objects(0), 2);
+        assert!(approx(s.objects[a].loc, [4.0, 0.0, 0.0]) && approx(s.objects[b].loc, [0.0, 0.0, 0.0]));
+        assert_eq!(s.objects[a].scale, [-1.0, 1.0, 1.0]);
+        assert!(s.undo());
+        assert!(approx(s.objects[a].loc, [0.0; 3]) && s.objects[a].scale == [1.0; 3]);
+    }
+
+    #[test]
+    fn mirror_keeps_the_world_matrix_a_reflection_of_the_old_one() {
+        let mut s = Scene::startup();
+        let i = s.index_of(cube_id(&s)).unwrap();
+        s.objects[i].rot = [0.3, 0.5, 0.9];
+        s.objects[i].scale = [1.0, 2.0, 3.0];
+        s.objects[i].loc = [0.0; 3];
+        let before = s.objects[i].world_matrix();
+        assert_eq!(s.mirror_objects(1), 1);
+        let after = s.objects[i].world_matrix();
+        /* Reflecting the old matrix in world Y flips its Y row. */
+        for c in 0..3 {
+            assert!((after[c][0] - before[c][0]).abs() < 1e-5, "x row, column {c}");
+            assert!((after[c][1] + before[c][1]).abs() < 1e-5, "y row, column {c}");
+            assert!((after[c][2] - before[c][2]).abs() < 1e-5, "z row, column {c}");
+        }
+    }
+
+    #[test]
+    fn select_grouped_by_type_and_random() {
+        let mut s = Scene::startup();
+        s.add_primitive(Primitive::Cube, [3.0, 0.0, 0.0]);
+        s.add_primitive(Primitive::Plane, [6.0, 0.0, 0.0]);
+        let plane = s.active.unwrap();
+        s.select_all(SelectAction::Deselect);
+        s.active = Some(plane);
+        assert_eq!(s.select_grouped_type(), 3, "the other meshes (the camera and the light stay out)");
+        assert_eq!(s.selected_count(), 3);
+        s.select_all(SelectAction::Deselect);
+        assert_eq!(s.select_random(1.0), s.objects.len());
+        s.select_all(SelectAction::Deselect);
+        assert_eq!(s.select_random(0.0), 0);
+        s.select_all(SelectAction::Deselect);
+        let first: Vec<bool> = {
+            s.select_random(0.5);
+            s.objects.iter().map(|o| o.selected).collect()
+        };
+        s.select_all(SelectAction::Deselect);
+        s.select_random(0.5);
+        let second: Vec<bool> = s.objects.iter().map(|o| o.selected).collect();
+        assert!(first.iter().any(|&x| x) || second.iter().any(|&x| x));
     }
 }
