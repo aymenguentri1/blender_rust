@@ -872,6 +872,29 @@ impl Scene {
         })
     }
 
+    /// `OBJECT_OT_make_links_data` (Modifiers): replaces the modifier stack and the Subdivision Surface level of
+    /// every other selected visible mesh with a copy of the active object's. Returns how many objects changed;
+    /// one undo step.
+    pub fn copy_modifiers_to_selected(&mut self) -> usize {
+        let Some(src) = self.active_object().filter(|o| o.mesh().is_some()) else { return 0 };
+        let (id, stack, subsurf) = (src.id, src.modifiers.clone(), src.subsurf);
+        let differs = |o: &Object| o.modifiers != stack || o.subsurf != subsurf;
+        let wants = |o: &Object| o.selected && !o.hidden && o.id != id && o.mesh().is_some() && differs(o);
+        if !self.objects.iter().any(|o| wants(o)) {
+            return 0;
+        }
+        self.push_undo();
+        let mut n = 0;
+        for o in self.objects.iter_mut().filter(|o| wants(o)) {
+            o.modifiers = stack.clone();
+            o.subsurf = subsurf;
+            o.active_modifier = o.active_modifier.min(o.modifiers.len().saturating_sub(1));
+            o.eval = None;
+            n += 1;
+        }
+        n
+    }
+
     /// `OBJECT_OT_modifier_copy`: inserts a copy of modifier `i` of the active object right after it and makes the
     /// copy the active modifier.
     pub fn panel_duplicate_modifier(&mut self, i: usize) -> bool {
@@ -2921,5 +2944,29 @@ mod tests {
         assert_eq!(s.objects.len(), 5);
         let mesh = s.add_item(AddItem::Mesh(Primitive::Cube), [0.0; 3]);
         assert!(s.objects[s.index_of(mesh).unwrap()].mesh().is_some());
+    }
+
+    #[test]
+    fn copy_modifiers_replaces_the_stacks_of_the_other_selected_meshes() {
+        let mut s = Scene::startup();
+        let orig = s.active.unwrap();
+        assert_eq!(s.copy_modifiers_to_selected(), 0, "nothing else is selected");
+        s.duplicate_selected();
+        let copy = s.active.unwrap();
+        assert_ne!(copy, orig);
+        assert!(s.panel_add_modifier(Modifier::array(3)));
+        assert!(s.panel_add_modifier(Modifier::weld()));
+        let ci = s.index_of(copy).unwrap();
+        s.objects[ci].subsurf = 2;
+        s.select_all(SelectAction::Select);
+        s.active = Some(copy);
+        assert_eq!(s.copy_modifiers_to_selected(), 1);
+        let o = &s.objects[s.index_of(orig).unwrap()];
+        assert_eq!(o.modifiers, vec![Modifier::array(3), Modifier::weld()]);
+        assert_eq!(o.subsurf, 2);
+        assert_eq!(s.copy_modifiers_to_selected(), 0, "already identical: no undo step");
+        assert!(s.undo());
+        let o = &s.objects[s.index_of(orig).unwrap()];
+        assert!(o.modifiers.is_empty() && o.subsurf == 0);
     }
 }

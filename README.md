@@ -66,6 +66,7 @@ keys act on:
 | Ctrl + Shift + Alt + X | Remove it |
 | Ctrl + Shift + Alt + A | Apply it: bakes the active modifier into the mesh and takes it off the stack. Like Blender it is applied on its own to the base mesh (the modifiers above it are not part of the result) and the rest of the stack then acts on the baked mesh |
 | Ctrl + Shift + Alt + D | Duplicate it: a copy with the same settings goes right after it and becomes the active modifier |
+| Ctrl + L | Copy Modifiers (Link/Transfer Data): the active object's whole stack and Subdivision Surface level replace those of the other selected meshes (objects that already match are left alone) |
 
 The line above shows the real active object (`Collection | Cube`).
 
