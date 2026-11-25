@@ -10,7 +10,7 @@
 use crate::area::{fill_rect, Rcti};
 use crate::font;
 use crate::mesh::Primitive;
-pub use crate::scene::EmptyKind;
+pub use crate::scene::{EmptyKind, LightKind};
 use crate::theme::Rgba;
 use crate::userdef::UserDef;
 
@@ -28,13 +28,13 @@ pub enum AddItem {
     Mesh(Primitive),
     Empty(EmptyKind),
     Camera,
-    Light,
+    Light(LightKind),
 }
 
 impl AddItem {
-    /// The nine mesh primitives, the seven empty types (Blender nests them in an Empty submenu), Camera and Light
-    /// (the order of `VIEW3D_MT_add`).
-    pub const ALL: [AddItem; 18] = [
+    /// The nine mesh primitives, the seven empty types (Blender nests them in an Empty submenu), Camera and the four light
+    /// types (the order of `VIEW3D_MT_add`).
+    pub const ALL: [AddItem; 21] = [
         AddItem::Mesh(Primitive::Plane),
         AddItem::Mesh(Primitive::Cube),
         AddItem::Mesh(Primitive::Circle),
@@ -52,7 +52,10 @@ impl AddItem {
         AddItem::Empty(EmptyKind::Sphere),
         AddItem::Empty(EmptyKind::Cone),
         AddItem::Camera,
-        AddItem::Light,
+        AddItem::Light(LightKind::Point),
+        AddItem::Light(LightKind::Sun),
+        AddItem::Light(LightKind::Spot),
+        AddItem::Light(LightKind::Area),
     ];
 
     pub fn label(self) -> &'static str {
@@ -68,7 +71,12 @@ impl AddItem {
                 EmptyKind::Cone => "Empty: Cone",
             },
             AddItem::Camera => "Camera",
-            AddItem::Light => "Light",
+            AddItem::Light(k) => match k {
+                LightKind::Point => "Light: Point",
+                LightKind::Sun => "Light: Sun",
+                LightKind::Spot => "Light: Spot",
+                LightKind::Area => "Light: Area",
+            },
         }
     }
 
@@ -77,6 +85,7 @@ impl AddItem {
         match self {
             AddItem::Mesh(p) => p.object_name(),
             AddItem::Empty(_) => "Empty",
+            AddItem::Light(k) => k.label(),
             other => other.label(),
         }
     }
@@ -166,7 +175,7 @@ mod tests {
     fn the_panel_opens_below_and_right_of_the_cursor() {
         let l = layout(&user(), [300, 500], 1000, 800);
         assert_eq!((l.panel.xmin, l.panel.ymax), (300, 500));
-        assert_eq!(l.items.len(), 18);
+        assert_eq!(l.items.len(), 21);
         assert!(l.items.iter().all(|(r, _)| l.panel.isect_pt(r.xmin, r.ymin) && l.panel.isect_pt(r.xmax, r.ymax)));
     }
 
@@ -174,7 +183,7 @@ mod tests {
     #[test]
     fn rows_are_one_unit_high_and_in_order() {
         let l = layout(&user(), [300, 500], 1000, 800);
-        assert_eq!(l.panel.size_y() + 1, 19 * 20 + 8);
+        assert_eq!(l.panel.size_y() + 1, 22 * 20 + 8);
         for (r, _) in &l.items {
             assert_eq!(r.size_y() + 1, 20);
         }
@@ -192,7 +201,10 @@ mod tests {
                 "Empty: Sphere",
                 "Empty: Cone",
                 "Camera",
-                "Light"
+                "Light: Point",
+                "Light: Sun",
+                "Light: Spot",
+                "Light: Area"
             ]
         );
     }
@@ -221,8 +233,8 @@ mod tests {
     #[test]
     fn drawing_highlights_the_hovered_row_only() {
         let u = user();
-        let (w, h) = (400usize, 500usize);
-        let l = layout(&u, [50, 450], w as i32, h as i32);
+        let (w, h) = (400usize, 600usize);
+        let l = layout(&u, [50, 550], w as i32, h as i32);
         let bg = 0x0055_5555u32;
         let mut buf = vec![bg; w * h];
         let (rect, _) = l.items[3];

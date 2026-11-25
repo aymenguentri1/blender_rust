@@ -90,12 +90,16 @@ step, and the values are the object's own (local) transform, so they also work o
 dragging a field, expressions, lock toggles, rotation modes and delta transforms.
 
 ### Add menu
-Shift + A opens one list of eighteen entries: the nine mesh primitives, the seven empty types (Plain Axes, Arrows,
-Single Arrow, Circle, Cube, Sphere, Cone, listed as `Empty: ...`), Camera and Light (Point). The new object is placed at
-the 3D cursor, aligned to the world, selected and active, and is one undo step. Empties are drawn with Blender's
+Shift + A opens one list of twenty-one entries: the nine mesh primitives, the seven empty types (Plain Axes, Arrows,
+Single Arrow, Circle, Cube, Sphere, Cone, listed as `Empty: ...`), Camera and the four light types (`Light: Point`,
+Sun, Spot, Area). The new object is placed at the 3D cursor, aligned to the world, selected and active, and is one
+undo step. Lights are named like Blender names them (`Point`, `Sun`, `Spot`, `Area`). Empties are drawn with Blender's
 shapes at display size 1 (the circle lies in the XZ plane, the cone points along +Y); Arrows are the three axis
-lines without the screen aligned end markers and letters. Blender nests the meshes and empties in submenus and
-offers the Image empty and more light and camera types; those are not modelled.
+lines without the screen aligned end markers and letters. Every light is a screen facing circle with the line down
+to the ground; a Sun adds its eight rays and a 20 m direction line, a Spot its cone (45 degrees, blend 0.15, drawn
+10 m long: cap ring, blend ring and four edges instead of the view dependent silhouette) and an Area light the 1 m
+square. The light distance markers, colours, sizes and angles are not editable. Blender nests the meshes, empties
+and lights in submenus and offers the Image empty and more camera types; those are not modelled.
 
 ### Parenting
 | Keys | Operator |
