@@ -66,6 +66,7 @@ mod overlay_outline;
 mod overlay_extra;
 mod add_menu;
 mod modifier_panel;
+mod transform_panel;
 
 use std::{num::NonZeroU32, sync::Arc};
 
@@ -212,6 +213,8 @@ struct App {
     add_menu: Option<[i32; 2]>,
     /// The Add Modifier list of the properties editor is open.
     mod_add_open: bool,
+    /// The field of the Transform panel that is being typed into.
+    field_edit: Option<transform_panel::Edit>,
 }
 
 /// After a change of geometry, visibility or transforms: builds the modifier results and restarts the TAA
@@ -645,6 +648,31 @@ impl ApplicationHandler for App {
                  * object row. */
                 let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
                 let extend = self.modifiers.shift_key();
+                /* The Transform panel of the properties editor: a click on a field starts typing into it; a click
+                 * anywhere else applies the text of the open field and then does what it normally does. */
+                let tp_window = modifier_panel::window_rect(user, layout.properties);
+                let tp = tp_window.map(|w| transform_panel::layout(user, w, &self.scene, self.field_edit.as_ref()));
+                let clicked_field = match (&tp_window, &tp) {
+                    (Some(w), Some(l)) if w.isect_pt_v(self.cursor) => transform_panel::field_at(l, self.cursor),
+                    _ => None,
+                };
+                if let Some(f) = clicked_field {
+                    if !self.field_edit.as_ref().is_some_and(|e| e.field == f) {
+                        let changed = self.field_edit.take().is_some_and(|e| e.commit(&mut self.scene));
+                        self.field_edit = transform_panel::Edit::start(&self.scene, f);
+                        if changed {
+                            scene_changed(&mut self.scene, &mut self.taa);
+                        }
+                    }
+                    gfx.window.request_redraw();
+                    return;
+                }
+                if let Some(e) = self.field_edit.take() {
+                    if e.commit(&mut self.scene) {
+                        scene_changed(&mut self.scene, &mut self.taa);
+                    }
+                    gfx.window.request_redraw();
+                }
                 if area::in_view3d_main(user, layout.main, self.cursor) {
                     let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
                     self.rv3d.update(&self.v3d, rw, rh);
@@ -658,7 +686,8 @@ impl ApplicationHandler for App {
                     gfx.window.request_redraw();
                 } else if let Some(window) = modifier_panel::window_rect(user, layout.properties).filter(|w| w.isect_pt_v(self.cursor)) {
                     /* The Modifiers panel of the properties editor acts on the active object. */
-                    let widgets = modifier_panel::widgets(user, window, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open));
+                    let below = area::Rcti { ymax: tp.as_ref().map_or(window.ymax, |l| l.bottom), ..window };
+                    let widgets = modifier_panel::widgets(user, below, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open));
                     if let Some(action) = modifier_panel::action_at(&widgets, self.cursor) {
                         if modifier_panel::apply(&mut self.scene, &mut self.mod_add_open, action) {
                             scene_changed(&mut self.scene, &mut self.taa);
@@ -824,6 +853,35 @@ impl ApplicationHandler for App {
                 }
                 let PhysicalKey::Code(code) = key_event.physical_key else { return };
                 let (shift_k, ctrl_k, alt_k) = (self.modifiers.shift_key(), self.modifiers.control_key(), self.modifiers.alt_key());
+
+                /* A field of the Transform panel that is being typed into takes the keyboard: Enter applies, ESC
+                 * cancels, Backspace deletes, the number characters are typed. */
+                if self.field_edit.is_some() {
+                    match code {
+                        KeyCode::Enter | KeyCode::NumpadEnter => {
+                            if let Some(e) = self.field_edit.take() {
+                                if e.commit(&mut self.scene) {
+                                    scene_changed(&mut self.scene, &mut self.taa);
+                                }
+                            }
+                        }
+                        KeyCode::Escape => self.field_edit = None,
+                        KeyCode::Backspace => {
+                            if let Some(e) = self.field_edit.as_mut() {
+                                e.backspace();
+                            }
+                        }
+                        _ => {
+                            if let (Some(e), Some(text)) = (self.field_edit.as_mut(), key_event.text.as_ref()) {
+                                for c in text.chars() {
+                                    e.push(c);
+                                }
+                            }
+                        }
+                    }
+                    gfx.window.request_redraw();
+                    return;
+                }
 
                 /* An open popup menu takes the keyboard: ESC closes it, other keys do nothing. */
                 if self.add_menu.is_some() {
@@ -1459,7 +1517,10 @@ impl ApplicationHandler for App {
                     /* Modifiers panel of the properties editor. */
                     if let Some(user) = self.user.as_ref() {
                         if let Some(window) = modifier_panel::window_rect(user, layout.properties) {
-                            let widgets = modifier_panel::widgets(user, window, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open));
+                            let tp = transform_panel::layout(user, window, &self.scene, self.field_edit.as_ref());
+                            modifier_panel::draw(&mut buf, w, h, user, &tp.widgets);
+                            let below = area::Rcti { ymax: tp.bottom, ..window };
+                            let widgets = modifier_panel::widgets(user, below, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open));
                             modifier_panel::draw(&mut buf, w, h, user, &widgets);
                         }
                     }

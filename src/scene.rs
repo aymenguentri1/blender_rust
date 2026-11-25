@@ -1304,6 +1304,35 @@ impl Scene {
         created
     }
 
+    /// Sets one component of the active object's location (m), rotation (degrees) or scale, like typing in
+    /// a field of the Transform panel (`rna_Object_location_set` etc.). Returns whether anything changed;
+    /// a change is one undo step. Non finite values and an `axis` over 2 are refused.
+    pub fn set_transform_value(&mut self, prop: TransformProp, axis: usize, value: f32) -> bool {
+        if axis > 2 || !value.is_finite() || value.abs() > 1.0e7 {
+            return false;
+        }
+        let Some(i) = self.active.and_then(|id| self.index_of(id)).filter(|&i| !self.objects[i].hidden) else {
+            return false;
+        };
+        let current = match prop {
+            TransformProp::Location => self.objects[i].loc[axis],
+            TransformProp::Rotation => self.objects[i].rot[axis].to_degrees(),
+            TransformProp::Scale => self.objects[i].scale[axis],
+        };
+        if (current - value).abs() < 1e-6 {
+            return false;
+        }
+        self.push_undo();
+        let o = &mut self.objects[i];
+        match prop {
+            TransformProp::Location => o.loc[axis] = value,
+            TransformProp::Rotation => o.rot[axis] = value.to_radians(),
+            TransformProp::Scale => o.scale[axis] = value,
+        }
+        o.eval = None;
+        true
+    }
+
     /// `mesh.convex_hull` on the selected meshes: each mesh is replaced by the hull of its vertices, with
     /// coplanar triangles joined into n-gons. Meshes that span no volume are left alone.
     pub fn convex_hull(&mut self) -> usize {
@@ -1637,6 +1666,15 @@ impl Scene {
         rows.push(OutlinerRow { level: 1, name: "XGen Guides".into(), kind: RowKind::Collection });
         rows
     }
+}
+
+/// The three transform properties of the Transform panel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransformProp {
+    Location,
+    /// Edited in degrees, stored in radians.
+    Rotation,
+    Scale,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
