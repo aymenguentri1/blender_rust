@@ -521,6 +521,20 @@ impl Scene {
         n
     }
 
+    /// `OBJECT_OT_hide_view_set` with `unselected` (Shift + H): hides every visible object that is not selected.
+    /// Returns how many were hidden.
+    pub fn hide_unselected(&mut self) -> usize {
+        let n = self.objects.iter().filter(|o| !o.hidden && !o.selected).count();
+        if n == 0 {
+            return 0;
+        }
+        self.push_undo();
+        for o in self.objects.iter_mut().filter(|o| !o.hidden && !o.selected) {
+            o.hidden = true;
+        }
+        n
+    }
+
     /// `OBJECT_OT_hide_view_clear`: shows every hidden object and selects it.
     pub fn reveal_all(&mut self) -> usize {
         let n = self.objects.iter().filter(|o| o.hidden).count();
@@ -1972,6 +1986,22 @@ mod tests {
         assert_eq!(s.reveal_all(), 1);
         assert_eq!(s.selected_count(), 1);
         assert!(s.bounds(false).is_some());
+    }
+
+    #[test]
+    fn hide_unselected_keeps_the_selection_and_undoes() {
+        let mut s = Scene::startup();
+        assert_eq!(s.hide_unselected(), 2, "the camera and the light");
+        assert_eq!(s.selected_count(), 1);
+        assert!(s.objects.iter().filter(|o| !o.hidden).all(|o| o.name == "Cube"));
+        assert_eq!(s.hide_unselected(), 0, "nothing left to hide");
+        assert!(s.undo());
+        assert!(s.objects.iter().all(|o| !o.hidden));
+        /* With nothing selected everything is hidden, and Alt + H brings it all back selected. */
+        s.select_all(SelectAction::Deselect);
+        assert_eq!(s.hide_unselected(), 3);
+        assert_eq!(s.reveal_all(), 3);
+        assert_eq!(s.selected_count(), 3);
     }
 
     #[test]
