@@ -872,6 +872,27 @@ impl Scene {
         })
     }
 
+    /// `OBJECT_OT_modifier_copy`: inserts a copy of modifier `i` of the active object right after it and makes the
+    /// copy the active modifier.
+    pub fn panel_duplicate_modifier(&mut self, i: usize) -> bool {
+        self.edit_active_object(|o| {
+            let Some(m) = o.modifiers.get(i).cloned() else { return false };
+            o.modifiers.insert(i + 1, m);
+            o.active_modifier = i + 1;
+            true
+        })
+    }
+
+    /// Ctrl + Shift + Alt + D: duplicates the active modifier of the active object.
+    pub fn duplicate_active_modifier(&mut self) -> bool {
+        let Some(o) = self.active_object() else { return false };
+        if o.modifiers.is_empty() {
+            return false;
+        }
+        let i = o.active_modifier.min(o.modifiers.len() - 1);
+        self.panel_duplicate_modifier(i)
+    }
+
     /// Ctrl + Shift + Alt + A: applies the active modifier of the active object (`panel_apply_modifier`).
     pub fn apply_active_modifier(&mut self) -> bool {
         let Some(o) = self.active_object() else { return false };

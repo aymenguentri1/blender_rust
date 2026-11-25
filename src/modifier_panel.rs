@@ -28,6 +28,8 @@ pub enum Action {
     Remove(usize),
     /// Bakes the modifier into the mesh (Blender's Apply, Ctrl + A over the modifier).
     Apply(usize),
+    /// Inserts a copy right after it (Blender's Duplicate, Shift + D over the modifier).
+    Duplicate(usize),
     Decrease(usize),
     Increase(usize),
     /// The target picker of a Shrinkwrap: the next other mesh object, then none.
@@ -155,7 +157,15 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
             (m2, x1, "+".into(), Style::Button, Some(Action::Increase(i)), true),
         ];
         row(&mut out, &mut top, value);
-        row(&mut out, &mut top, vec![(x0, x1, "Apply".into(), Style::Button, Some(Action::Apply(i)), false)]);
+        let half = (x1 - x0 - gap) / 2;
+        row(
+            &mut out,
+            &mut top,
+            vec![
+                (x0, x0 + half - 1, "Apply".into(), Style::Button, Some(Action::Apply(i)), false),
+                (x0 + half + gap, x1, "Duplicate".into(), Style::Button, Some(Action::Duplicate(i)), false),
+            ],
+        );
         if let Some(label) = target {
             row(&mut out, &mut top, vec![(x0, x1, label.clone(), Style::Button, Some(Action::CycleTarget(i)), false)]);
         }
@@ -210,6 +220,7 @@ pub fn apply(scene: &mut Scene, add_open: &mut bool, action: Action) -> bool {
         Action::MoveDown(i) => scene.panel_move_modifier(i, 1),
         Action::Remove(i) => scene.panel_remove_modifier(i),
         Action::Apply(i) => scene.panel_apply_modifier(i),
+        Action::Duplicate(i) => scene.panel_duplicate_modifier(i),
         Action::Decrease(i) => scene.panel_adjust_modifier(i, -1),
         Action::Increase(i) => scene.panel_adjust_modifier(i, 1),
         Action::CycleTarget(i) => scene.panel_cycle_target(i),
@@ -251,8 +262,8 @@ mod tests {
             add_open: false,
         };
         let ws = widgets(&user, window(), &st);
-        /* title, add, then 2 x (4 header + 3 value + 1 apply) widgets */
-        assert_eq!(ws.len(), 2 + 2 * 8);
+        /* title, add, then 2 x (4 header + 3 value + 2 apply / duplicate) widgets */
+        assert_eq!(ws.len(), 2 + 2 * 9);
         assert!(ws.iter().all(|w| window().isect(&w.rect) == Some(w.rect)));
         assert!(ws[1].rect.ymax < ws[0].rect.ymin);
         let selected: Vec<_> = ws.iter().filter(|w| w.style == Style::Selected).collect();
@@ -278,7 +289,7 @@ mod tests {
             ..Default::default()
         };
         let ws = widgets(&user, window(), &st);
-        assert_eq!(ws.len(), 2 + 4 + 3 + 1 + 1);
+        assert_eq!(ws.len(), 2 + 4 + 3 + 2 + 1);
         let t = ws.iter().find(|w| w.action == Some(Action::CycleTarget(0))).unwrap();
         assert_eq!(t.label, "Target: (none)");
         assert_eq!(t.rect.xmin, ws[0].rect.xmin, "full width");
@@ -352,5 +363,25 @@ mod tests {
         s.panel_select_modifier(1);
         assert!(s.apply_active_modifier(), "the chord applies the active one");
         assert_eq!(s.active_object().unwrap().modifiers.len(), 1);
+    }
+
+    #[test]
+    fn duplicate_inserts_a_copy_after_the_modifier() {
+        let mut s = Scene::startup();
+        let mut open = false;
+        assert!(apply(&mut s, &mut open, Action::Add(1)), "Array x2");
+        assert!(apply(&mut s, &mut open, Action::Add(15)), "Weld");
+        assert!(apply(&mut s, &mut open, Action::Increase(0)), "Array x3");
+        assert!(apply(&mut s, &mut open, Action::Duplicate(0)));
+        let o = s.active_object().unwrap();
+        let labels: Vec<_> = o.modifiers.iter().map(|m| m.label()).collect();
+        assert_eq!(labels, ["Array", "Array", "Weld"]);
+        assert_eq!(o.modifiers[1], Modifier::array(3), "the copy keeps the settings");
+        assert_eq!(o.active_modifier, 1, "the copy is the active one");
+        assert!(!apply(&mut s, &mut open, Action::Duplicate(9)), "no such modifier");
+        assert!(s.undo());
+        assert_eq!(s.active_object().unwrap().modifiers.len(), 2);
+        assert!(s.duplicate_active_modifier(), "the chord copies the active one");
+        assert_eq!(s.active_object().unwrap().modifiers.len(), 3);
     }
 }
