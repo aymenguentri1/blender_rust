@@ -112,6 +112,36 @@ impl Modifier {
         }
     }
 
+    /// One line for the viewport overlay: the name followed by the main settings.
+    pub fn summary(&self) -> String {
+        fn num(f: f32) -> String {
+            let s = format!("{:.3}", f);
+            s.trim_end_matches('0').trim_end_matches('.').to_string()
+        }
+        let detail = match self {
+            Modifier::Mirror { axes, .. } => {
+                let names: String = axes.iter().zip(["X", "Y", "Z"]).filter(|(on, _)| **on).map(|(_, n)| n).collect();
+                format!(" {names}")
+            }
+            Modifier::Array { count, .. } => format!(" x{count}"),
+            Modifier::Solidify { thickness, .. } => format!(" {} m", num(*thickness)),
+            Modifier::Bevel { width } => format!(" {} m", num(*width)),
+            Modifier::Smooth { factor, repeat } => format!(" {} x{repeat}", num(*factor)),
+            Modifier::SimpleDeform { mode, amount } => match mode {
+                DeformMode::Twist | DeformMode::Bend => format!(": {} {}\u{b0}", mode.label(), num(amount.to_degrees())),
+                DeformMode::Taper | DeformMode::Stretch => format!(": {} {}", mode.label(), num(*amount)),
+            },
+            Modifier::Displace { strength, .. } => format!(" {} m", num(*strength)),
+            Modifier::Triangulate => String::new(),
+            Modifier::Cast { shape, factor, .. } => format!(": {} {}", shape.label(), num(*factor)),
+            Modifier::Decimate { ratio } => format!(" {}", num(*ratio)),
+            Modifier::EdgeSplit { angle } => format!(" {}\u{b0}", num(*angle)),
+            Modifier::Wireframe { thickness } => format!(" {} m", num(*thickness)),
+            Modifier::Weld { distance } => format!(" {} m", num(*distance)),
+        };
+        format!("{}{}", self.label(), detail)
+    }
+
     pub fn apply(&self, mesh: &Mesh) -> Mesh {
         match self {
             Modifier::Mirror { axes, merge, threshold } => {
@@ -217,5 +247,20 @@ mod tests {
         assert!(d.faces.len() < sphere.triangulated().faces.len());
         let cube = Mesh::cube(2.0);
         assert_eq!(evaluate(&cube, &[Modifier::edge_split()]).verts.len(), 24);
+    }
+
+    #[test]
+    fn summaries_show_the_main_settings() {
+        assert_eq!(Modifier::Mirror { axes: [true, false, true], merge: true, threshold: 0.001 }.summary(), "Mirror XZ");
+        assert_eq!(Modifier::array(3).summary(), "Array x3");
+        assert_eq!(Modifier::solidify().summary(), "Solidify 0.01 m");
+        assert_eq!(Modifier::bevel().summary(), "Bevel 0.1 m");
+        assert_eq!(Modifier::smooth().summary(), "Smooth 0.5 x1");
+        assert_eq!(Modifier::simple_deform(DeformMode::Twist).summary(), "Simple Deform: Twist 45\u{b0}");
+        assert_eq!(Modifier::simple_deform(DeformMode::Taper).summary(), "Simple Deform: Taper 0.5");
+        assert_eq!(Modifier::Triangulate.summary(), "Triangulate");
+        assert_eq!(Modifier::cast(CastShape::Cylinder).summary(), "Cast: Cylinder 0.5");
+        assert_eq!(Modifier::decimate(0.25).summary(), "Decimate 0.25");
+        assert_eq!(Modifier::edge_split().summary(), "Edge Split 30\u{b0}");
     }
 }
