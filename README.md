@@ -121,6 +121,11 @@ location is exact), shear is dropped when a transform is baked, and the parent i
 | Ctrl + Shift + Alt + G | Select Grouped, Parent |
 | Ctrl + Shift + Alt + S | Select Grouped, Siblings |
 | Ctrl + Shift + Alt + M | Origin to Center of Mass (Volume): the volume centroid of a closed mesh, the median of the vertices for an open one |
+| Ctrl + Shift + A | Selection to Active: the other selected objects' origins land on the active object's (a child of a selected parent goes along with it) |
+| Ctrl + Shift + Alt + B | Origin to Geometry, Bounds Center: the center of the bounding box instead of the vertex median |
+| Ctrl + Alt + P | Clear Parent Inverse: resets the stored inverse parent matrix of the selected children, which then follow the parent directly (they usually move) |
+| Ctrl + Shift + M | Select Mirror: selects the objects named like the left / right flip of the selected ones (`.L` / `.R`, `_l` / `_r`, `Left` / `Right`, as prefix or suffix, a `.001` number is kept) instead of the selection |
+| Shift + Alt + M | Select Mirror, extending the selection |
 | Shift + Alt + O | Statistics overlay: Objects (selected / visible), Vertices, Faces and Triangles of the visible objects, evaluated with their modifiers, under the info text |
 
 All but the overlay are undoable (Align pushes no step when nothing moves). The code is in `src/scene/ops.rs`.

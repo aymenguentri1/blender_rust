@@ -1148,6 +1148,17 @@ impl ApplicationHandler for App {
                                 self.cursor3d = p;
                             }
                         }
+                        /* Snap > Selection to Active (Ctrl + Shift + A), Set Origin > Origin to Bounds Center (Ctrl + Shift + Alt + B),
+                         * Parent > Clear Parent Inverse (Ctrl + Alt + P), Select Mirror (Ctrl + Shift + M, add Alt to extend). */
+                        KeyCode::KeyA if ctrl_k && shift_k && !alt_k => geometry = self.scene.selection_to_active() > 0,
+                        KeyCode::KeyB if ctrl_k && shift_k && alt_k => geometry = self.scene.origin_to_bounds_center() > 0,
+                        KeyCode::KeyP if ctrl_k && alt_k && !shift_k => geometry = self.scene.parent_clear_inverse() > 0,
+                        KeyCode::KeyM if ctrl_k && shift_k && !alt_k => {
+                            self.scene.select_mirror(false);
+                        }
+                        KeyCode::KeyM if shift_k && alt_k && !ctrl_k => {
+                            self.scene.select_mirror(true);
+                        }
                         /* Set Origin > Origin to Center of Mass (Volume). */
                         KeyCode::KeyM if ctrl_k && shift_k && alt_k => geometry = self.scene.origin_to_center_of_mass() > 0,
                         /* `object.select_grouped` by type (Shift + G) and `object.select_random` (Shift + Alt + R). */
