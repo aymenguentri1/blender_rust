@@ -14,6 +14,8 @@
 //!  - `OBJECT_OT_join` (Ctrl + J), `OBJECT_OT_transform_apply` (Ctrl + A), `OBJECT_OT_origin_set` (Geometry to
 //!    Origin, median center), `OBJECT_OT_convert` (Alt + C, applies the modifiers), and the mesh operators
 //!    Flip Normals (Alt + N), Recalculate Outside (Shift + N), Triangulate (Ctrl + T), Merge by Distance
+//!  - the Bevel modifier, `mesh.subdivide`, `mesh.separate` (loose parts), `VIEW3D_OT_snap_cursor_to_selected`,
+//!    `snap_selected_to_cursor` and Origin to 3D Cursor
 //!  - `ED_undo_push()`: every operator that changes data pushes a step; here a step is a copy of the object
 //!    list (selection changes are not undo steps)
 //!
@@ -540,6 +542,19 @@ impl Scene {
         })
     }
 
+    /// Adds a Bevel modifier to the selected meshes, or removes the one they have.
+    pub fn toggle_bevel(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::Bevel { .. })) {
+                Some(i) => {
+                    stack.remove(i);
+                }
+                None => stack.push(Modifier::bevel()),
+            }
+            true
+        })
+    }
+
     /// The array count of the first selected mesh with an Array modifier (1 when there is none).
     pub fn array_count(&self) -> u32 {
         self.selected()
@@ -714,6 +729,100 @@ impl Scene {
                 return false;
             }
             *m = merged;
+            true
+        })
+    }
+
+
+    // ----- snap, separate, subdivide ---------------------------------------------------------------
+
+    /// `VIEW3D_OT_snap_cursor_to_selected`: where the 3D cursor goes (the median of the selected origins).
+    pub fn cursor_target(&self) -> Option<V3> {
+        self.median_origin()
+    }
+
+    /// `VIEW3D_OT_snap_selected_to_cursor` with `use_offset`: moves the selection so its median lands on `cursor`.
+    pub fn selection_to_cursor(&mut self, cursor: V3) -> usize {
+        let Some(median) = self.median_origin() else { return 0 };
+        let delta = [cursor[0] - median[0], cursor[1] - median[1], cursor[2] - median[2]];
+        if delta.iter().all(|d| d.abs() < 1e-7) {
+            return 0;
+        }
+        self.push_undo();
+        let mut n = 0;
+        for o in self.objects.iter_mut().filter(|o| o.selected && !o.hidden) {
+            o.loc = [o.loc[0] + delta[0], o.loc[1] + delta[1], o.loc[2] + delta[2]];
+            n += 1;
+        }
+        n
+    }
+
+    /// `OBJECT_OT_origin_set` (Origin to 3D Cursor): the origin of the selected meshes moves to `point` and the
+    /// meshes stay where they are in the world.
+    pub fn origin_to_point(&mut self, point: V3) -> usize {
+        let n = self.selected().filter(|o| o.mesh().is_some()).count();
+        if n == 0 {
+            return 0;
+        }
+        self.push_undo();
+        let safe = |s: f32| if s.abs() < 1e-8 { 1.0 } else { s };
+        for o in self.objects.iter_mut().filter(|o| o.selected && !o.hidden) {
+            let ObjectData::Mesh(mesh) = &o.data else { continue };
+            let inv = mat3_transpose(&euler_to_mat3(o.rot));
+            let d = mat3_mul_v3(&inv, [point[0] - o.loc[0], point[1] - o.loc[1], point[2] - o.loc[2]]);
+            let l = [d[0] / safe(o.scale[0]), d[1] / safe(o.scale[1]), d[2] / safe(o.scale[2])];
+            let moved = mesh.mapped(|v| [v[0] - l[0], v[1] - l[1], v[2] - l[2]], false);
+            o.data = ObjectData::Mesh(moved);
+            o.loc = point;
+            o.eval = None;
+        }
+        n
+    }
+
+    /// `mesh.separate` by loose parts: every selected mesh made of several pieces keeps the first one and the
+    /// others become new objects with the same transform, shading and modifiers. The pieces end up selected.
+    /// Returns how many objects were created.
+    pub fn separate_loose(&mut self) -> usize {
+        let plan: Vec<(u32, Vec<Mesh>)> = self
+            .selected()
+            .filter_map(|o| {
+                let parts = o.mesh()?.loose_parts();
+                (parts.len() > 1).then(|| (o.id, parts))
+            })
+            .collect();
+        if plan.is_empty() {
+            return 0;
+        }
+        self.push_undo();
+        let mut created = 0;
+        for (id, mut parts) in plan {
+            let Some(i) = self.index_of(id) else { continue };
+            let first = parts.remove(0);
+            let src = self.objects[i].clone();
+            self.objects[i].data = ObjectData::Mesh(first);
+            self.objects[i].eval = None;
+            for part in parts {
+                let o = self.new_object(&src.name, ObjectData::Mesh(part));
+                o.loc = src.loc;
+                o.rot = src.rot;
+                o.scale = src.scale;
+                o.smooth = src.smooth;
+                o.subsurf = src.subsurf;
+                o.modifiers = src.modifiers.clone();
+                o.selected = true;
+                created += 1;
+            }
+        }
+        created
+    }
+
+    /// `mesh.subdivide` (one cut, no smoothing) on the selected meshes.
+    pub fn subdivide_simple(&mut self) -> usize {
+        self.edit_meshes(|m| {
+            if m.faces.is_empty() {
+                return false;
+            }
+            *m = m.subdivided_simple();
             true
         })
     }
@@ -1337,5 +1446,70 @@ mod tests {
         assert_eq!(s.merge_by_distance(0.001), 0);
         assert!(s.undo() && s.undo() && s.undo());
         assert_eq!(s.objects[i].mesh().unwrap().faces.len(), 6);
+    }
+    #[test]
+    fn bevel_toggles_in_the_stack() {
+        let mut s = Scene::startup();
+        assert_eq!(s.toggle_bevel(), 1);
+        s.update_eval();
+        assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), 26);
+        assert_eq!(s.toggle_bevel(), 1);
+        assert!(s.active_object().unwrap().modifiers.is_empty());
+    }
+
+    #[test]
+    fn subdivide_simple_is_an_undoable_mesh_edit() {
+        let mut s = Scene::startup();
+        assert_eq!(s.subdivide_simple(), 1);
+        assert_eq!(s.active_object().unwrap().mesh().unwrap().faces.len(), 24);
+        assert!(s.undo());
+        assert_eq!(s.active_object().unwrap().mesh().unwrap().faces.len(), 6);
+    }
+
+    #[test]
+    fn separate_loose_creates_objects_with_the_same_transform() {
+        let mut s = Scene::startup();
+        let i = s.index_of(cube_id(&s)).unwrap();
+        s.objects[i].loc = [1.0, 2.0, 3.0];
+        s.objects[i].smooth = true;
+        assert_eq!(s.separate_loose(), 0, "one piece: nothing to do");
+        assert!(!s.can_undo());
+        if let ObjectData::Mesh(m) = &mut s.objects[i].data {
+            m.append(&Mesh::cube(1.0).mapped(|v| [v[0] + 5.0, v[1], v[2]], false));
+        }
+        assert_eq!(s.separate_loose(), 1);
+        let cubes: Vec<&Object> = s.objects.iter().filter(|o| o.name.starts_with("Cube")).collect();
+        assert_eq!(cubes.len(), 2);
+        assert!(cubes.iter().all(|o| o.loc == [1.0, 2.0, 3.0] && o.smooth && o.mesh().unwrap().faces.len() == 6));
+        assert_eq!(cubes[1].name, "Cube.001");
+        assert!(s.undo());
+        assert_eq!(s.objects.iter().filter(|o| o.name.starts_with("Cube")).count(), 1);
+    }
+
+    #[test]
+    fn snap_selection_to_cursor_keeps_relative_offsets() {
+        let mut s = Scene::startup();
+        let a = s.index_of(cube_id(&s)).unwrap();
+        let id = s.add_primitive(Primitive::Cube, [4.0, 0.0, 0.0]);
+        s.objects[a].selected = true;
+        let b = s.index_of(id).unwrap();
+        s.objects[a].loc = [0.0; 3];
+        assert!(approx(s.cursor_target().unwrap(), [2.0, 0.0, 0.0]));
+        assert_eq!(s.selection_to_cursor([10.0, 0.0, 0.0]), 2);
+        assert!(approx(s.objects[a].loc, [8.0, 0.0, 0.0]) && approx(s.objects[b].loc, [12.0, 0.0, 0.0]));
+        assert_eq!(s.selection_to_cursor([10.0, 0.0, 0.0]), 0, "already there");
+    }
+
+    #[test]
+    fn origin_to_cursor_keeps_the_mesh_in_place() {
+        let mut s = Scene::startup();
+        let i = s.index_of(cube_id(&s)).unwrap();
+        s.objects[i].rot = [0.0, 0.0, 0.7];
+        s.objects[i].scale = [2.0, 1.0, 3.0];
+        let before = s.objects[i].world_bounds().unwrap();
+        assert_eq!(s.origin_to_point([1.0, 1.0, 1.0]), 1);
+        assert_eq!(s.objects[i].loc, [1.0, 1.0, 1.0]);
+        let after = s.objects[i].world_bounds().unwrap();
+        assert!(approx(before.0, after.0) && approx(before.1, after.1), "{before:?} {after:?}");
     }
 }

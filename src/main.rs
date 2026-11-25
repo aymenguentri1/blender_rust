@@ -965,6 +965,24 @@ impl ApplicationHandler for App {
                             geometry = count > 1 && self.scene.set_array(count - 1) > 0;
                         }
                         KeyCode::KeyW if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_solidify() > 0,
+                        KeyCode::KeyB if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_bevel() > 0,
+                        /* `mesh.subdivide` (one cut, no smoothing) and `mesh.separate` by loose parts (P). */
+                        KeyCode::KeyD if ctrl_k && alt_k && !shift_k => geometry = self.scene.subdivide_simple() > 0,
+                        KeyCode::KeyP if plain => geometry = self.scene.separate_loose() > 0,
+                        /* The Shift + S snap pie of Blender, as one chord per entry: Shift + S is Cursor to Selected,
+                         * Ctrl + Shift + S Selection to Cursor, Shift + Alt + S Cursor to World Origin and
+                         * Shift + Alt + C Origin to 3D Cursor. */
+                        KeyCode::KeyS if shift_k && !ctrl_k && !alt_k => {
+                            if let Some(p) = self.scene.cursor_target() {
+                                self.cursor3d = p;
+                            }
+                        }
+                        KeyCode::KeyS if shift_k && ctrl_k && !alt_k => geometry = self.scene.selection_to_cursor(self.cursor3d) > 0,
+                        KeyCode::KeyS if shift_k && alt_k && !ctrl_k => {
+                            self.cursor3d = [0.0; 3];
+                            self.cursor3d_quat = [1.0, 0.0, 0.0, 0.0];
+                        }
+                        KeyCode::KeyC if shift_k && alt_k && !ctrl_k => geometry = self.scene.origin_to_point(self.cursor3d) > 0,
                         /* Object > Join, Apply > All Transforms, Convert to Mesh (applies the modifiers), Set Origin >
                          * Origin to Geometry (the Shift + Ctrl + Alt + C pie of Blender). */
                         KeyCode::KeyJ if ctrl_k && !shift_k && !alt_k => geometry = self.scene.join_selected() > 0,
