@@ -43,6 +43,9 @@ pub enum Modifier {
     Remesh { voxel: f32 },
     /// Nearest Surface Point wrap onto the object with id `target`, keeping `offset` metres away.
     Shrinkwrap { target: Option<u32>, offset: f32 },
+    /// Reveals the faces over `length` frames from frame `start` (taken apart again with `reverse`), in random
+    /// order for the `seed` when `randomize`.
+    Build { start: f32, length: f32, reverse: bool, randomize: bool, seed: u32 },
 }
 
 /// The offsets the Array key cycles through: a label, the relative offset (a factor of the bounds size) and the
@@ -63,9 +66,18 @@ pub fn array_preset(relative: V3, constant: V3) -> Option<usize> {
 
 /// What a modifier needs from the rest of the scene: the target meshes, already in the space of the object
 /// that owns the stack (built by `Scene`).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct EvalCtx {
     pub targets: std::collections::HashMap<u32, Mesh>,
+    /// `Scene::r.cfra`, for the modifiers that depend on time (Build).
+    pub frame: f32,
+}
+
+impl Default for EvalCtx {
+    /// No targets, at the startup frame 1.
+    fn default() -> EvalCtx {
+        EvalCtx { targets: Default::default(), frame: 1.0 }
+    }
 }
 
 impl Modifier {
@@ -138,6 +150,11 @@ impl Modifier {
         Modifier::Wave { height: 0.1, width: 1.5, speed: 0.25, time: 0.0 }
     }
 
+    /// Defaults of `DNA_modifier_defaults.h`: starts at frame 1 and takes 100 frames, in mesh order, seed 0.
+    pub fn build() -> Modifier {
+        Modifier::Build { start: 1.0, length: 100.0, reverse: false, randomize: false, seed: 0 }
+    }
+
     pub fn shrinkwrap() -> Modifier {
         Modifier::Shrinkwrap { target: None, offset: 0.0 }
     }
@@ -172,6 +189,7 @@ impl Modifier {
             Modifier::weld(),
             Modifier::screw(),
             Modifier::remesh(),
+            Modifier::build(),
             Modifier::shrinkwrap(),
         ]
     }
@@ -201,6 +219,7 @@ impl Modifier {
             Modifier::LaplacianSmooth { .. } => "Laplacian Smooth",
             Modifier::Remesh { .. } => "Remesh",
             Modifier::Shrinkwrap { .. } => "Shrinkwrap",
+            Modifier::Build { .. } => "Build",
         }
     }
 
@@ -247,6 +266,16 @@ impl Modifier {
             Modifier::LaplacianSmooth { factor, repeat } => format!(" {} x{repeat}", num(*factor)),
             Modifier::Remesh { voxel } => format!(": Blocks {} m", num(*voxel)),
             Modifier::Shrinkwrap { offset, .. } => format!(" {} m", num(*offset)),
+            Modifier::Build { start, length, reverse, randomize, .. } => {
+                let mut d = format!(" {}-{}", num(*start), num(*start + *length));
+                if *reverse {
+                    d.push_str(" reversed");
+                }
+                if *randomize {
+                    d.push_str(" random");
+                }
+                d
+            }
         };
         format!("{}{}", self.label(), detail)
     }
@@ -257,7 +286,7 @@ impl Modifier {
     /// 0.05 m, Cast factor 0.1 (0 to 1), Decimate ratio 0.05 (0.01 to 1), Edge Split angle 5 degrees
     /// (0 to 180), Wireframe thickness 0.005 m, Weld distance 0.001 m, Screw angle 15 degrees (1 to 360),
     /// Wave height 0.05 m, Laplacian Smooth factor 0.1 (0 to 2), Remesh voxel size 0.01 m (min 0.01),
-    /// Shrinkwrap offset 0.01 m. Mirror and Triangulate have no value.
+    /// Shrinkwrap offset 0.01 m, Build duration 10 frames (min 1). Mirror and Triangulate have no value.
     pub fn adjust(&mut self, steps: i32) -> bool {
         let n = steps as f32;
         let round = |x: f32| (x * 10000.0).round() / 10000.0;
@@ -286,6 +315,7 @@ impl Modifier {
             Modifier::LaplacianSmooth { factor, .. } => *factor = round((*factor + 0.1 * n).clamp(0.0, 2.0)),
             Modifier::Remesh { voxel } => *voxel = round((*voxel + 0.01 * n).max(0.01)),
             Modifier::Shrinkwrap { offset, .. } => *offset = round((*offset + 0.01 * n).clamp(-10.0, 10.0)),
+            Modifier::Build { length, .. } => *length = round((*length + 10.0 * n).clamp(1.0, 1_000_000.0)),
         }
         *self != before
     }
@@ -333,6 +363,9 @@ impl Modifier {
             Modifier::Wave { height, width, speed, time } => mesh.waved(*height, *width, *speed, *time),
             Modifier::LaplacianSmooth { factor, repeat } => mesh.laplacian_smoothed(*factor, *repeat),
             Modifier::Remesh { voxel } => mesh.remeshed_blocks(*voxel),
+            Modifier::Build { start, length, reverse, randomize, seed } => {
+                mesh.built(ctx.frame, *start, *length, *reverse, *randomize, *seed)
+            }
         }
     }
 }
@@ -466,13 +499,33 @@ mod tests {
     }
 
     #[test]
+    fn build_follows_the_scene_frame() {
+        let cube = Mesh::cube(2.0);
+        let mut ctx = EvalCtx::default();
+        assert_eq!(ctx.frame, 1.0);
+        let b = [Modifier::build()];
+        assert!(evaluate_with(&cube, &b, &ctx).faces.is_empty(), "frame 1 is the start: nothing built yet");
+        ctx.frame = 51.0;
+        assert_eq!(evaluate_with(&cube, &b, &ctx).faces.len(), 3);
+        ctx.frame = 101.0;
+        assert_eq!(evaluate_with(&cube, &b, &ctx), cube);
+        assert_eq!(Modifier::build().summary(), "Build 1-101");
+        let r = Modifier::Build { start: 1.0, length: 50.0, reverse: true, randomize: true, seed: 2 };
+        assert_eq!(r.summary(), "Build 1-51 reversed random");
+        let mut m = Modifier::build();
+        assert!(m.adjust(1) && m.summary() == "Build 1-111");
+        assert!(m.adjust(-100) && m == Modifier::Build { start: 1.0, length: 1.0, reverse: false, randomize: false, seed: 0 });
+        assert!(!m.adjust(-1));
+    }
+
+    #[test]
     fn the_catalog_has_every_kind_once() {
         let c = Modifier::catalog();
-        assert_eq!(c.len(), 18);
+        assert_eq!(c.len(), 19);
         let mut names: Vec<&str> = c.iter().map(|m| m.label()).collect();
         names.sort();
         names.dedup();
-        assert_eq!(names.len(), 18);
+        assert_eq!(names.len(), 19);
         /* Every entry evaluates on a cube without panicking. */
         for m in &c {
             let _ = m.apply(&Mesh::cube(2.0));

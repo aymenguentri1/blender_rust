@@ -31,6 +31,7 @@ Blender has no keys for modifiers (they live in the properties editor), so these
 | Ctrl + Alt + K | Wave modifier: toggle (circular sine ripple along Z, 0.1 m high, width 1.5; needs a mesh with vertices to ripple, so subdivide first) |
 | Ctrl + Alt + L | Laplacian Smooth modifier: toggle (factor 0.5, 2 repeats, keeps the volume of a closed mesh) |
 | Ctrl + Alt + I | Remesh modifier, Blocks mode: toggle (0.1 m voxels, closed meshes only; the grid is capped at 64 cells across) |
+| Ctrl + Alt + A | Build modifier: toggle (reveals the faces from frame 1 over 100 frames, following the timeline: scrub, play or Alt + wheel; the same random order as Blender for a seed; `]` / `[` change the duration; a mesh shows nothing until its first face is due, Blender would build loose edges first) |
 | Alt + C | Convert to Mesh: bakes the modifiers and the subdivision level into the mesh |
 
 The modifier stack of the active object is listed in the info text at the top left of the 3D viewport, one
@@ -53,7 +54,7 @@ are required:
 
 | Control | Action |
 | --- | --- |
-| Add Modifier | Opens a list of all 18 modifier kinds; a click appends one (with its defaults) and closes the list. Shrinkwrap (Nearest Surface Point, offset 0 m) snaps the vertices onto another object's surface, uses the target's base mesh and follows it when it moves; it has no key chord because it needs a target |
+| Add Modifier | Opens a list of all 19 modifier kinds; a click appends one (with its defaults) and closes the list. Shrinkwrap (Nearest Surface Point, offset 0 m) snaps the vertices onto another object's surface, uses the target's base mesh and follows it when it moves; it has no key chord because it needs a target |
 | Modifier name | Makes it the active modifier (highlighted) |
 | `^` / `v` | Move it up / down in the stack |
 | `x` | Remove it |

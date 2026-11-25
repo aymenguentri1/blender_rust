@@ -208,6 +208,8 @@ pub struct Scene {
     redo: Vec<Snapshot>,
     /// Seed of the next Select Random (it counts up so that repeating the operator picks another set).
     select_seed: u32,
+    /// `Scene::r.cfra`, the current frame (the Build modifier depends on it); kept out of the undo steps.
+    frame: i32,
 }
 
 impl Default for Scene {
@@ -219,7 +221,7 @@ impl Default for Scene {
 impl Scene {
     /// The factory startup scene.
     pub fn startup() -> Scene {
-        let mut s = Scene { objects: Vec::new(), active: None, next_id: 0, undo: Vec::new(), redo: Vec::new(), select_seed: 0 };
+        let mut s = Scene { objects: Vec::new(), active: None, next_id: 0, undo: Vec::new(), redo: Vec::new(), select_seed: 0, frame: 1 };
         let deg = std::f32::consts::PI / 180.0;
         let camera = s.new_object("Camera", ObjectData::Camera);
         camera.loc = [7.358_891, -6.925_791, 4.958_309];
@@ -308,17 +310,21 @@ impl Scene {
     /// signature of everything that context depends on, so that moving a target rebuilds the object.
     fn eval_ctx(&self, i: usize) -> (modifiers::EvalCtx, u64) {
         use std::hash::{Hash, Hasher};
-        let mut ctx = modifiers::EvalCtx::default();
+        let mut ctx = modifiers::EvalCtx { frame: self.frame as f32, ..Default::default() };
         let owner = &self.objects[i];
+        let timed = owner.modifiers.iter().any(|m| matches!(m, Modifier::Build { .. }));
         let targets: Vec<u32> = owner
             .modifiers
             .iter()
             .filter_map(|m| if let Modifier::Shrinkwrap { target: Some(t), .. } = m { Some(*t) } else { None })
             .collect();
-        if targets.is_empty() {
+        if targets.is_empty() && !timed {
             return (ctx, 0);
         }
         let mut h = std::collections::hash_map::DefaultHasher::new();
+        if timed {
+            self.frame.hash(&mut h);
+        }
         let to_local = crate::view3d::invert_m4_m4(&owner.world_matrix());
         let bits = |m: &Mat4| m.iter().flatten().map(|f| f.to_bits()).collect::<Vec<u32>>();
         bits(&to_local).hash(&mut h);
@@ -1025,6 +1031,29 @@ impl Scene {
                     stack.remove(i);
                 }
                 None => stack.push(Modifier::laplacian_smooth()),
+            }
+            true
+        })
+    }
+
+    /// Sets the current frame; true when an object with a Build modifier now has to be evaluated again (the
+    /// cached result is dropped by the signature in `update_eval()`).
+    pub fn set_frame(&mut self, frame: i32) -> bool {
+        if self.frame == frame {
+            return false;
+        }
+        self.frame = frame;
+        self.objects.iter().any(|o| o.modifiers.iter().any(|m| matches!(m, Modifier::Build { .. })))
+    }
+
+    /// Adds a Build modifier to the selected meshes, or removes the one they have.
+    pub fn toggle_build(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            match stack.iter().position(|m| matches!(m, Modifier::Build { .. })) {
+                Some(i) => {
+                    stack.remove(i);
+                }
+                None => stack.push(Modifier::build()),
             }
             true
         })
@@ -2410,6 +2439,27 @@ mod tests {
         assert_eq!(s.toggle_remesh(), 1);
         assert_eq!(s.toggle_laplacian_smooth(), 1);
         assert!(s.active_object().unwrap().modifiers.is_empty());
+    }
+
+    #[test]
+    fn build_reveals_the_mesh_as_the_frame_advances() {
+        let mut s = Scene::startup();
+        assert_eq!(s.toggle_build(), 1);
+        s.update_eval();
+        let faces = |s: &Scene| s.active_object().unwrap().evaluated().unwrap().faces.len();
+        assert_eq!(faces(&s), 0);
+        assert!(s.set_frame(51));
+        s.update_eval();
+        assert_eq!(faces(&s), 3);
+        assert!(!s.set_frame(51), "same frame: nothing to redo");
+        assert!(s.set_frame(101));
+        s.update_eval();
+        assert_eq!(faces(&s), 6);
+        /* Convert to Mesh bakes the current frame. */
+        assert!(s.set_frame(51));
+        assert_eq!(s.apply_modifiers(), 1);
+        assert_eq!(s.active_object().unwrap().mesh().unwrap().faces.len(), 3);
+        assert_eq!(s.toggle_build(), 1);
     }
 
     #[test]
