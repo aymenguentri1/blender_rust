@@ -66,6 +66,12 @@ pub const SPACE_VIEW3D_GRID_AXIS_BRIGHTNESS: f32 = 0.46;
 /// `.space_view3d.wire` (userdef_default_theme.c:374), `TH_WIRE`: unselected object wire colour.
 pub const SPACE_VIEW3D_WIRE: Rgba = Rgba::hex(0x000000ff);
 
+/// `.space_view3d.select` (userdef_default_theme.c:376), `TH_SELECT`: selected object outline and wire colour.
+pub const SPACE_VIEW3D_SELECT: Rgba = Rgba::hex(0xed5700ff);
+
+/// `.space_view3d.active` (userdef_default_theme.c:381), `TH_ACTIVE`: active object outline and wire colour.
+pub const SPACE_VIEW3D_ACTIVE: Rgba = Rgba::hex(0xffa028ff);
+
 /// `.tui.xaxis`, `.tui.yaxis`, `.tui.zaxis` (userdef_default_theme.c:265-267): `TH_AXIS_X/Y/Z`.
 pub const TUI_XAXIS: Rgba = Rgba::hex(0xff3352ff);
 pub const TUI_YAXIS: Rgba = Rgba::hex(0x8bdc00ff);
@@ -102,6 +108,9 @@ pub const SPACE_OUTLINER_ROW_ALTERNATE: Rgba = Rgba::hex(0xffffff04);
 pub const SPACE_OUTLINER_TEXT: Rgba = Rgba::hex(0xc3c3c3ff);
 pub const SPACE_OUTLINER_TEXT_HI: Rgba = Rgba::hex(0xffffffff);
 pub const SPACE_OUTLINER_ACTIVE_OBJECT: Rgba = Rgba::hex(0xffaf29ff);
+/// `.space_outliner.selected_object` (userdef_default_theme.c:616), `TH_SELECTED_OBJECT`: a selected object that
+/// is not the active one.
+pub const SPACE_OUTLINER_SELECTED_OBJECT: Rgba = Rgba::hex(0xe96a00ff);
 pub const SPACE_PROPERTIES_BACK: Rgba = Rgba::hex(0x30303000);
 pub const SPACE_ACTION_BACK: Rgba = Rgba::hex(0x30303000);
 

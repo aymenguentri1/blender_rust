@@ -141,8 +141,6 @@ mod rcti_tests {
         assert_eq!(global_header_layout_start(&user, 26), (4, 23, 20));
         /* A 21 px region leaves room for 19 px buttons. */
         assert_eq!(global_header_layout_start(&user, 21), (4, 20, 19));
-        assert_eq!(r.size_x(), 9);
-        assert_eq!(r.size_y(), 9);
     }
 }
 

@@ -55,6 +55,7 @@ pub fn draw_row_stripes(buf: &mut [u32], width: usize, height: usize, user: &Use
 /// name (`TreeElement::name`) and the text colour that `outliner_draw_tree_element()` picks:
 /// `TH_TEXT`, `TH_TEXT_HI` for the active layer collection (`tree_element_type_active_state_get()`) and
 /// `TH_ACTIVE_OBJECT` for the selected, active object. Collections and objects are sorted by name.
+#[allow(dead_code)]
 const TREE: [(i32, &str, theme::Rgba); 6] = [
     (0, "Scene Collection", theme::SPACE_OUTLINER_TEXT),
     (1, "Collection", theme::SPACE_OUTLINER_TEXT_HI),
@@ -70,13 +71,57 @@ const TREE: [(i32, &str, theme::Rgba); 6] = [
 /// slot (`UI_UNIT_X`) and the icon slot (`UI_UNIT_X + 4 * ufac`), and the text baseline is `starty + 5 * ufac`
 /// with `ufac = UI_UNIT_X / 20`. The icons that fill those slots are not drawn, and a row is skipped when it
 /// is not entirely inside the region (Blender clips with the region scissor instead).
+#[allow(dead_code)]
 pub fn draw_tree_names(buf: &mut [u32], width: usize, height: usize, user: &UserDef, region: Rcti) {
+    let rows: Vec<(i32, String, theme::Rgba)> = TREE.iter().map(|&(l, n, c)| (l, n.to_string(), c)).collect();
+    draw_tree_rows(buf, width, height, user, region, &rows);
+}
+
+/// The rows of `scene` with the colours `outliner_draw_tree_element()` picks: `TH_TEXT_HI` for the active layer
+/// collection, `TH_ACTIVE_OBJECT` for the selected active object, `TH_SELECTED_OBJECT` for the other selected
+/// ones and `TH_TEXT` for the rest.
+pub fn scene_rows(scene: &crate::scene::Scene) -> Vec<(i32, String, theme::Rgba)> {
+    use crate::scene::RowKind;
+    scene
+        .outliner_rows()
+        .into_iter()
+        .map(|r| {
+            let color = match r.kind {
+                RowKind::ActiveCollection => theme::SPACE_OUTLINER_TEXT_HI,
+                RowKind::Object(id) => match scene.index_of(id).map(|i| &scene.objects[i]) {
+                    Some(o) if o.selected && !o.hidden && scene.active == Some(id) => theme::SPACE_OUTLINER_ACTIVE_OBJECT,
+                    Some(o) if o.selected && !o.hidden => theme::SPACE_OUTLINER_SELECTED_OBJECT,
+                    _ => theme::SPACE_OUTLINER_TEXT,
+                },
+                _ => theme::SPACE_OUTLINER_TEXT,
+            };
+            (r.level, r.name, color)
+        })
+        .collect()
+}
+
+/// The index of the tree row under region y `y` (window coordinates, y up) of the window `region`, as
+/// `outliner_find_element()` would find it: row `i` spans view y `starty .. starty + UI_UNIT_Y`.
+pub fn row_at(user: &UserDef, region: Rcti, y: i32) -> Option<usize> {
+    let rh = region.size_y() + 1;
+    let unit = user.widget_unit;
+    let view_y = y - (region.ymin + rh);
+    let below = -view_y - OL_Y_OFFSET;
+    if below <= 0 {
+        return None;
+    }
+    let i = (below - 1) / unit;
+    Some(i as usize)
+}
+
+pub fn draw_tree_rows(buf: &mut [u32], width: usize, height: usize, user: &UserDef, region: Rcti, rows: &[(i32, String, theme::Rgba)]) {
     let rh = region.size_y() + 1;
     let unit = user.widget_unit;
     let ufac = unit as f32 / 20.0;
     let offsx = (2.0 * unit as f32 + 4.0 * ufac) as i32;
 
-    for (i, &(level, name, color)) in TREE.iter().enumerate() {
+    for (i, (level, name, color)) in rows.iter().enumerate() {
+        let (level, color) = (*level, *color);
         let starty = -OL_Y_OFFSET - unit * (i as i32 + 1);
         if starty < -rh {
             break;
@@ -85,6 +130,36 @@ pub fn draw_tree_names(buf: &mut [u32], width: usize, height: usize, user: &User
         /* View2D y of the baseline to window y: the region top is view y 0. */
         let baseline = region.ymin + rh + (starty as f32 + 5.0 * ufac).round() as i32;
         font::draw_text(buf, width, height, user, x, baseline, name, color);
+    }
+}
+
+#[cfg(test)]
+mod row_tests {
+    use super::*;
+
+    /* 1x, 200x163 region (rh = 163, unit 20): row 0 spans view y -22..-2, i.e. region y 141..=160. */
+    #[test]
+    fn rows_are_found_by_height() {
+        let user = UserDef::from_window_scale(1.0);
+        let region = Rcti { xmin: 0, xmax: 199, ymin: 0, ymax: 162 };
+        assert_eq!(row_at(&user, region, 162), None);
+        assert_eq!(row_at(&user, region, 160), Some(0));
+        assert_eq!(row_at(&user, region, 141), Some(0));
+        assert_eq!(row_at(&user, region, 140), Some(1));
+        assert_eq!(row_at(&user, region, 100), Some(3));
+    }
+
+    #[test]
+    fn scene_rows_colour_the_selection() {
+        use crate::scene::{Scene, SelectAction};
+        let mut s = Scene::startup();
+        let rows = scene_rows(&s);
+        assert_eq!(rows[3].2, theme::SPACE_OUTLINER_ACTIVE_OBJECT);
+        assert_eq!(rows[1].2, theme::SPACE_OUTLINER_TEXT_HI);
+        s.select_all(SelectAction::Select);
+        let rows = scene_rows(&s);
+        assert_eq!(rows[2].2, theme::SPACE_OUTLINER_SELECTED_OBJECT);
+        assert_eq!(rows[3].2, theme::SPACE_OUTLINER_ACTIVE_OBJECT);
     }
 }
 

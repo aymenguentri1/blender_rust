@@ -49,6 +49,13 @@ mod overlay_wireframe;
 mod workbench;
 #[allow(dead_code)]
 mod taa;
+#[allow(dead_code)]
+mod mesh;
+#[allow(dead_code)]
+mod scene;
+#[allow(dead_code)]
+mod transform;
+mod overlay_outline;
 
 use std::{num::NonZeroU32, sync::Arc};
 
@@ -185,6 +192,30 @@ struct App {
     playing: Option<PlayState>,
     /// The cursor is over the header region of an editor area (changes the input status of the status bar).
     status_header: bool,
+    /// The objects of the scene (the startup scene until something is added or deleted).
+    scene: scene::Scene,
+    /// Object id buffer of the main region from the last redraw (`Object::id + 1`, 0 where nothing is drawn).
+    scene_ids: Vec<u32>,
+    /// The running modal transform (G / R / S).
+    xform: Option<transform::Transform>,
+    /// The next primitive of Shift + A (cycles through `Primitive::ALL`).
+    add_next: usize,
+}
+
+/// After a change of geometry, visibility or transforms: builds the modifier results and restarts the TAA
+/// accumulation (selection changes only need a redraw).
+fn scene_changed(scene: &mut scene::Scene, taa: &mut taa::TaaState) {
+    scene.update_eval();
+    *taa = taa::TaaState::default();
+}
+
+/// Sets the window title to the modal operator's status text (the viewport header text of Blender), or back to
+/// the default one when there is none.
+fn set_status_title(window: &Window, text: Option<&str>) {
+    match text {
+        Some(t) => window.set_title(&format!("{t} - {}", window_title())),
+        None => window.set_title(&window_title()),
+    }
 }
 
 impl ApplicationHandler for App {
@@ -270,6 +301,16 @@ impl ApplicationHandler for App {
                 let x = position.x.floor() as i32;
                 let y = height - 1 - position.y.floor() as i32;
                 self.cursor = [x, y];
+                /* Modal object transform (G / R / S): the cursor movement drives the transform. */
+                if let Some(xf) = self.xform.as_mut() {
+                    let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
+                    xf.snap = self.modifiers.control_key();
+                    self.rv3d.update(&self.v3d, rw, rh);
+                    let text = xf.apply(&mut self.scene, [x - layout.main.xmin, y - layout.main.ymin], &self.rv3d, rw, rh);
+                    scene_changed(&mut self.scene, &mut self.taa);
+                    set_status_title(&gfx.window, Some(&text));
+                    gfx.window.request_redraw();
+                }
                 /* Time scrub drag: the frame under the cursor in the timeline's window region. */
                 if self.scrub_drag {
                     if let Some(window) = self.user.as_ref().and_then(|_| outliner_draw::window_rect(self.user.as_ref().unwrap(), layout.timeline)) {
@@ -446,6 +487,14 @@ impl ApplicationHandler for App {
              * on by default but there is no geometry to hit yet, so only the view plane fallback of
              * `ED_view3d_cursor3d_position()` is done, and the cursor orientation is not modelled. */
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => {
+                /* `Transform Modal Map` CANCEL on RIGHTMOUSE: the objects go back to where they were. */
+                if let Some(xf) = self.xform.take() {
+                    xf.cancel(&mut self.scene);
+                    scene_changed(&mut self.scene, &mut self.taa);
+                    set_status_title(&gfx.window, None);
+                    gfx.window.request_redraw();
+                    return;
+                }
                 /* `change_frame` modal CANCEL: the frame goes back to where the scrub started. */
                 if self.scrub_drag {
                     self.scrub_drag = false;
@@ -499,6 +548,12 @@ impl ApplicationHandler for App {
             }
             /* `Transform Modal Map`: CONFIRM on LEFTMOUSE press (any modifier) while the cursor drag runs. */
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
+                /* `Transform Modal Map` CONFIRM on LEFTMOUSE: the transform stays as it is. */
+                if self.xform.take().is_some() {
+                    set_status_title(&gfx.window, None);
+                    gfx.window.request_redraw();
+                    return;
+                }
                 let on_wire_button = match (self.layout.as_ref(), self.user.as_ref()) {
                     (Some(layout), Some(user)) => area::view3d_header_rect(user, layout.main)
                         .is_some_and(|header| ui_layout::wire_button_rect(user, header).isect_pt_v(self.cursor)),
@@ -548,6 +603,31 @@ impl ApplicationHandler for App {
                 }
                 if self.cursor_drag.as_ref().is_some_and(|d| d.active) {
                     self.cursor_drag = None;
+                    return;
+                }
+                /* `view3d.select` on LEFTMOUSE CLICK in the viewport (Shift extends and toggles): the nearest
+                 * object under the cursor, or nothing. In the outliner (`outliner.item_activate`) the clicked
+                 * object row. */
+                let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
+                let extend = self.modifiers.shift_key();
+                if area::in_view3d_main(user, layout.main, self.cursor) {
+                    let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
+                    self.rv3d.update(&self.v3d, rw, rh);
+                    let mval = [self.cursor[0] - layout.main.xmin, self.cursor[1] - layout.main.ymin];
+                    let hit = self.scene.pick(&self.rv3d, rw, rh, mval);
+                    self.scene.select_pick(hit, extend);
+                    gfx.window.request_redraw();
+                } else if let Some(window) = outliner_draw::window_rect(user, layout.outliner).filter(|w| w.isect_pt_v(self.cursor)) {
+                    if let Some(row) = outliner_draw::row_at(user, window, self.cursor[1]) {
+                        let rows = self.scene.outliner_rows();
+                        if let Some(scene::RowKind::Object(id)) = rows.get(row).map(|r| r.kind.clone()) {
+                            let visible = self.scene.index_of(id).is_some_and(|i| !self.scene.objects[i].hidden);
+                            if visible {
+                                self.scene.select_pick(Some(id), extend);
+                                gfx.window.request_redraw();
+                            }
+                        }
+                    }
                 }
             }
             /* `WM_gesture_box_modal()`: releasing LEFTMOUSE confirms the border and runs `view3d.zoom_border`. */
@@ -696,6 +776,160 @@ impl ApplicationHandler for App {
                 }
                 let PhysicalKey::Code(code) = key_event.physical_key else { return };
                 let (shift_k, ctrl_k, alt_k) = (self.modifiers.shift_key(), self.modifiers.control_key(), self.modifiers.alt_key());
+
+                /* `Transform Modal Map` while a G / R / S transform runs: CONFIRM on RET / NUMPAD_ENTER / SPACE,
+                 * CANCEL on ESC, the X / Y / Z axis constraints (Shift for the plane), numeric input. */
+                if self.xform.is_some() {
+                    let Some(layout) = self.layout.as_ref() else { return };
+                    let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
+                    let mval = [self.cursor[0] - layout.main.xmin, self.cursor[1] - layout.main.ymin];
+                    match code {
+                        KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => {
+                            self.xform = None;
+                            set_status_title(&gfx.window, None);
+                            gfx.window.request_redraw();
+                            return;
+                        }
+                        KeyCode::Escape => {
+                            if let Some(xf) = self.xform.take() {
+                                xf.cancel(&mut self.scene);
+                            }
+                            scene_changed(&mut self.scene, &mut self.taa);
+                            set_status_title(&gfx.window, None);
+                            gfx.window.request_redraw();
+                            return;
+                        }
+                        _ => {}
+                    }
+                    if let Some(xf) = self.xform.as_mut() {
+                        match code {
+                            KeyCode::KeyX => xf.set_axis(transform::Axis::X, shift_k),
+                            KeyCode::KeyY => xf.set_axis(transform::Axis::Y, shift_k),
+                            KeyCode::KeyZ => xf.set_axis(transform::Axis::Z, shift_k),
+                            KeyCode::Backspace => {
+                                xf.numeric_backspace();
+                            }
+                            _ => {
+                                if let Some(text) = key_event.text.as_ref() {
+                                    for c in text.chars() {
+                                        xf.numeric_key(c);
+                                    }
+                                }
+                            }
+                        }
+                        xf.snap = ctrl_k;
+                        self.rv3d.update(&self.v3d, rw, rh);
+                        let text = xf.apply(&mut self.scene, mval, &self.rv3d, rw, rh);
+                        scene_changed(&mut self.scene, &mut self.taa);
+                        set_status_title(&gfx.window, Some(&text));
+                        gfx.window.request_redraw();
+                    }
+                    return;
+                }
+
+                /* Object operators of the "Object Mode" keymap, over the viewport: G / R / S grab, rotate, scale;
+                 * Alt + G / R / S clear the transform; Shift + D duplicate (then grab); X / Delete delete; H hide,
+                 * Alt + H reveal; A / Alt + A / Ctrl + I select all / none / invert; Ctrl + Z undo, Ctrl + Shift + Z
+                 * redo; Shift + A adds the next primitive at the 3D cursor; Ctrl + 0..5 the Subdivision Surface
+                 * level; NUMPAD_PERIOD frames the selection. Ctrl + Alt + S / F set smooth / flat shading (the
+                 * menu entries of Object > Shade Smooth / Flat have no key in Blender). */
+                let in_main = match (self.layout.as_ref(), self.user.as_ref()) {
+                    (Some(l), Some(u)) => area::in_view3d_main(u, l.main, self.cursor),
+                    _ => false,
+                };
+                if in_main && !key_event.repeat {
+                    let layout = self.layout.as_ref().unwrap();
+                    let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
+                    let mval = [self.cursor[0] - layout.main.xmin, self.cursor[1] - layout.main.ymin];
+                    let plain = !shift_k && !ctrl_k && !alt_k;
+                    let mut geometry = false;
+                    let mut handled = true;
+                    match code {
+                        KeyCode::KeyG | KeyCode::KeyR | KeyCode::KeyS if plain => {
+                            let (mode, name) = match code {
+                                KeyCode::KeyG => (transform::Mode::Translate, "Grab"),
+                                KeyCode::KeyR => (transform::Mode::Rotate, "Rotate"),
+                                _ => (transform::Mode::Scale, "Scale"),
+                            };
+                            self.rv3d.update(&self.v3d, rw, rh);
+                            self.xform = transform::Transform::begin(mode, &mut self.scene, mval, &self.rv3d, true);
+                            if self.xform.is_some() {
+                                set_status_title(&gfx.window, Some(name));
+                            }
+                        }
+                        KeyCode::KeyG | KeyCode::KeyR | KeyCode::KeyS if alt_k && !shift_k && !ctrl_k => {
+                            let kind = match code {
+                                KeyCode::KeyG => scene::ClearKind::Location,
+                                KeyCode::KeyR => scene::ClearKind::Rotation,
+                                _ => scene::ClearKind::Scale,
+                            };
+                            geometry = self.scene.clear_transform(kind) > 0;
+                        }
+                        KeyCode::KeyD if shift_k && !ctrl_k && !alt_k => {
+                            if self.scene.duplicate_selected() > 0 {
+                                self.rv3d.update(&self.v3d, rw, rh);
+                                /* The duplicate and the grab are one undo step. */
+                                self.xform = transform::Transform::begin(transform::Mode::Translate, &mut self.scene, mval, &self.rv3d, false);
+                                set_status_title(&gfx.window, Some("Duplicate"));
+                                geometry = true;
+                            }
+                        }
+                        KeyCode::KeyX | KeyCode::Delete if plain => geometry = self.scene.delete_selected() > 0,
+                        KeyCode::KeyH if plain => geometry = self.scene.hide_selected() > 0,
+                        KeyCode::KeyH if alt_k && !shift_k && !ctrl_k => geometry = self.scene.reveal_all() > 0,
+                        KeyCode::KeyA if plain => {
+                            self.scene.select_all(scene::SelectAction::Select);
+                        }
+                        KeyCode::KeyA if alt_k && !shift_k && !ctrl_k => {
+                            self.scene.select_all(scene::SelectAction::Deselect);
+                        }
+                        KeyCode::KeyI if ctrl_k && !shift_k && !alt_k => {
+                            self.scene.select_all(scene::SelectAction::Invert);
+                        }
+                        KeyCode::KeyZ if ctrl_k && !alt_k => {
+                            geometry = if shift_k { self.scene.redo() } else { self.scene.undo() };
+                        }
+                        KeyCode::KeyA if shift_k && !ctrl_k && !alt_k => {
+                            let prim = mesh::Primitive::ALL[self.add_next % mesh::Primitive::ALL.len()];
+                            self.add_next += 1;
+                            self.scene.add_primitive(prim, self.cursor3d);
+                            geometry = true;
+                        }
+                        KeyCode::Digit0 | KeyCode::Digit1 | KeyCode::Digit2 | KeyCode::Digit3 | KeyCode::Digit4 | KeyCode::Digit5
+                            if ctrl_k && !shift_k && !alt_k =>
+                        {
+                            let level = match code {
+                                KeyCode::Digit1 => 1,
+                                KeyCode::Digit2 => 2,
+                                KeyCode::Digit3 => 3,
+                                KeyCode::Digit4 => 4,
+                                KeyCode::Digit5 => 5,
+                                _ => 0,
+                            };
+                            geometry = self.scene.set_subsurf(level) > 0;
+                        }
+                        KeyCode::KeyS if ctrl_k && alt_k && !shift_k => geometry = self.scene.set_smooth(true) > 0,
+                        KeyCode::KeyF if ctrl_k && alt_k && !shift_k => geometry = self.scene.set_smooth(false) > 0,
+                        KeyCode::NumpadDecimal if plain => {
+                            if let Some(bounds) = self.scene.bounds(true) {
+                                smooth_finish(&mut self.rv3d, &mut self.smooth);
+                                let smooth_src = self.rv3d.state_backup();
+                                let (min, max) = self.rv3d.visible_bounds_of(Some(bounds));
+                                self.rv3d.view_from_minmax(&self.v3d, rw, rh, min, max);
+                                self.smooth = self.rv3d.smooth_view_begin(smooth_src, view3d::SMOOTH_VIEWTX).map(|sms| (sms, std::time::Instant::now()));
+                            }
+                        }
+                        _ => handled = false,
+                    }
+                    if handled {
+                        if geometry {
+                            scene_changed(&mut self.scene, &mut self.taa);
+                        }
+                        gfx.window.request_redraw();
+                        return;
+                    }
+                }
+
                 /* `screen.animation_cancel` (restores the start frame) and the scrub CANCEL: ESC. */
                 if code == KeyCode::Escape {
                     let mut handled = false;
@@ -762,7 +996,7 @@ impl ApplicationHandler for App {
                         let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
                         smooth_finish(&mut self.rv3d, &mut self.smooth);
                         let smooth_src = self.rv3d.state_backup();
-                        let (bounds_min, bounds_max) = self.rv3d.visible_bounds();
+                        let (bounds_min, bounds_max) = self.rv3d.visible_bounds_of(self.scene.bounds(false));
                         let min = bounds_min.map(|v| v.min(0.0));
                         let max = bounds_max.map(|v| v.max(0.0));
                         self.rv3d.view_from_minmax(&self.v3d, rw, rh, min, max);
@@ -795,7 +1029,7 @@ impl ApplicationHandler for App {
                         let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
                         smooth_finish(&mut self.rv3d, &mut self.smooth);
                         let smooth_src = self.rv3d.state_backup();
-                        let (min, max) = self.rv3d.visible_bounds();
+                        let (min, max) = self.rv3d.visible_bounds_of(self.scene.bounds(false));
                         self.rv3d.view_from_minmax(&self.v3d, rw, rh, min, max);
                         self.smooth = self.rv3d.smooth_view_begin(smooth_src, view3d::SMOOTH_VIEWTX).map(|sms| (sms, std::time::Instant::now()));
                         gfx.window.request_redraw();
@@ -1056,7 +1290,7 @@ impl ApplicationHandler for App {
                     if let Some(user) = self.user.as_ref() {
                         if let Some(window) = outliner_draw::window_rect(user, layout.outliner) {
                             outliner_draw::draw_row_stripes(&mut buf, w, h, user, window);
-                            outliner_draw::draw_tree_names(&mut buf, w, h, user, window);
+                            outliner_draw::draw_tree_rows(&mut buf, w, h, user, window, &outliner_draw::scene_rows(&self.scene));
                         }
                     }
                     /* `ED_time_scrub_draw()` background of the timeline (`draw_background()`, `TH_TIME_SCRUB_BACKGROUND`).
@@ -1093,9 +1327,11 @@ impl ApplicationHandler for App {
                             let jittered = self.rv3d.taa_jittered(offset, rw, rh);
                             let mut tmp = vec![theme::SPACE_VIEW3D_BACK.to_xrgb(); (rw * rh) as usize];
                             let tmp_region = area::Rcti { xmin: 0, xmax: rw - 1, ymin: 0, ymax: rh - 1 };
-                            let depth = workbench::draw_cube(&mut tmp, rw as usize, rh as usize, tmp_region, &jittered, self.xray);
+                            self.scene.update_eval();
+                            let render = workbench::draw_scene(&mut tmp, rw as usize, rh as usize, tmp_region, &jittered, self.xray, &self.scene);
                             if sample == 0 {
-                                self.scene_depth = depth;
+                                self.scene_depth = render.depth;
+                                self.scene_ids = render.ids;
                             }
                             self.taa.accumulate(&tmp, rw as usize, rh as usize, offset);
                             if self.taa.sample < taa::SAMPLES_LEN {
@@ -1104,10 +1340,14 @@ impl ApplicationHandler for App {
                         }
                         if self.wire {
                             if let Some(user) = self.user.as_ref() {
-                                overlay_wireframe::draw_cube_wire(&mut buf, w, h, layout.main, user, &self.rv3d);
+                                overlay_wireframe::draw_scene_wire(&mut buf, w, h, layout.main, user, &self.rv3d, &self.scene);
                             }
                         } else {
                             self.taa.resolve(&mut buf, w, h, layout.main);
+                            /* Overlay outline of the selected objects (hidden with the overlays). */
+                            if let Some(user) = self.user.as_ref().filter(|_| !self.overlays_hidden) {
+                                overlay_outline::draw_outlines(&mut buf, w, h, layout.main, user, &self.scene, &self.scene_ids);
+                            }
                         }
                         if !self.overlays_hidden {
                             overlay_grid_draw::draw_grid(&mut buf, w, h, layout.main, &self.v3d, &self.rv3d, &self.scene_depth);
