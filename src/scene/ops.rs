@@ -10,6 +10,8 @@
 //!  - `OBJECT_OT_origin_set` with `type = ORIGIN_CENTER_OF_VOLUME` is joined by the bounding box center
 //!  - `OBJECT_OT_parent_clear` with `type = CLEAR_INVERSE`
 //!  - `OBJECT_OT_select_mirror` (`BLI_string_flip_side_name()`: `.L` / `.R`, `_l` / `_r`, `Left` / `Right`, prefixes too)
+//!  - `OBJECT_OT_select_linked` (Object Data: every object whose mesh is identical to the active one's, since meshes
+//!    are not shared between objects here; Modifiers: the same modifier stack, the stand-in for linked modifiers)
 //!  - the statistics overlay (`Scene::statistics`): objects, vertices, faces and triangles
 //!
 //! Deviations: Randomize Transform uses its own hash instead of Blender's random number generator, so a given seed
@@ -383,6 +385,39 @@ impl Scene {
         }
         self.refresh_parents();
         targets.len()
+    }
+
+    /// `OBJECT_OT_select_linked` (Object Data): selects every visible object with a mesh equal to the active
+    /// object's. Returns how many objects were newly selected.
+    pub fn select_linked_data(&mut self) -> usize {
+        let Some(data) = self.active_object().and_then(|o| o.mesh().cloned()) else { return 0 };
+        let mut n = 0;
+        for o in self.objects.iter_mut().filter(|o| !o.hidden && !o.selected) {
+            if o.mesh() == Some(&data) {
+                o.selected = true;
+                n += 1;
+            }
+        }
+        n
+    }
+
+    /// `OBJECT_OT_select_linked` (Modifiers): selects every visible mesh object whose modifier stack and
+    /// Subdivision Surface level equal the active object's (which must have some). Returns how many were newly selected.
+    pub fn select_linked_modifiers(&mut self) -> usize {
+        let Some((stack, level)) = self.active_object().filter(|o| o.mesh().is_some()).map(|o| (o.modifiers.clone(), o.subsurf)) else {
+            return 0;
+        };
+        if stack.is_empty() && level == 0 {
+            return 0;
+        }
+        let mut n = 0;
+        for o in self.objects.iter_mut().filter(|o| !o.hidden && !o.selected && o.mesh().is_some()) {
+            if o.modifiers == stack && o.subsurf == level {
+                o.selected = true;
+                n += 1;
+            }
+        }
+        n
     }
 
     /// `OBJECT_OT_select_mirror`: selects the objects whose names are the left / right flip of a selected one's.
@@ -800,6 +835,60 @@ mod tests {
         assert!(matches!(s.active_object().unwrap().modifiers[0], Modifier::Array { merge, .. } if merge > 0.0));
         assert_eq!(s.toggle_array_merge(), 1);
         assert!(matches!(s.active_object().unwrap().modifiers[0], Modifier::Array { merge, .. } if merge == 0.0));
+    }
+
+    fn deselect_all_but_active(s: &mut Scene) {
+        let a = s.active;
+        for o in &mut s.objects {
+            o.selected = Some(o.id) == a;
+        }
+    }
+
+    #[test]
+    fn select_linked_data_picks_identical_meshes() {
+        let mut s = cubes();
+        deselect_all_but_active(&mut s);
+        /* The three cubes share a mesh (scale and location do not matter); a changed mesh does not match. */
+        let i = s.objects.iter().position(|o| o.name == "Cube.002").unwrap();
+        s.objects[i].data = ObjectData::Mesh(Mesh::cube(3.0));
+        assert_eq!(s.select_linked_data(), 1);
+        let names: Vec<&str> = s.selected().map(|o| o.name.as_str()).collect();
+        assert_eq!(names, ["Cube", "Cube.001"]);
+        assert_eq!(s.select_linked_data(), 0);
+        s.active = s.objects.iter().find(|o| o.name == "Camera").map(|o| o.id);
+        assert_eq!(s.select_linked_data(), 0, "a camera has no mesh");
+    }
+
+    #[test]
+    fn select_linked_data_skips_hidden_objects() {
+        let mut s = cubes();
+        deselect_all_but_active(&mut s);
+        let i = s.objects.iter().position(|o| o.name == "Cube.001").unwrap();
+        s.objects[i].hidden = true;
+        assert_eq!(s.select_linked_data(), 1);
+    }
+
+    #[test]
+    fn select_linked_modifiers_compares_the_whole_stack() {
+        let mut s = cubes();
+        for o in s.objects.iter_mut().filter(|o| o.mesh().is_some()) {
+            o.modifiers = vec![Modifier::mirror(0)];
+        }
+        let i = s.objects.iter().position(|o| o.name == "Cube.002").unwrap();
+        s.objects[i].modifiers.push(Modifier::solidify());
+        deselect_all_but_active(&mut s);
+        assert_eq!(s.select_linked_modifiers(), 1);
+        let j = s.objects.iter().position(|o| o.name == "Cube.001").unwrap();
+        s.objects[j].subsurf = 2;
+        deselect_all_but_active(&mut s);
+        assert_eq!(s.select_linked_modifiers(), 0, "a different subdivision level does not match");
+    }
+
+    #[test]
+    fn select_linked_modifiers_needs_modifiers_on_the_active_object() {
+        let mut s = cubes();
+        deselect_all_but_active(&mut s);
+        assert_eq!(s.select_linked_modifiers(), 0);
     }
 
     #[test]
