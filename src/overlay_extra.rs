@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn the_light_circle_has_a_constant_size_in_pixels() {
         let rv3d = view();
-        let mut s = Scene::startup();
+        let s = Scene::startup();
         let id = s.objects.iter().find(|o| o.name == "Light").unwrap().id;
         let radius_px = |loc: V3| {
             let mut o = s.objects.iter().find(|o| o.id == id).unwrap().clone();
