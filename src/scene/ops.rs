@@ -13,6 +13,10 @@
 //!  - `OBJECT_OT_select_linked` (Object Data: every object whose mesh is identical to the active one's, since meshes
 //!    are not shared between objects here; Modifiers: the same modifier stack, the stand-in for linked modifiers)
 //!  - the statistics overlay (`Scene::statistics`): objects, vertices, faces and triangles
+//!  - `OBJECT_OT_transform_apply` with its `location` / `rotation` / `scale` options told apart (`ApplyMask`), keeping
+//!    the children of an applied object in place
+//!  - `VIEW3D_OT_snap_selected_to_grid` (Selection to Grid)
+//!  - `VIEW3D_OT_localview`: shows only the selected objects until it is toggled off
 //!
 //! Deviations: Randomize Transform uses its own hash instead of Blender's random number generator, so a given seed
 //! does not give the same numbers, and its defaults (1 m, 15 degrees, 20 %) differ because Blender's are all zero
@@ -466,6 +470,160 @@ impl Stats {
             format!("Faces  {}", self.faces),
             format!("Triangles  {}", self.tris),
         ]
+    }
+}
+
+/// The `location` / `rotation` / `scale` options of `OBJECT_OT_transform_apply`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ApplyMask {
+    pub location: bool,
+    pub rotation: bool,
+    pub scale: bool,
+}
+
+impl ApplyMask {
+    pub const ALL: ApplyMask = ApplyMask { location: true, rotation: true, scale: true };
+    pub const LOCATION: ApplyMask = ApplyMask { location: true, rotation: false, scale: false };
+    pub const ROTATION: ApplyMask = ApplyMask { location: false, rotation: true, scale: false };
+    pub const SCALE: ApplyMask = ApplyMask { location: false, rotation: false, scale: true };
+}
+
+impl Scene {
+    /// `OBJECT_OT_transform_apply`: bakes the chosen parts of the object transform into the mesh and resets them.
+    /// What stays on the object is applied after the baked part, so the world position of the vertices is kept
+    /// when the remaining rotation and scale commute with it (always for Location, Scale and All; Rotation of a
+    /// non-uniformly scaled object shears, as in Blender). The direct children of an applied object keep their
+    /// world transform, like Blender, which adjusts their parent inverse. Returns how many meshes changed.
+    pub fn apply_transform(&mut self, mask: ApplyMask) -> usize {
+        let changes = |o: &Object| {
+            (mask.location && o.loc != [0.0; 3]) || (mask.rotation && o.rot != [0.0; 3]) || (mask.scale && o.scale != [1.0; 3])
+        };
+        let targets: Vec<usize> = (0..self.objects.len())
+            .filter(|&i| {
+                let o = &self.objects[i];
+                o.selected && !o.hidden && o.mesh().is_some() && changes(o)
+            })
+            .collect();
+        if targets.is_empty() {
+            return 0;
+        }
+        self.push_undo();
+
+        /* The world matrices of the children, to give them back afterwards. */
+        let target_ids: Vec<u32> = targets.iter().map(|&i| self.objects[i].id).collect();
+        let mut children: Vec<(usize, Mat4, u32)> = (0..self.objects.len())
+            .filter(|&i| self.objects[i].parent.is_some_and(|p| target_ids.contains(&p)))
+            .map(|i| (i, self.full_world(i, 0), self.depth_of(i)))
+            .collect();
+        children.sort_by_key(|c| c.2);
+
+        const ID3: Mat3 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        for &i in &targets {
+            let o = &mut self.objects[i];
+            let ObjectData::Mesh(mesh) = &o.data else { continue };
+            let (loc, rot, sc) = (o.loc, euler_to_mat3(o.rot), o.scale);
+            let safe = |v: f32| if v.abs() < 1e-8 { 1.0 } else { v };
+            /* t = (remaining rotation * remaining scale)^-1 * loc, so that the object origin ends up unmoved. */
+            let mut t = [0.0; 3];
+            if mask.location {
+                t = if mask.rotation { loc } else { mat3_mul_v3(&mat3_transpose(&rot), loc) };
+                if !mask.scale {
+                    t = [t[0] / safe(sc[0]), t[1] / safe(sc[1]), t[2] / safe(sc[2])];
+                }
+            }
+            let rot_m = if mask.rotation { rot } else { ID3 };
+            let sc_m = if mask.scale { sc } else { [1.0; 3] };
+            let flip = mask.scale && sc[0] * sc[1] * sc[2] < 0.0;
+            let baked = mesh.mapped(
+                |v| {
+                    let r = mat3_mul_v3(&rot_m, [v[0] * sc_m[0], v[1] * sc_m[1], v[2] * sc_m[2]]);
+                    [r[0] + t[0], r[1] + t[1], r[2] + t[2]]
+                },
+                flip,
+            );
+            o.data = ObjectData::Mesh(baked);
+            if mask.location {
+                o.loc = [0.0; 3];
+            }
+            if mask.rotation {
+                o.rot = [0.0; 3];
+            }
+            if mask.scale {
+                o.scale = [1.0; 3];
+            }
+            o.eval = None;
+        }
+
+        /* Parents first, so that a grandchild sees its parent already back in place. */
+        for (i, world, _) in children {
+            let Some(p) = self.objects[i].parent.and_then(|p| self.index_of(p)) else { continue };
+            let inv_parent = crate::view3d::invert_m4_m4(&self.full_world(p, 0));
+            let inv_local = crate::view3d::invert_m4_m4(&self.objects[i].local_matrix());
+            self.objects[i].parent_inv = mat4_mul(&inv_parent, &mat4_mul(&world, &inv_local));
+        }
+        self.refresh_parents();
+        targets.len()
+    }
+
+    /// `VIEW3D_OT_snap_selected_to_grid`: moves the origin of every selected object to the nearest grid point
+    /// (`grid` metres apart). Objects that move along with a selected ancestor are left to it. Returns how many
+    /// objects moved.
+    pub fn snap_selected_to_grid(&mut self, grid: f32) -> usize {
+        if !(grid > 0.0) {
+            return 0;
+        }
+        let mut moves: Vec<(usize, V3)> = Vec::new();
+        for i in 0..self.objects.len() {
+            let o = &self.objects[i];
+            if !o.selected || o.hidden || self.has_selected_ancestor(i) {
+                continue;
+            }
+            let at = mat4_mul_point(&self.full_world(i, 0), [0.0; 3]);
+            let d: V3 = std::array::from_fn(|k| (at[k] / grid).round() * grid - at[k]);
+            if d.iter().any(|x| x.abs() > 1e-6) {
+                moves.push((i, d));
+            }
+        }
+        if moves.is_empty() {
+            return 0;
+        }
+        self.push_undo();
+        for &(i, d) in &moves {
+            let o = &mut self.objects[i];
+            let l = mat3_mul_v3(&o.parent_lin_inv(), d);
+            o.loc = [o.loc[0] + l[0], o.loc[1] + l[1], o.loc[2] + l[2]];
+        }
+        self.refresh_parents();
+        moves.len()
+    }
+
+    pub fn in_local_view(&self) -> bool {
+        self.local_view.is_some()
+    }
+
+    /// `VIEW3D_OT_localview`: enters Local View, which hides every visible object that is not selected, or leaves
+    /// it and shows what it hid. The objects the user had hidden stay hidden, and so do the ones hidden while in
+    /// Local View. Returns whether the mode changed (entering needs a selected object).
+    pub fn toggle_local_view(&mut self) -> bool {
+        match self.local_view.take() {
+            Some(hidden_by_view) => {
+                for o in self.objects.iter_mut().filter(|o| hidden_by_view.contains(&o.id)) {
+                    o.hidden = false;
+                }
+                true
+            }
+            None => {
+                if !self.objects.iter().any(|o| o.selected && !o.hidden) {
+                    return false;
+                }
+                let ids: Vec<u32> = self.objects.iter().filter(|o| !o.hidden && !o.selected).map(|o| o.id).collect();
+                for o in self.objects.iter_mut().filter(|o| ids.contains(&o.id)) {
+                    o.hidden = true;
+                }
+                self.local_view = Some(ids);
+                true
+            }
+        }
     }
 }
 
@@ -940,5 +1098,247 @@ mod tests {
         s.update_eval();
         let st = s.statistics();
         assert!(st.verts > 8 && st.faces > 6);
+    }
+}
+
+#[cfg(test)]
+mod apply_snap_local_tests {
+    use super::*;
+    use crate::mesh::Primitive;
+
+    fn close(a: V3, b: V3) -> bool {
+        (0..3).all(|k| (a[k] - b[k]).abs() < 1e-4)
+    }
+
+    /// The world positions of the vertices of object `i`.
+    fn world_verts(s: &Scene, i: usize) -> Vec<V3> {
+        let o = &s.objects[i];
+        let m = o.world_matrix();
+        o.mesh().unwrap().verts.iter().map(|&v| mat4_mul_point(&m, v)).collect()
+    }
+
+    fn posed(scale: V3) -> (Scene, usize) {
+        let mut s = Scene::startup();
+        let i = s.index_of(s.active.unwrap()).unwrap();
+        s.objects[i].loc = [1.0, 2.0, 3.0];
+        s.objects[i].rot = [0.3, -0.5, 1.1];
+        s.objects[i].scale = scale;
+        (s, i)
+    }
+
+    #[test]
+    fn each_apply_option_keeps_the_vertices_in_place_and_resets_only_its_part() {
+        for (mask, scale) in [
+            (ApplyMask::ALL, [2.0, 0.5, 3.0]),
+            (ApplyMask::LOCATION, [2.0, 0.5, 3.0]),
+            (ApplyMask::SCALE, [2.0, 0.5, 3.0]),
+            /* Rotation only commutes with a uniform scale. */
+            (ApplyMask::ROTATION, [2.0, 2.0, 2.0]),
+            (ApplyMask { location: true, rotation: false, scale: true }, [2.0, 0.5, 3.0]),
+            (ApplyMask { location: true, rotation: true, scale: false }, [1.0, 1.0, 1.0]),
+        ] {
+            let (mut s, i) = posed(scale);
+            let before = world_verts(&s, i);
+            let (loc, rot, sc) = (s.objects[i].loc, s.objects[i].rot, s.objects[i].scale);
+            assert_eq!(s.apply_transform(mask), 1, "{mask:?}");
+            let o = &s.objects[i];
+            /* What was applied is neutral now, what was not applied is untouched. */
+            assert_eq!(o.loc, if mask.location { [0.0; 3] } else { loc }, "{mask:?}");
+            assert_eq!(o.rot, if mask.rotation { [0.0; 3] } else { rot }, "{mask:?}");
+            assert_eq!(o.scale, if mask.scale { [1.0; 3] } else { sc }, "{mask:?}");
+            for (a, b) in before.iter().zip(world_verts(&s, i)) {
+                assert!(close(*a, b), "{mask:?}: {a:?} vs {b:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn applying_does_nothing_when_the_chosen_part_is_already_neutral() {
+        let (mut s, i) = posed([1.0; 3]);
+        s.objects[i].rot = [0.0; 3];
+        assert_eq!(s.apply_transform(ApplyMask::ROTATION), 0);
+        assert_eq!(s.apply_transform(ApplyMask::SCALE), 0);
+        assert!(!s.can_undo(), "a no-op leaves no undo step");
+        assert_eq!(s.apply_transform(ApplyMask::LOCATION), 1);
+        assert!(s.can_undo());
+        assert!(s.undo());
+        assert_eq!(s.objects[i].loc, [1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn a_negative_scale_flips_the_faces_when_it_is_applied() {
+        let (mut s, i) = posed([-1.0, 1.0, 1.0]);
+        let normal_before = |s: &Scene| {
+            let m = s.objects[i].mesh().unwrap();
+            let w = world_verts(s, i);
+            let f = &m.faces[0];
+            let (a, b, c) = (w[f[0] as usize], w[f[1] as usize], w[f[2] as usize]);
+            let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+        };
+        let n0 = normal_before(&s);
+        s.apply_transform(ApplyMask::SCALE);
+        let n1 = normal_before(&s);
+        /* The mirrored mesh was inside out; applying the scale reverses the winding, so the same world vertices now
+         * give the opposite (outward) face normal. */
+        assert!(close(n1, [-n0[0], -n0[1], -n0[2]]), "{n0:?} -> {n1:?}");
+        assert!(n0.iter().any(|x| x.abs() > 1e-3));
+    }
+
+    #[test]
+    fn children_stay_where_they_are_when_the_parent_is_applied() {
+        let mut s = Scene::startup();
+        let pid = s.active.unwrap();
+        let pi = s.index_of(pid).unwrap();
+        s.objects[pi].loc = [1.0, -2.0, 0.5];
+        s.objects[pi].rot = [0.0, 0.0, 0.8];
+        s.objects[pi].scale = [2.0, 2.0, 2.0];
+        let cid = s.add_primitive(Primitive::Cube, [5.0, 1.0, 0.0]);
+        let gid = s.add_primitive(Primitive::Cube, [-3.0, 4.0, 2.0]);
+        let (ci, gi) = (s.index_of(cid).unwrap(), s.index_of(gid).unwrap());
+        s.objects[ci].parent = Some(pid);
+        s.objects[gi].parent = Some(cid);
+        s.refresh_parents();
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        s.objects[pi].selected = true;
+        s.active = Some(pid);
+        let (c0, g0) = (world_verts(&s, ci), world_verts(&s, gi));
+        for mask in [ApplyMask::SCALE, ApplyMask::ROTATION, ApplyMask::LOCATION, ApplyMask::ALL] {
+            s.objects[pi].loc = [1.0, -2.0, 0.5];
+            s.objects[pi].rot = [0.0, 0.0, 0.8];
+            s.objects[pi].scale = [2.0, 2.0, 2.0];
+            s.refresh_parents();
+            let (c_now, g_now) = (world_verts(&s, ci), world_verts(&s, gi));
+            s.apply_transform(mask);
+            for (a, b) in c_now.iter().zip(world_verts(&s, ci)) {
+                assert!(close(*a, b), "{mask:?} moved the child");
+            }
+            for (a, b) in g_now.iter().zip(world_verts(&s, gi)) {
+                assert!(close(*a, b), "{mask:?} moved the grandchild");
+            }
+        }
+        let _ = (c0, g0);
+    }
+
+    #[test]
+    fn snap_to_grid_rounds_world_origins_and_respects_parents() {
+        let mut s = Scene::startup();
+        let a = s.add_primitive(Primitive::Cube, [1.4, -2.6, 0.49]);
+        let ai = s.index_of(a).unwrap();
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        s.objects[ai].selected = true;
+        assert_eq!(s.snap_selected_to_grid(1.0), 1);
+        assert_eq!(s.objects[ai].loc, [1.0, -3.0, 0.0]);
+        assert_eq!(s.snap_selected_to_grid(1.0), 0, "already on the grid");
+
+        /* A child of an unselected, rotated and scaled parent lands on the grid in world space. */
+        let p = s.add_primitive(Primitive::Cube, [0.0; 3]);
+        let c = s.add_primitive(Primitive::Cube, [0.3, 0.8, 0.0]);
+        let (pi, ci) = (s.index_of(p).unwrap(), s.index_of(c).unwrap());
+        s.objects[pi].rot = [0.0, 0.0, 0.7];
+        s.objects[pi].scale = [2.0, 3.0, 1.0];
+        s.objects[ci].parent = Some(p);
+        s.refresh_parents();
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        s.objects[ci].selected = true;
+        assert_eq!(s.snap_selected_to_grid(0.5), 1);
+        let at = mat4_mul_point(&s.objects[ci].world_matrix(), [0.0; 3]);
+        assert!(at.iter().all(|x| ((x / 0.5).round() * 0.5 - x).abs() < 1e-4), "{at:?}");
+
+        assert_eq!(s.snap_selected_to_grid(0.0), 0);
+        assert_eq!(s.snap_selected_to_grid(-1.0), 0);
+        assert_eq!(s.snap_selected_to_grid(f32::NAN), 0);
+    }
+
+    #[test]
+    fn snap_to_grid_leaves_children_of_selected_parents_to_the_parent() {
+        let mut s = Scene::startup();
+        let p = s.add_primitive(Primitive::Cube, [0.4, 0.0, 0.0]);
+        let c = s.add_primitive(Primitive::Cube, [1.3, 0.0, 0.0]);
+        let (pi, ci) = (s.index_of(p).unwrap(), s.index_of(c).unwrap());
+        s.objects[ci].parent = Some(p);
+        s.refresh_parents();
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        s.objects[pi].selected = true;
+        s.objects[ci].selected = true;
+        let rel_before = s.objects[ci].loc;
+        assert_eq!(s.snap_selected_to_grid(1.0), 1);
+        assert_eq!(s.objects[ci].loc, rel_before);
+        assert_eq!(s.objects[pi].loc, [0.0, 0.0, 0.0]);
+    }
+
+    fn hidden_names(s: &Scene) -> Vec<String> {
+        s.objects.iter().filter(|o| o.hidden).map(|o| o.name.clone()).collect()
+    }
+
+    #[test]
+    fn local_view_isolates_the_selection_and_restores_exactly_what_it_hid() {
+        let mut s = Scene::startup();
+        let extra = s.add_primitive(Primitive::Cube, [3.0, 0.0, 0.0]);
+        /* The user hid the light before. */
+        let li = s.objects.iter().position(|o| o.name == "Light").unwrap();
+        s.objects[li].hidden = true;
+        let ei = s.index_of(extra).unwrap();
+        for (k, o) in s.objects.iter_mut().enumerate() {
+            o.selected = k == ei;
+        }
+        assert!(s.toggle_local_view());
+        assert!(s.in_local_view());
+        let mut hidden = hidden_names(&s);
+        hidden.sort();
+        assert_eq!(hidden, ["Camera", "Cube", "Light"]);
+        assert!(s.toggle_local_view());
+        assert!(!s.in_local_view());
+        assert_eq!(hidden_names(&s), ["Light"], "the light stays hidden as the user left it");
+    }
+
+    #[test]
+    fn local_view_needs_a_selection_and_keeps_objects_hidden_inside_it_hidden() {
+        let mut s = Scene::startup();
+        let b = s.add_primitive(Primitive::Cube, [3.0, 0.0, 0.0]);
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        assert!(!s.toggle_local_view(), "nothing selected, nothing to isolate");
+        assert!(!s.in_local_view());
+        let bi = s.index_of(b).unwrap();
+        let ci = s.objects.iter().position(|o| o.name == "Cube").unwrap();
+        s.objects[bi].selected = true;
+        s.objects[ci].selected = true;
+        s.toggle_local_view();
+        /* Hide one of the two inside, then try to reveal everything: the camera and light stay away. */
+        s.objects[bi].selected = true;
+        s.objects[ci].selected = false;
+        s.hide_selected();
+        assert_eq!(s.reveal_all(), 1, "only what the user hid in local view comes back");
+        assert!(s.objects.iter().find(|o| o.name == "Camera").unwrap().hidden);
+        assert!(s.objects.iter().find(|o| o.name == "Light").unwrap().hidden);
+        s.objects[bi].selected = true;
+        s.hide_selected();
+        s.toggle_local_view();
+        assert_eq!(hidden_names(&s), [s.objects[bi].name.clone()], "an object hidden inside stays hidden");
+    }
+
+    #[test]
+    fn local_view_follows_undo() {
+        let mut s = Scene::startup();
+        let b = s.add_primitive(Primitive::Cube, [3.0, 0.0, 0.0]);
+        let bi = s.index_of(b).unwrap();
+        s.toggle_local_view();
+        assert!(s.in_local_view());
+        s.push_undo();
+        s.objects[bi].loc[0] = 9.0;
+        assert!(s.undo());
+        assert!(s.in_local_view(), "still in local view after undoing a step taken inside it");
+        assert_eq!(s.objects[bi].loc[0], 3.0);
     }
 }

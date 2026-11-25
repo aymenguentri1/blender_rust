@@ -1369,6 +1369,27 @@ impl ApplicationHandler for App {
                         KeyCode::KeyM if alt_k && !shift_k && !ctrl_k => geometry = self.scene.merge_by_distance(0.0001) > 0,
                         KeyCode::KeyS if ctrl_k && alt_k && !shift_k => geometry = self.scene.set_smooth(true) > 0,
                         KeyCode::KeyF if ctrl_k && alt_k && !shift_k => geometry = self.scene.set_smooth(false) > 0,
+                        /* `view3d.localview` (Numpad /): only the selected objects stay visible, framed in the view. */
+                        KeyCode::NumpadDivide if plain => {
+                            let entering = !self.scene.in_local_view();
+                            if self.scene.toggle_local_view() {
+                                geometry = true;
+                                if entering {
+                                    if let Some(bounds) = self.scene.bounds(false) {
+                                        smooth_finish(&mut self.rv3d, &mut self.smooth);
+                                        let smooth_src = self.rv3d.state_backup();
+                                        let (min, max) = self.rv3d.visible_bounds_of(Some(bounds));
+                                        self.rv3d.view_from_minmax(&self.v3d, rw, rh, min, max);
+                                        self.smooth = self.rv3d.smooth_view_begin(smooth_src, view3d::SMOOTH_VIEWTX).map(|sms| (sms, std::time::Instant::now()));
+                                    }
+                                }
+                            }
+                        }
+                        /* `object.transform_apply` with a single option, and Selection to Grid (1 m). */
+                        KeyCode::KeyL if ctrl_k && shift_k && alt_k => geometry = self.scene.apply_transform(scene::ApplyMask::LOCATION) > 0,
+                        KeyCode::KeyR if ctrl_k && shift_k && alt_k => geometry = self.scene.apply_transform(scene::ApplyMask::ROTATION) > 0,
+                        KeyCode::KeyZ if ctrl_k && shift_k && alt_k => geometry = self.scene.apply_transform(scene::ApplyMask::SCALE) > 0,
+                        KeyCode::KeyT if ctrl_k && shift_k && alt_k => geometry = self.scene.snap_selected_to_grid(1.0) > 0,
                         KeyCode::NumpadDecimal if plain => {
                             if let Some(bounds) = self.scene.bounds(true) {
                                 smooth_finish(&mut self.rv3d, &mut self.smooth);
