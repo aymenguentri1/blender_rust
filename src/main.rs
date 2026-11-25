@@ -1239,6 +1239,8 @@ impl ApplicationHandler for App {
                         /* Object > Join, Apply > All Transforms, Convert to Mesh (applies the modifiers), Set Origin >
                          * Origin to Geometry (the Shift + Ctrl + Alt + C pie of Blender). */
                         KeyCode::KeyJ if ctrl_k && !shift_k && !alt_k => geometry = self.scene.join_selected() > 0,
+                        /* Modifier > Apply (Ctrl + Shift + Alt + A): bakes the active modifier into the mesh. */
+                        KeyCode::KeyA if ctrl_k && shift_k && alt_k => geometry = self.scene.apply_active_modifier(),
                         KeyCode::KeyA if ctrl_k && !shift_k && !alt_k => geometry = self.scene.apply_transforms() > 0,
                         KeyCode::KeyC if alt_k && !shift_k && !ctrl_k => geometry = self.scene.apply_modifiers() > 0,
                         KeyCode::KeyC if ctrl_k && shift_k && alt_k => geometry = self.scene.origin_to_geometry() > 0,

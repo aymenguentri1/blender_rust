@@ -855,6 +855,33 @@ impl Scene {
         }
     }
 
+    /// `OBJECT_OT_modifier_apply`: bakes modifier `i` of the active object into its mesh and takes it off the stack.
+    /// Like Blender it is applied on its own to the base mesh, so the modifiers above it in the stack are not\
+    /// part of the result. The other modifiers stay and now act on the baked mesh.
+    pub fn panel_apply_modifier(&mut self, i: usize) -> bool {
+        let Some(idx) = self.active.and_then(|id| self.index_of(id)) else { return false };
+        let o = &self.objects[idx];
+        let (Some(mesh), Some(m)) = (o.mesh(), o.modifiers.get(i)) else { return false };
+        let (ctx, _) = self.eval_ctx(idx);
+        let baked = m.apply_with(mesh, &ctx);
+        self.edit_active_object(|o| {
+            o.data = ObjectData::Mesh(baked.clone());
+            o.modifiers.remove(i);
+            o.active_modifier = o.active_modifier.min(o.modifiers.len().saturating_sub(1));
+            true
+        })
+    }
+
+    /// Ctrl + Shift + Alt + A: applies the active modifier of the active object (`panel_apply_modifier`).
+    pub fn apply_active_modifier(&mut self) -> bool {
+        let Some(o) = self.active_object() else { return false };
+        if o.modifiers.is_empty() {
+            return false;
+        }
+        let i = o.active_modifier.min(o.modifiers.len() - 1);
+        self.panel_apply_modifier(i)
+    }
+
     /// Removes modifier `i` of the active object.
     pub fn panel_remove_modifier(&mut self, i: usize) -> bool {
         self.edit_active_object(|o| {
