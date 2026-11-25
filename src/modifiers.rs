@@ -5,6 +5,7 @@
 //! offset of (1, 0, 0), Solidify a thickness of 0.01 m and an offset of -1, Bevel a width of 0.1 m.
 
 use crate::mesh::{Mesh, V3};
+use crate::mesh_deform::DeformMode;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Modifier {
@@ -13,6 +14,12 @@ pub enum Modifier {
     Solidify { thickness: f32, offset: f32 },
     /// One segment, `Offset` width.
     Bevel { width: f32 },
+    /// Neighbour averaging: `factor` per round, `repeat` rounds.
+    Smooth { factor: f32, repeat: u32 },
+    /// Twist (radians) / Taper / Stretch (factor) about the Z axis.
+    SimpleDeform { mode: DeformMode, amount: f32 },
+    /// Merge by distance.
+    Weld { distance: f32 },
 }
 
 impl Modifier {
@@ -34,6 +41,23 @@ impl Modifier {
         Modifier::Bevel { width: 0.1 }
     }
 
+    pub fn smooth() -> Modifier {
+        Modifier::Smooth { factor: 0.5, repeat: 1 }
+    }
+
+    /// Defaults of `DNA_modifier_defaults.h`: a 45 degree twist, a taper / stretch factor of 0.5.
+    pub fn simple_deform(mode: DeformMode) -> Modifier {
+        let amount = match mode {
+            DeformMode::Twist => std::f32::consts::FRAC_PI_4,
+            DeformMode::Taper | DeformMode::Stretch => 0.5,
+        };
+        Modifier::SimpleDeform { mode, amount }
+    }
+
+    pub fn weld() -> Modifier {
+        Modifier::Weld { distance: 0.001 }
+    }
+
     /// The name shown in the modifier panel.
     pub fn label(&self) -> &'static str {
         match self {
@@ -41,6 +65,9 @@ impl Modifier {
             Modifier::Array { .. } => "Array",
             Modifier::Solidify { .. } => "Solidify",
             Modifier::Bevel { .. } => "Bevel",
+            Modifier::Smooth { .. } => "Smooth",
+            Modifier::SimpleDeform { .. } => "Simple Deform",
+            Modifier::Weld { .. } => "Weld",
         }
     }
 
@@ -58,6 +85,9 @@ impl Modifier {
             Modifier::Array { count, relative, constant } => mesh.arrayed(*count, *relative, *constant),
             Modifier::Solidify { thickness, offset } => mesh.solidified(*thickness, *offset),
             Modifier::Bevel { width } => mesh.beveled(*width),
+            Modifier::Smooth { factor, repeat } => mesh.smoothed(*factor, *repeat),
+            Modifier::SimpleDeform { mode, amount } => mesh.deformed(*mode, *amount),
+            Modifier::Weld { distance } => mesh.merged_by_distance(*distance).0,
         }
     }
 }
@@ -95,5 +125,16 @@ mod tests {
         /* Bevelling a mirrored half cube chamfers the seam too only when it is welded: 12 + ... faces, still closed. */
         let r = evaluate(&cube, &[Modifier::array(2), Modifier::bevel()]);
         assert_eq!(r.faces.len(), 2 * 26);
+    }
+
+    #[test]
+    fn smooth_deform_and_weld_in_the_stack() {
+        let cube = Mesh::cube(2.0);
+        let r = evaluate(&cube, &[Modifier::simple_deform(DeformMode::Twist), Modifier::smooth()]);
+        assert_eq!(r.faces, cube.faces);
+        assert_ne!(r.verts, cube.verts);
+        /* Two touching cubes weld into one closed piece of 12 vertices. */
+        let two = evaluate(&cube, &[Modifier::array(2), Modifier::Weld { distance: 0.001 }]);
+        assert_eq!(two.verts.len(), 12);
     }
 }
