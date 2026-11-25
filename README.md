@@ -75,6 +75,20 @@ render toggles and scrolling (rows that do not fit are left out).
 | Ctrl + Alt + H | Convex Hull: replaces each selected mesh with the hull of its vertices (coplanar triangles joined into n-gons, so a box stays six quads; flat or collinear meshes are left alone) |
 | Ctrl + Shift + X / Y / Z | Mirror: reflects the selected objects through the median point along that global axis and flips their orientation and scale (Blender's Ctrl + M, one chord per axis) |
 
+### Parenting
+| Keys | Operator |
+| --- | --- |
+| Ctrl + P | Parent (Object, Keep Transform): the active object becomes the parent of the other selected objects, which stay where they are (`parent_inv` stores the inverse parent matrix like Blender's `parentinv`). Parenting an object to one of its own descendants is refused |
+| Alt + P | Clear and Keep Transformation: the object keeps its world transform as its own location, rotation and scale |
+| Shift + Alt + P | Clear Parent: the object falls back to its own local transform |
+| Ctrl + `[` / Ctrl + `]` | Select Parent / Select Child (first child by name); add Shift to keep the current selection |
+
+The outliner nests children under their parent. Grab, rotate and scale leave out an object whose parent is also
+selected (it moves with the parent) and convert world space offsets into the parent's space. Deleting a parent frees
+its children in place; duplicating a parent and its children parents the copies to each other. Not modelled: rotation
+and scale of a child under a rotated or non-uniformly scaled parent are applied to the child's own values (the
+location is exact), shear is dropped when a transform is baked, and the parent is not shown by a relationship line.
+
 ### Selection
 | Keys | Operator |
 | --- | --- |

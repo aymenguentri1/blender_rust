@@ -51,6 +51,10 @@ impl Axis {
 struct Item {
     id: u32,
     loc: V3,
+    /// Where the origin is in the world and the matrix that turns a world offset into an offset of `loc`
+    /// (identity and `loc` itself for an object without a parent).
+    world: V3,
+    to_local: Mat3,
     rot: V3,
     scale: V3,
 }
@@ -108,14 +112,25 @@ fn euler_compatible(m: &Mat3, old: V3) -> V3 {
     }
 }
 
+/// `it.loc` after the origin moved by the world space offset `delta`.
+fn moved(it: &Item, delta: V3) -> V3 {
+    let d = mat3_mul_v3(&it.to_local, delta);
+    std::array::from_fn(|k| it.loc[k] + d[k])
+}
+
 impl Transform {
     /// Starts the operator on the selected objects; `None` when nothing is selected. `mval` is the cursor in
     /// region pixels (y up). `push_undo` is false when an operator that already pushed a step starts it (Shift + D).
     pub fn begin(mode: Mode, scene: &mut Scene, mval: [i32; 2], rv3d: &RegionView3D, push_undo: bool) -> Option<Transform> {
         let pivot = scene.median_origin()?;
-        let items: Vec<Item> = scene
-            .selected()
-            .map(|o| Item { id: o.id, loc: o.loc, rot: o.rot, scale: o.scale })
+        /* An object whose parent is selected too moves with it and is left out (`transform_object_deselect`). */
+        let items: Vec<Item> = (0..scene.objects.len())
+            .filter(|&i| scene.objects[i].selected && !scene.objects[i].hidden && !scene.has_selected_ancestor(i))
+            .map(|i| {
+                let o = &scene.objects[i];
+                let w = o.world_matrix()[3];
+                Item { id: o.id, loc: o.loc, world: [w[0], w[1], w[2]], to_local: o.parent_lin_inv(), rot: o.rot, scale: o.scale }
+            })
             .collect();
         if push_undo {
             scene.push_undo();
@@ -230,7 +245,7 @@ impl Transform {
         } else if self.snap {
             vec = vec.map(|c| c.round());
         }
-        self.set_items(scene, |it| (std::array::from_fn(|k| it.loc[k] + vec[k]), it.rot, it.scale));
+        self.set_items(scene, |it| (moved(it, vec), it.rot, it.scale));
         format!("D: {:.4}  {:.4}  {:.4} m", vec[0], vec[1], vec[2])
     }
 
@@ -275,9 +290,9 @@ impl Transform {
         let r = axis_angle_to_mat3(axis, angle);
         let pivot = self.pivot;
         self.set_items(scene, |it| {
-            let rel = [it.loc[0] - pivot[0], it.loc[1] - pivot[1], it.loc[2] - pivot[2]];
+            let rel = [it.world[0] - pivot[0], it.world[1] - pivot[1], it.world[2] - pivot[2]];
             let rotated = mat3_mul_v3(&r, rel);
-            let loc = std::array::from_fn(|k| pivot[k] + rotated[k]);
+            let loc = moved(it, std::array::from_fn(|k| rotated[k] - rel[k]));
             let rot = euler_compatible(&mat3_mul(&r, &euler_to_mat3(it.rot)), it.rot);
             (loc, rot, it.scale)
         });
@@ -315,7 +330,7 @@ impl Transform {
         }
         let pivot = self.pivot;
         self.set_items(scene, |it| {
-            let loc = std::array::from_fn(|k| pivot[k] + (it.loc[k] - pivot[k]) * f[k]);
+            let loc = moved(it, std::array::from_fn(|k| (it.world[k] - pivot[k]) * (f[k] - 1.0)));
             let scale = std::array::from_fn(|k| it.scale[k] * f[k]);
             (loc, it.rot, scale)
         });
@@ -627,5 +642,37 @@ mod tests {
         let m = euler_to_mat3([0.0, 0.0, 3.3]);
         let e = euler_compatible(&m, [0.0, 0.0, 3.0]);
         assert!((e[2] - 3.3).abs() < 1e-3, "{e:?}");
+    }
+
+    #[test]
+    fn grabbing_a_child_moves_it_in_world_space_and_a_selected_parent_carries_it() {
+        let mut scene = Scene::startup();
+        let a = cube(&scene).id;
+        let b = scene.add_primitive(crate::mesh::Primitive::Cube, [5.0, 0.0, 0.0]);
+        let (ai, bi) = (scene.index_of(a).unwrap(), scene.index_of(b).unwrap());
+        scene.objects[ai].rot = [0.0, 0.0, std::f32::consts::FRAC_PI_2];
+        scene.objects[ai].scale = [2.0, 2.0, 2.0];
+        scene.refresh_parents();
+        scene.active = Some(a);
+        scene.select_all(crate::scene::SelectAction::Deselect);
+        scene.objects[ai].selected = true;
+        scene.objects[bi].selected = true;
+        assert_eq!(scene.parent_set(), 1);
+        /* Both selected: only the parent is an item. */
+        let rv3d = view();
+        let t = Transform::begin(Mode::Translate, &mut scene, [0, 0], &rv3d, true).unwrap();
+        assert_eq!(t.items.len(), 1);
+        t.cancel(&mut scene);
+        /* Only the child selected: a world +X offset of 1 becomes -0.5 along the child's local Y... through the
+         * parent's quarter turn and scale of 2, so the world position moves by exactly 1 in X. */
+        scene.objects[ai].selected = false;
+        let before = scene.objects[bi].world_matrix()[3];
+        let mut t = Transform::begin(Mode::Translate, &mut scene, [0, 0], &rv3d, true).unwrap();
+        t.numeric = "1".into();
+        t.axis = Some(Axis::X);
+        t.apply(&mut scene, [0, 0], &rv3d, W, H);
+        scene.refresh_parents();
+        let after = scene.objects[bi].world_matrix()[3];
+        assert!((after[0] - before[0] - 1.0).abs() < 1e-4 && (after[1] - before[1]).abs() < 1e-4, "{before:?} {after:?}");
     }
 }

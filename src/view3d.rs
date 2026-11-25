@@ -1781,9 +1781,12 @@ mod tests {
         assert_eq!(rv3d.view, View::User);
 
         rv3d.view_axis(View::Front);
-        assert_eq!(rv3d.viewquat, [SQRT1_2, -SQRT1_2, 0.0, 0.0]);
+        /* Compared with a tolerance: the last bit of the quaternion depends on the compiler's float rounding. */
+        let near = |a: [f32; 4], b: [f32; 4]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6);
+        assert!(near(rv3d.viewquat, [SQRT1_2, -SQRT1_2, 0.0, 0.0]), "{:?}", rv3d.viewquat);
         rv3d.orbit_step(true, -std::f32::consts::PI);
-        assert_eq!((rv3d.view, rv3d.viewquat), (View::Back, [0.0, 0.0, -SQRT1_2, -SQRT1_2]));
+        assert_eq!(rv3d.view, View::Back);
+        assert!(near(rv3d.viewquat, [0.0, 0.0, -SQRT1_2, -SQRT1_2]), "{:?}", rv3d.viewquat);
     }
     /* The Front view turned 5 degrees about Z snaps back to exactly the Front table quaternion and
      * becomes orthographic; without snap the turned rotation stays a user view. A view far from
