@@ -865,6 +865,16 @@ impl ApplicationHandler for App {
                                 }
                             }
                         }
+                        /* Tab / Shift + Tab: apply this field and type into the next / previous one. */
+                        KeyCode::Tab => {
+                            if let Some(e) = self.field_edit.take() {
+                                let changed = e.commit(&mut self.scene);
+                                self.field_edit = transform_panel::Edit::start(&self.scene, e.field.step(if shift_k { -1 } else { 1 }));
+                                if changed {
+                                    scene_changed(&mut self.scene, &mut self.taa);
+                                }
+                            }
+                        }
                         KeyCode::Escape => self.field_edit = None,
                         KeyCode::Backspace => {
                             if let Some(e) = self.field_edit.as_mut() {
