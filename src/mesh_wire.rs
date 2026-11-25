@@ -7,7 +7,7 @@
 //! closed frame, so shared edges carry two touching bars (identical look, twice the faces).
 //! Faces with fewer than 3 corners are skipped.
 
-use crate::mesh::{add, cross, dot, normalized, scale, sub, Mesh, V3};
+use crate::mesh::{add, cross, dot, normalized, scale, sub, Mesh};
 
 impl Mesh {
     pub fn wireframed(&self, thickness: f32) -> Mesh {

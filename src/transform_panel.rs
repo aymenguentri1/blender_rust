@@ -158,7 +158,7 @@ pub fn layout(user: &UserDef, window: Rcti, scene: &Scene, edit: Option<&Edit>) 
     }
     /* Dimensions are one more caption and row of fields, left out when they do not fit. */
     let with_dims = o.dimensions().is_some() && top - (needed + 2 * (unit_h + gap)) >= window.ymin;
-    let mut row = |widgets: &mut Vec<Widget>, top: &mut i32, rect_x: (i32, i32), label: String, style: Style| -> Rcti {
+    let row = |widgets: &mut Vec<Widget>, top: &mut i32, rect_x: (i32, i32), label: String, style: Style| -> Rcti {
         let rect = Rcti { xmin: rect_x.0, xmax: rect_x.1, ymin: *top - unit_h, ymax: *top - 1 };
         widgets.push(Widget { rect, label, style, action: None, centered: false });
         rect
