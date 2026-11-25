@@ -395,6 +395,7 @@ impl ApplicationHandler for App {
                 if let Some(xf) = self.xform.as_mut() {
                     let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
                     xf.snap = self.modifiers.control_key();
+                    xf.precision = self.modifiers.shift_key();
                     self.rv3d.update(&self.v3d, rw, rh);
                     let text = xf.apply(&mut self.scene, [x - layout.main.xmin, y - layout.main.ymin], &self.rv3d, rw, rh);
                     scene_changed(&mut self.scene, &mut self.taa);
@@ -1087,6 +1088,7 @@ impl ApplicationHandler for App {
                             }
                         }
                         xf.snap = ctrl_k;
+                        xf.precision = shift_k;
                         self.rv3d.update(&self.v3d, rw, rh);
                         let text = xf.apply(&mut self.scene, mval, &self.rv3d, rw, rh);
                         scene_changed(&mut self.scene, &mut self.taa);

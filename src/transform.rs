@@ -13,12 +13,18 @@
 //!    one again removes the constraint; the local orientation of the second press is not modelled)
 //!  - numeric input (`NumInput`): digits, `.`, `-` and Backspace replace the mouse value
 //!  - Ctrl snaps to 1 m, 5 degrees and 0.1 (`transform_snap_increment`)
+//!  - Shift is precision mode: the mouse movement counts a tenth while it is held (`t->mouse.precision`), and
+//!    releasing it keeps what was reached instead of jumping back to the raw cursor position
 //!  - the pivot is the median point of the selected objects' origins (`V3D_AROUND_CENTER_MEDIAN`)
 //!  - confirm with Enter, Space or the left mouse button, cancel with Escape or the right mouse button
 
 use crate::mesh::V3;
+use std::cell::Cell;
 use crate::scene::{axis_angle_to_mat3, euler_to_mat3, mat3_mul, mat3_mul_v3, mat3_to_euler, Mat3, Scene};
 use crate::view3d::RegionView3D;
+
+/// How much of the mouse movement counts while Shift is held.
+pub const PRECISION_FACTOR: f32 = 0.1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -98,8 +104,14 @@ pub struct Transform {
     pub numeric: String,
     /// Ctrl is held: snap to increments.
     pub snap: bool,
+    /// Shift is held: the mouse movement counts `PRECISION_FACTOR`.
+    pub precision: bool,
     /// The press position in region pixels (y up).
-    start: [i32; 2],
+    start: [f32; 2],
+    /// The cursor position the last `apply()` saw, and the effective position it produced: they move together
+    /// except in precision mode, where the effective one moves slower. Interior mutability because `apply` is `&self`.
+    last_mval: Cell<[i32; 2]>,
+    eff_mval: Cell<[f32; 2]>,
     items: Vec<Item>,
     pivot: V3,
     /// Individual Origins: each item rotates and scales about its own origin.
@@ -180,7 +192,10 @@ impl Transform {
             plane: false,
             numeric: String::new(),
             snap: false,
-            start: mval,
+            precision: false,
+            start: [mval[0] as f32, mval[1] as f32],
+            last_mval: Cell::new(mval),
+            eff_mval: Cell::new([mval[0] as f32, mval[1] as f32]),
             items,
             pivot,
             individual: pivot_point == PivotPoint::Individual,
@@ -229,6 +244,12 @@ impl Transform {
     /// Writes the transform for the cursor at `mval` into the objects (always from their initial state) and
     /// returns the text of the viewport header.
     pub fn apply(&self, scene: &mut Scene, mval: [i32; 2], rv3d: &RegionView3D, winx: i32, winy: i32) -> String {
+        /* The movement since the last call counts in full, or a tenth of it in precision mode. */
+        let last = self.last_mval.replace(mval);
+        let gain = if self.precision { PRECISION_FACTOR } else { 1.0 };
+        let eff = self.eff_mval.get();
+        let mval = [eff[0] + (mval[0] - last[0]) as f32 * gain, eff[1] + (mval[1] - last[1]) as f32 * gain];
+        self.eff_mval.set(mval);
         let text = match self.mode {
             Mode::Translate => self.apply_translate(scene, mval, rv3d, winx, winy),
             Mode::Rotate => self.apply_rotate(scene, mval, rv3d, winx, winy),
@@ -254,8 +275,8 @@ impl Transform {
         }
     }
 
-    fn apply_translate(&self, scene: &mut Scene, mval: [i32; 2], rv3d: &RegionView3D, winx: i32, winy: i32) -> String {
-        let (dx, dy) = ((mval[0] - self.start[0]) as f32, (mval[1] - self.start[1]) as f32);
+    fn apply_translate(&self, scene: &mut Scene, mval: [f32; 2], rv3d: &RegionView3D, winx: i32, winy: i32) -> String {
+        let (dx, dy) = (mval[0] - self.start[0], mval[1] - self.start[1]);
         let free = rv3d.win_to_delta(winx, winy, self.zfac, dx, dy);
         let mut vec = free;
         if let Some(axis) = self.axis {
@@ -301,15 +322,15 @@ impl Transform {
         }
     }
 
-    fn apply_rotate(&self, scene: &mut Scene, mval: [i32; 2], rv3d: &RegionView3D, winx: i32, winy: i32) -> String {
+    fn apply_rotate(&self, scene: &mut Scene, mval: [f32; 2], rv3d: &RegionView3D, winx: i32, winy: i32) -> String {
         let axis = self.rotation_axis(rv3d);
         let view_z = rv3d.viewinv[2];
         let mut angle = match self.typed() {
             Some(deg) => deg.to_radians(),
             None => match project(rv3d, winx, winy, self.pivot) {
                 Some(c) => {
-                    let a0 = (self.start[1] as f32 - c[1]).atan2(self.start[0] as f32 - c[0]);
-                    let a1 = (mval[1] as f32 - c[1]).atan2(mval[0] as f32 - c[0]);
+                    let a0 = (self.start[1] - c[1]).atan2(self.start[0] - c[0]);
+                    let a1 = (mval[1] - c[1]).atan2(mval[0] - c[0]);
                     let mut a = wrap_angle(a1 - a0);
                     /* An axis that points away from the viewer turns the other way round on screen. */
                     if dot(axis, [view_z[0], view_z[1], view_z[2]]) < 0.0 {
@@ -343,13 +364,13 @@ impl Transform {
         }
     }
 
-    fn apply_scale(&self, scene: &mut Scene, mval: [i32; 2], rv3d: &RegionView3D, winx: i32, winy: i32) -> String {
+    fn apply_scale(&self, scene: &mut Scene, mval: [f32; 2], rv3d: &RegionView3D, winx: i32, winy: i32) -> String {
         let factor = match self.typed() {
             Some(v) => v,
             None => match project(rv3d, winx, winy, self.pivot) {
                 Some(c) => {
-                    let d0 = ((self.start[0] as f32 - c[0]).powi(2) + (self.start[1] as f32 - c[1]).powi(2)).sqrt();
-                    let d1 = ((mval[0] as f32 - c[0]).powi(2) + (mval[1] as f32 - c[1]).powi(2)).sqrt();
+                    let d0 = ((self.start[0] - c[0]).powi(2) + (self.start[1] - c[1]).powi(2)).sqrt();
+                    let d1 = ((mval[0] - c[0]).powi(2) + (mval[1] - c[1]).powi(2)).sqrt();
                     let f = if d0 > 1.0 { d1 / d0 } else { 1.0 };
                     if self.snap {
                         (f * 10.0).round() / 10.0
@@ -496,6 +517,68 @@ mod tests {
         scene.select_all(crate::scene::SelectAction::Deselect);
         assert!(Transform::begin(Mode::Translate, &mut scene, [0, 0], &view(), true).is_none());
         assert!(!scene.can_undo());
+    }
+
+    #[test]
+    fn precision_mode_counts_a_tenth_of_the_mouse_movement() {
+        let (mut full_scene, full, rv3d) = start(Mode::Translate);
+        full.apply(&mut full_scene, [150, 50], &rv3d, W, H);
+        let x_full = cube(&full_scene).loc[0];
+        let (mut scene, mut t, rv3d) = start(Mode::Translate);
+        t.precision = true;
+        t.apply(&mut scene, [150, 50], &rv3d, W, H);
+        let x = cube(&scene).loc[0];
+        assert!(x_full > 0.1);
+        assert!((x - x_full * PRECISION_FACTOR).abs() < 1e-4, "{x} vs {x_full}");
+    }
+
+    #[test]
+    fn releasing_shift_keeps_the_value_instead_of_jumping_to_the_cursor() {
+        let (mut scene, mut t, rv3d) = start(Mode::Translate);
+        t.precision = true;
+        t.apply(&mut scene, [200, 50], &rv3d, W, H);
+        let slow = cube(&scene).loc[0];
+        t.precision = false;
+        t.apply(&mut scene, [200, 50], &rv3d, W, H);
+        assert!((cube(&scene).loc[0] - slow).abs() < 1e-6, "no jump when Shift is released");
+        /* Further movement counts in full again: 10 px is a tenth of the 100 px of the first move. */
+        t.apply(&mut scene, [210, 50], &rv3d, W, H);
+        let (mut ref_scene, ref_t, rv) = start(Mode::Translate);
+        ref_t.apply(&mut ref_scene, [110, 50], &rv, W, H);
+        let ten_px = cube(&ref_scene).loc[0];
+        assert!((cube(&scene).loc[0] - (slow + ten_px)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn precision_mode_slows_rotation_and_scale_too() {
+        /* Pressed 50 px right of the pivot (the centre of the region), since a press on the pivot has no reference. */
+        let from_right = |mode: Mode, precision: bool, to: [i32; 2]| {
+            let rv3d = view();
+            let mut scene = Scene::startup();
+            let mut t = Transform::begin(mode, &mut scene, [150, 50], &rv3d, true).unwrap();
+            t.precision = precision;
+            t.apply(&mut scene, to, &rv3d, W, H);
+            let o = cube(&scene);
+            (o.scale[0], o.rot[2].abs())
+        };
+        let (full, _) = from_right(Mode::Scale, false, [250, 50]);
+        let (slow, _) = from_right(Mode::Scale, true, [250, 50]);
+        assert!((full - 3.0).abs() < 1e-3, "{full}");
+        assert!(slow > 1.0 && slow < 1.5, "{slow}");
+
+        let (_, fast) = from_right(Mode::Rotate, false, [150, 100]);
+        let (_, slow) = from_right(Mode::Rotate, true, [150, 100]);
+        assert!((fast - std::f32::consts::FRAC_PI_4).abs() < 1e-3, "{fast}");
+        assert!(slow > 0.0 && slow < fast * 0.2, "{slow} {fast}");
+    }
+
+    #[test]
+    fn precision_ignores_nothing_when_the_cursor_stands_still() {
+        let (mut scene, mut t, rv3d) = start(Mode::Translate);
+        t.precision = true;
+        t.apply(&mut scene, [100, 50], &rv3d, W, H);
+        t.apply(&mut scene, [100, 50], &rv3d, W, H);
+        assert_eq!(cube(&scene).loc, [0.0; 3]);
     }
 
     #[test]
