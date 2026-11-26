@@ -302,6 +302,8 @@ struct Target<'a> {
     ids: Vec<u32>,
     /// The id written by the triangles being drawn.
     cur_id: u32,
+    /// The sculpt mask at the corners of the triangles being drawn (all zero when the object has no mask).
+    cur_mask: [f32; 3],
     lighting: Lighting,
     /// The opaque triangles of the frame, rasterised by `flush()` in horizontal bands on several threads.
     jobs: Vec<Job>,
@@ -353,6 +355,7 @@ impl Target<'_> {
         if area < 0.0 {
             t.swap(1, 2);
             ns.swap(1, 2);
+            self.cur_mask.swap(1, 2);
             area = -area;
             /* `frag_transparent()` does not flip the normal of back faces. */
             if self.xray.is_none() {
@@ -360,7 +363,7 @@ impl Target<'_> {
             }
         }
         if self.xray.is_none() {
-            self.jobs.push(Job { t, ns, area, id: self.cur_id });
+            self.jobs.push(Job { t, ns, area, id: self.cur_id, mask: self.cur_mask });
             return;
         }
         let flat = ns[0] == ns[1] && ns[1] == ns[2];
@@ -446,6 +449,16 @@ struct Job {
     ns: [V3; 3],
     area: f32,
     id: u32,
+    /// The sculpt mask at the three corners.
+    mask: [f32; 3],
+}
+
+/// How much of the colour a fully masked point keeps: Blender draws the mask as a dark grey wash.
+const MASK_KEEP: f32 = 0.2;
+
+fn mask_shade(c: V3, m: f32) -> V3 {
+    let k = 1.0 - m.clamp(0.0, 1.0) * (1.0 - MASK_KEEP);
+    [c[0] * k, c[1] * k, c[2] * k]
 }
 
 /// A raw pointer to the window buffer that the band threads write through. Every band owns a distinct range of
@@ -495,7 +508,8 @@ fn raster_band(ctx: &BandCtx, band: &mut Band, jobs: &[Job]) {
         let (e0x, e0y, o0x, o0y) = (t[2][0] - t[1][0], t[2][1] - t[1][1], t[1][0], t[1][1]);
         let (e1x, e1y, o1x, o1y) = (t[0][0] - t[2][0], t[0][1] - t[2][1], t[2][0], t[2][1]);
         let (e2x, e2y, o2x, o2y) = (t[1][0] - t[0][0], t[1][1] - t[0][1], t[0][0], t[0][1]);
-        let flat_color = (flat && ctx.rv3d.ortho).then(|| ctx.lighting.shade(ns[0], [0.0, 0.0, 1.0]));
+        let masked = job.mask.iter().any(|&m| m > 0.0);
+        let flat_color = (flat && ctx.rv3d.ortho && !masked).then(|| ctx.lighting.shade(ns[0], [0.0, 0.0, 1.0]));
         for py in y0..=y1 {
             for px in x0..=x1 {
                 let p = [px as f32 + 0.5, py as f32 + 0.5];
@@ -527,6 +541,7 @@ fn raster_band(ctx: &BandCtx, band: &mut Band, jobs: &[Job]) {
                         ctx.lighting.shade(n, incident_vector(ctx.rv3d, ndc))
                     }
                 };
+                let c = if masked { mask_shade(c, (w0 * job.mask[0] + w1 * job.mask[1] + w2 * job.mask[2]) / area) } else { c };
                 let (x, y) = (ctx.region.xmin + px, ctx.region.ymin + py);
                 if x < 0 || y < 0 || x as usize >= ctx.width || y as usize >= ctx.height {
                     continue;
@@ -634,7 +649,7 @@ fn draw_flat_polygon(target: &mut Target, rv3d: &RegionView3D, poly_world: &[V3]
 /// Draws one object's evaluated mesh. Flat shaded faces use their own normal; with `smooth` every triangle fully
 /// inside the view uses the interpolated vertex normals, the rest (cut by the near plane or the clipping border)
 /// fall back to the face normal.
-fn draw_mesh(target: &mut Target, rv3d: &RegionView3D, m: &Mat4, mesh: &Mesh, smooth: bool) {
+fn draw_mesh(target: &mut Target, rv3d: &RegionView3D, m: &Mat4, mesh: &Mesh, smooth: bool, mask: Option<&[f32]>) {
     let nm = normal_matrix(m);
     let to_view = |n_local: V3| normal_to_view(rv3d, normalize(mat3_mul_v3(&nm, n_local)));
     let world: Vec<V3> = mesh.verts.iter().map(|&v| mat4_mul_point(m, v)).collect();
@@ -646,11 +661,16 @@ fn draw_mesh(target: &mut Target, rv3d: &RegionView3D, m: &Mat4, mesh: &Mesh, sm
         let face_n = to_view(mesh.face_normal(f));
         let Some(vn) = vnormals.as_ref() else {
             let poly: Vec<V3> = face.iter().map(|&i| world[i as usize]).collect();
+            /* A flat face has one mask: the mean of its corners. */
+            let mean = mask.map_or(0.0, |mk| face.iter().map(|&i| mk[i as usize]).sum::<f32>() / face.len() as f32);
+            target.cur_mask = [mean; 3];
             draw_flat_polygon(target, rv3d, &poly, face_n);
+            target.cur_mask = [0.0; 3];
             continue;
         };
         for k in 1..face.len().saturating_sub(1) {
             let tri = [face[0], face[k], face[k + 1]];
+            target.cur_mask = mask.map_or([0.0; 3], |mk| tri.map(|i| mk[i as usize]));
             let clip: [[f32; 4]; 3] = tri.map(|i| {
                 let v = world[i as usize];
                 std::array::from_fn(|r| p[0][r] * v[0] + p[1][r] * v[1] + p[2][r] * v[2] + p[3][r])
@@ -661,10 +681,13 @@ fn draw_mesh(target: &mut Target, rv3d: &RegionView3D, m: &Mat4, mesh: &Mesh, sm
                 let ns = tri.map(|i| to_view(vn[i as usize]));
                 target.triangle(screen, ns, rv3d);
             } else {
+                let mean = target.cur_mask.iter().sum::<f32>() / 3.0;
+                target.cur_mask = [mean; 3];
                 draw_flat_polygon(target, rv3d, &tri.map(|i| world[i as usize]), face_n);
             }
         }
     }
+    target.cur_mask = [0.0; 3];
 }
 
 /// Draws the visible mesh objects of `scene` into `region` (inclusive Blender rect, y up) of the `0x00RRGGBB`
@@ -693,6 +716,7 @@ pub fn draw_scene_threads(buf: &mut [u32], width: usize, height: usize, region: 
         depth: vec![1.0; n],
         ids: vec![0; n],
         cur_id: 0,
+        cur_mask: [0.0; 3],
         xray: xray.then(|| Xray {
             alpha: SHADING_XRAY_ALPHA,
             accum: vec![[0.0; 3]; n],
@@ -706,7 +730,8 @@ pub fn draw_scene_threads(buf: &mut [u32], width: usize, height: usize, region: 
     for o in scene.objects.iter().filter(|o| !o.hidden) {
         let Some(mesh) = o.evaluated() else { continue };
         target.cur_id = o.id + 1;
-        draw_mesh(&mut target, rv3d, &o.world_matrix(), mesh, o.smooth);
+        let mask = (o.mask.len() == mesh.verts.len() && o.mask.iter().any(|&m| m > 0.0)).then_some(o.mask.as_slice());
+        draw_mesh(&mut target, rv3d, &o.world_matrix(), mesh, o.smooth, mask);
     }
     target.flush(rv3d, threads);
     target.resolve_xray();
@@ -746,6 +771,29 @@ mod tests {
         scene.hide_selected();
         let (_, r, _, _) = render_scene(&scene);
         assert!(r.ids.iter().all(|&i| i == 0) && r.depth.iter().all(|&d| d == 1.0));
+    }
+
+    /* A masked sphere is drawn darker than the same sphere without a mask, smooth and flat shaded, and the
+     * threaded rasteriser agrees with the single thread one. */
+    #[test]
+    fn the_mask_darkens_the_surface() {
+        let lum = |buf: &[u32], i: usize| ((buf[i] >> 16) & 0xff) + ((buf[i] >> 8) & 0xff) + (buf[i] & 0xff);
+        for smooth in [false, true] {
+            let mut scene = Scene::startup();
+            scene.hide_selected();
+            let id = scene.add_primitive(Primitive::UvSphere, [0.0, 0.0, 0.0]);
+            scene.active = Some(id);
+            if smooth {
+                scene.set_smooth(true);
+            }
+            let (plain, r0, w, _) = render_scene(&scene);
+            let i = 50 * w + 100;
+            assert_eq!(r0.ids[i], id + 1);
+            scene.invert_mask_active();
+            let (masked, _, _, _) = render_scene(&scene);
+            assert!(lum(&masked, i) * 2 < lum(&plain, i), "smooth {smooth}: masked {} plain {}", lum(&masked, i), lum(&plain, i));
+            assert_eq!(masked[0], plain[0], "the background is untouched");
+        }
     }
 
     #[test]

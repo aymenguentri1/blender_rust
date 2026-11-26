@@ -141,6 +141,9 @@ pub struct Object {
     pub parent_inv: Mat4,
     /// The parent's world matrix as of the last `Scene::refresh_parents()` (identity without a parent).
     pub parent_world: Mat4,
+    /// The sculpt mask (`CD_PAINT_MASK`): 0 to 1 per vertex of the base mesh, 1 is fully masked (protected from
+    /// brushes). Empty when nothing is masked; a length that differs from the vertex count counts as no mask.
+    pub mask: Vec<f32>,
     eval: Option<Mesh>,
     /// What the cached `eval` was built against besides the object itself (the targets of its Shrinkwrap and Boolean
     /// modifiers and the transforms involved); 0 when the stack has no such dependency.
@@ -353,6 +356,7 @@ impl Scene {
             parent: None,
             parent_inv: IDENTITY4,
             parent_world: IDENTITY4,
+            mask: Vec::new(),
             eval: None,
             eval_sig: 0,
         });
@@ -387,6 +391,60 @@ impl Scene {
             ObjectData::Mesh(m) => Some(m),
             _ => None,
         }
+    }
+
+    /// The base mesh of object `id` with its mask for sculpting, the mask resized to the vertex count (zeros when
+    /// it did not fit). Drops the evaluated mesh like `sculpt_mesh_mut()`.
+    pub fn sculpt_mesh_mask_mut(&mut self, id: u32) -> Option<(&mut Mesh, &mut Vec<f32>)> {
+        let i = self.index_of(id)?;
+        let o = &mut self.objects[i];
+        o.eval = None;
+        match &mut o.data {
+            ObjectData::Mesh(m) => {
+                if o.mask.len() != m.verts.len() {
+                    o.mask = vec![0.0; m.verts.len()];
+                }
+                Some((m, &mut o.mask))
+            }
+            _ => None,
+        }
+    }
+
+    /// `paint.mask_flood_fill(mode='VALUE', value=0)` (Alt + M): clears the mask of the active object. One undo step;
+    /// false when there was no mask.
+    pub fn clear_mask_active(&mut self) -> bool {
+        let Some(i) = self.active.and_then(|id| self.index_of(id)) else { return false };
+        if !self.objects[i].mask.iter().any(|&m| m > 0.0) {
+            return false;
+        }
+        self.push_undo();
+        self.objects[i].mask.clear();
+        true
+    }
+
+    /// `paint.mask_flood_fill(mode='INVERT')` (Ctrl + I): every mask value `m` becomes `1 - m` (an empty mask
+    /// masks the whole mesh). One undo step.
+    pub fn invert_mask_active(&mut self) -> bool {
+        let Some(i) = self.active.and_then(|id| self.index_of(id)) else { return false };
+        let n = match self.objects[i].mesh() {
+            Some(m) => m.verts.len(),
+            None => return false,
+        };
+        self.push_undo();
+        let o = &mut self.objects[i];
+        if o.mask.len() != n {
+            o.mask = vec![0.0; n];
+        }
+        for m in o.mask.iter_mut() {
+            *m = 1.0 - *m;
+        }
+        o.eval = None;
+        true
+    }
+
+    /// Whether the active object has any masked vertex.
+    pub fn has_mask(&self) -> bool {
+        self.active_object().is_some_and(|o| o.mask.iter().any(|&m| m > 0.0))
     }
 
     /// Subdivides the base mesh of the active object once (Catmull-Clark) so that it has enough vertices to sculpt
