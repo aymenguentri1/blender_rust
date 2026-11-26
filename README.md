@@ -20,13 +20,15 @@ enough vertices (Add > UV Sphere, or Alt + C to bake a subdivision level into th
 | Ctrl + Shift + D | Subdivide the base mesh once (Catmull-Clark), for meshes too coarse to sculpt |
 | Shift + T / P / Shift + C | Flatten / Pinch / Crease brush |
 | Shift + X / Shift + S | Fill / Scrape brush (these two keys are not Blender's) |
+| M | Mask brush: paints the mask (Ctrl + drag erases it). Masked vertices are drawn dark grey and every brush, Grab included, is scaled by `1 - mask` |
+| Alt + M / Ctrl + I | Clear the mask / invert it (an empty mask becomes fully masked), one undo step each |
 | F / Shift + F | Brush radius / strength: move the mouse, click or Enter confirms, Esc cancels |
 | Alt + X / Y / Z | Toggle mirror symmetry on that axis (X is on, as in Blender) |
 | Ctrl + Z | Undo, one step per stroke |
 
 The brush ring shows the radius (outer circle) and the strength (inner circle); the line at the bottom left of the
 viewport names the brush, radius (default 50 px), strength (default 0.5) and symmetry. The falloff is Blender's
-Smooth curve preset. Deviations: the displacement factors are tuned by eye, there is no pressure, masking, face sets,
+Smooth curve preset. Deviations: the displacement factors are tuned by eye, there is no pressure, face sets,
 dynamic topology or multires, the brush curve cannot be changed, and the viewport tool header and brush asset
 shelf are not drawn.
 

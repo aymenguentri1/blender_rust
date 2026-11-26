@@ -1336,6 +1336,18 @@ impl ApplicationHandler for App {
                             KeyCode::KeyC if plain => sc.settings.brush = sculpt::Brush::Clay,
                             KeyCode::KeyX if shift_only => sc.settings.brush = sculpt::Brush::Fill,
                             KeyCode::KeyS if shift_only => sc.settings.brush = sculpt::Brush::Scrape,
+                            KeyCode::KeyM if plain => sc.settings.brush = sculpt::Brush::Mask,
+                            /* `paint.mask_flood_fill`: Alt + M clears the mask, Ctrl + I inverts it. */
+                            KeyCode::KeyM if alt_only => {
+                                if self.scene.clear_mask_active() {
+                                    scene_changed(&mut self.scene, &mut self.taa);
+                                }
+                            }
+                            KeyCode::KeyI if ctrl_k && !shift_k && !alt_k => {
+                                if self.scene.invert_mask_active() {
+                                    scene_changed(&mut self.scene, &mut self.taa);
+                                }
+                            }
                             /* Subdivides the base mesh once (Catmull-Clark), for meshes too coarse to sculpt. */
                             KeyCode::KeyD if ctrl_k && shift_k && !alt_k => {
                                 if self.scene.subdivide_active_base() {

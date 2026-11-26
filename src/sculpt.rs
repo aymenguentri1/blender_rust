@@ -5,12 +5,14 @@
 //! inside the brush radius by `strength * falloff(distance)`, with the Smooth curve preset of the brush
 //! (`3 t^2 - 2 t^3`, `t = 1 - distance / radius`).
 //!
-//! Brushes: Draw, Smooth, Grab, Inflate, Flatten, Pinch and Crease. Ctrl inverts the brush (the ring turns light
+//! Brushes: Draw, Smooth, Grab, Inflate, Flatten, Pinch, Crease, Clay Strips, Fill, Scrape and Mask. The mask
+//! (`Object::mask`, 0 to 1 per vertex) scales every brush down by `1 - mask`, so a masked vertex stays put, and is
+//! painted by the Mask brush (Ctrl erases), cleared with Alt + M and inverted with Ctrl + I. Ctrl inverts the brush (the ring turns light
 //! blue like `cursor_color_subtract`), Shift smooths while it is held. Symmetry mirrors every dab across the
 //! local X / Y / Z planes (X is on, as in a new Blender sculpt session).
 //!
 //! Deviations: the displacement factors are tuned by eye (Blender derives them from the brush overlap), there is
-//! no pressure, masking, face sets, dynamic topology or multires, the brush curve is always Smooth, and a mesh
+//! no pressure, face sets, dynamic topology or multires, the brush curve is always Smooth, and a mesh
 //! with modifiers is sculpted on its base mesh (Blender does the same, but shows the result through the stack).
 
 use crate::area::Rcti;
@@ -35,11 +37,12 @@ pub enum Brush {
     Clay,
     Fill,
     Scrape,
+    Mask,
 }
 
 impl Brush {
     #[allow(dead_code)]
-    pub const ALL: [Brush; 10] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape];
+    pub const ALL: [Brush; 11] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -53,6 +56,7 @@ impl Brush {
             Brush::Clay => "Clay Strips",
             Brush::Fill => "Fill",
             Brush::Scrape => "Scrape",
+            Brush::Mask => "Mask",
         }
     }
 }
@@ -62,6 +66,8 @@ const DRAW_FACTOR: f32 = 0.06;
 /// Part of the distance to the target (plane, neighbour average, centre) a dab closes at full strength.
 const BLEND_FACTOR: f32 = 0.3;
 const PINCH_FACTOR: f32 = 0.2;
+/// Mask painted by a Mask dab at full strength and falloff.
+const MASK_FACTOR: f32 = 0.25;
 /// `Brush::spacing` (percent of the brush diameter) of the dotted brushes.
 const SPACING: f32 = 0.10;
 const MIN_RADIUS_PX: f32 = 5.0;
@@ -93,14 +99,19 @@ impl Default for Settings {
     }
 }
 
-/// The vertices of `mesh` within `radius` of `center`, with their falloff.
-fn affected(mesh: &Mesh, center: V3, radius: f32) -> Vec<(usize, f32)> {
+/// The mask of vertex `i` (0 where the mask is shorter than the mesh, i.e. absent).
+fn mask_at(mask: &[f32], i: usize) -> f32 {
+    mask.get(i).copied().unwrap_or(0.0)
+}
+
+/// The vertices of `mesh` within `radius` of `center`, with their falloff times `1 - mask`.
+fn affected(mesh: &Mesh, mask: &[f32], center: V3, radius: f32) -> Vec<(usize, f32)> {
     let mut out = Vec::new();
     for (i, &v) in mesh.verts.iter().enumerate() {
         let d = sub(v, center);
         let d2 = dot(d, d);
         if d2 < radius * radius {
-            let f = falloff(d2.sqrt(), radius);
+            let f = falloff(d2.sqrt(), radius) * (1.0 - mask_at(mask, i)).clamp(0.0, 1.0);
             if f > 0.0 {
                 out.push((i, f));
             }
@@ -166,19 +177,39 @@ fn mirrored(v: V3, s: [f32; 3]) -> V3 {
     [v[0] * s[0], v[1] * s[1], v[2] * s[2]]
 }
 
-/// One dab of `brush` (not Grab) at `center`, in the local space of `mesh`, with every mirror of it.
+/// One dab of `brush` (not Grab) at `center`, in the local space of `mesh`, with every mirror of it, on a mesh
+/// without a mask.
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub fn dab(mesh: &mut Mesh, adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
+    let mut mask = vec![0.0; mesh.verts.len()];
+    dab_masked(mesh, &mut mask, adj, brush, center, radius, strength, invert, symmetry);
+}
+
+/// `dab()` on a mesh with a mask (one value per vertex); the Mask brush paints it, the others are scaled by it.
+#[allow(clippy::too_many_arguments)]
+pub fn dab_masked(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
     if brush == Brush::Grab {
         return;
     }
     for s in mirror_signs(symmetry) {
-        dab_one(mesh, adj, brush, mirrored(center, s), radius, strength, invert);
+        dab_one(mesh, mask, adj, brush, mirrored(center, s), radius, strength, invert);
     }
 }
 
-fn dab_one(mesh: &mut Mesh, adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool) {
-    let hit = affected(mesh, center, radius);
+#[allow(clippy::too_many_arguments)]
+fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool) {
+    if brush == Brush::Mask {
+        /* `do_mask_brush()`: paints the mask up (Ctrl: erases it) under the brush, the mask itself is not masked. */
+        let amount = strength * MASK_FACTOR * if invert { -1.0 } else { 1.0 };
+        for (i, f) in affected(mesh, &[], center, radius) {
+            if let Some(m) = mask.get_mut(i) {
+                *m = (*m + f * amount).clamp(0.0, 1.0);
+            }
+        }
+        return;
+    }
+    let hit = affected(mesh, mask, center, radius);
     if hit.is_empty() {
         return;
     }
@@ -274,7 +305,7 @@ fn dab_one(mesh: &mut Mesh, adj: &Topo, brush: Brush, center: V3, radius: f32, s
                 }
             }
         }
-        Brush::Grab => {}
+        Brush::Grab | Brush::Mask => {}
     }
 }
 
@@ -296,11 +327,11 @@ struct Grab {
 }
 
 impl Grab {
-    fn begin(mesh: &Mesh, center: V3, radius: f32, symmetry: [bool; 3], start_px: [f32; 2], depth: f32) -> Grab {
+    fn begin(mesh: &Mesh, mask: &[f32], center: V3, radius: f32, symmetry: [bool; 3], start_px: [f32; 2], depth: f32) -> Grab {
         let mut taken = vec![false; mesh.verts.len()];
         let mut passes = Vec::new();
         for s in mirror_signs(symmetry) {
-            let mut set = affected(mesh, mirrored(center, s), radius);
+            let mut set = affected(mesh, mask, mirrored(center, s), radius);
             /* A vertex that two mirrors both reach (on the plane) moves with the first. */
             set.retain(|&(i, _)| !std::mem::replace(&mut taken[i], true));
             passes.push((s, set));
@@ -434,8 +465,8 @@ impl Session {
         let changed = if brush == Brush::Grab {
             let radius = self.local_radius(rv3d, &active, hit.world);
             let depth = window_depth(rv3d, hit.world);
-            if let Some(mesh) = scene.sculpt_mesh_mut(id) {
-                active.grab = Some(Grab::begin(mesh, hit.local, radius, self.settings.symmetry, px, depth));
+            if let Some((mesh, mask)) = scene.sculpt_mesh_mask_mut(id) {
+                active.grab = Some(Grab::begin(mesh, mask, hit.local, radius, self.settings.symmetry, px, depth));
             }
             true
         } else {
@@ -458,8 +489,8 @@ impl Session {
 
     fn dab_at(&self, scene: &mut Scene, rv3d: &RegionView3D, a: &Active, hit: &Hit) -> bool {
         let radius = self.local_radius(rv3d, a, hit.world);
-        let Some(mesh) = scene.sculpt_mesh_mut(a.id) else { return false };
-        dab(mesh, &a.adj, a.brush, hit.local, radius, self.settings.strength, a.invert, self.settings.symmetry);
+        let Some((mesh, mask)) = scene.sculpt_mesh_mask_mut(a.id) else { return false };
+        dab_masked(mesh, mask, &a.adj, a.brush, hit.local, radius, self.settings.strength, a.invert, self.settings.symmetry);
         true
     }
 
@@ -693,6 +724,57 @@ mod tests {
     }
 
     #[test]
+    fn mask_brush_paints_and_ctrl_erases() {
+        let mut m = grid();
+        let adj = adjacency(&m);
+        let mut mask = vec![0.0; m.verts.len()];
+        let i = m.verts.iter().position(|v| v[0].abs() < 1e-3 && v[1].abs() < 1e-3).unwrap();
+        let far = m.verts.iter().position(|v| (v[0] - 0.9).abs() < 1e-3 && (v[1] - 0.9).abs() < 1e-3).unwrap();
+        for _ in 0..3 {
+            dab_masked(&mut m, &mut mask, &adj, Brush::Mask, [0.0; 3], 0.5, 1.0, false, [false; 3]);
+        }
+        assert!(mask[i] > 0.5 && mask[i] <= 1.0);
+        assert_eq!(mask[far], 0.0);
+        let before = mask[i];
+        dab_masked(&mut m, &mut mask, &adj, Brush::Mask, [0.0; 3], 0.5, 1.0, true, [false; 3]);
+        assert!(mask[i] < before);
+        assert_eq!(m, grid(), "the mask brush does not move the mesh");
+    }
+
+    #[test]
+    fn masked_vertices_do_not_move() {
+        let mut m = grid();
+        let adj = adjacency(&m);
+        let i = m.verts.iter().position(|v| v[0].abs() < 1e-3 && v[1].abs() < 1e-3).unwrap();
+        let sign = m.vertex_normals()[i][2].signum();
+        let mut mask = vec![0.0; m.verts.len()];
+        mask[i] = 1.0;
+        dab_masked(&mut m, &mut mask, &adj, Brush::Draw, [0.0; 3], 0.5, 1.0, false, [false; 3]);
+        assert_eq!(m.verts[i][2], 0.0, "fully masked");
+        let other = m.verts.iter().position(|v| (v[0] - 0.2).abs() < 1e-3 && v[1].abs() < 1e-3).unwrap();
+        assert!(m.verts[other][2] * sign > 0.0, "an unmasked neighbour rises");
+        let mut half = grid();
+        let mut hm = vec![0.0; half.verts.len()];
+        hm[i] = 0.5;
+        let mut full = grid();
+        dab(&mut full, &adj, Brush::Draw, [0.0; 3], 0.5, 1.0, false, [false; 3]);
+        dab_masked(&mut half, &mut hm, &adj, Brush::Draw, [0.0; 3], 0.5, 1.0, false, [false; 3]);
+        assert!((half.verts[i][2] - full.verts[i][2] * 0.5).abs() < 1e-5, "half masked moves half as far");
+    }
+
+    #[test]
+    fn grab_skips_masked_vertices() {
+        let m0 = grid();
+        let i = m0.verts.iter().position(|v| v[0].abs() < 1e-3 && v[1].abs() < 1e-3).unwrap();
+        let mut mask = vec![0.0; m0.verts.len()];
+        mask[i] = 1.0;
+        let mut m = m0.clone();
+        let g = Grab::begin(&m0, &mask, [0.0; 3], 0.5, [false; 3], [0.0, 0.0], 0.5);
+        g.apply(&mut m, [0.0, 0.0, 1.0]);
+        assert_eq!(m.verts[i], m0.verts[i]);
+    }
+
+    #[test]
     fn pinch_moves_vertices_to_the_centre() {
         let mut m = grid();
         let adj = adjacency(&m);
@@ -705,7 +787,7 @@ mod tests {
     fn grab_moves_the_held_vertices() {
         let m0 = grid();
         let mut m = m0.clone();
-        let g = Grab::begin(&m0, [0.0, 0.0, 0.0], 0.5, [false; 3], [0.0, 0.0], 0.5);
+        let g = Grab::begin(&m0, &[], [0.0, 0.0, 0.0], 0.5, [false; 3], [0.0, 0.0], 0.5);
         g.apply(&mut m, [0.0, 0.0, 1.0]);
         assert!((height_at(&m, 0.0, 0.0) - 1.0).abs() < 1e-5);
         assert_eq!(height_at(&m, 0.9, 0.9), 0.0);
@@ -756,6 +838,62 @@ mod tests {
         let after = scene.active_object().unwrap().mesh().unwrap().clone();
         assert_ne!(before, after);
         assert!(scene.undo());
+        assert_eq!(scene.active_object().unwrap().mesh().unwrap(), &before);
+    }
+
+    fn sphere_scene() -> (Scene, RegionView3D, i32, i32) {
+        use crate::mesh::Primitive;
+        use crate::view3d::View3D;
+        let mut scene = Scene::startup();
+        let id = scene.add_primitive(Primitive::UvSphere, [0.0, 0.0, 0.0]);
+        scene.active = Some(id);
+        let (w, h) = (400, 300);
+        let mut rv3d = RegionView3D::default();
+        rv3d.update(&View3D::default(), w, h);
+        (scene, rv3d, w, h)
+    }
+
+    #[test]
+    fn a_mask_stroke_paints_the_mask_and_leaves_the_mesh() {
+        let (mut scene, rv3d, w, h) = sphere_scene();
+        let before = scene.active_object().unwrap().mesh().unwrap().clone();
+        let mut session = Session::new();
+        session.settings.radius_px = 40.0;
+        session.settings.brush = Brush::Mask;
+        assert!(session.begin_stroke(&mut scene, &rv3d, w, h, [w / 2, h / 2], false, false));
+        session.move_stroke(&mut scene, &rv3d, w, h, [w / 2 + 30, h / 2]);
+        session.end_stroke();
+        assert!(scene.has_mask());
+        assert_eq!(scene.active_object().unwrap().mesh().unwrap(), &before);
+        assert!(scene.undo());
+        assert!(!scene.has_mask(), "one undo step takes the stroke's mask back");
+    }
+
+    #[test]
+    fn clear_and_invert_mask() {
+        let (mut scene, _, _, _) = sphere_scene();
+        assert!(!scene.clear_mask_active(), "nothing to clear");
+        assert!(scene.invert_mask_active());
+        let n = scene.active_object().unwrap().mesh().unwrap().verts.len();
+        assert_eq!(scene.active_object().unwrap().mask, vec![1.0; n], "inverting an empty mask masks everything");
+        assert!(scene.invert_mask_active());
+        assert!(!scene.has_mask());
+        assert!(scene.invert_mask_active() && scene.clear_mask_active());
+        assert!(!scene.has_mask());
+        assert!(scene.undo());
+        assert!(scene.has_mask(), "undo brings the mask back");
+    }
+
+    #[test]
+    fn a_fully_masked_object_cannot_be_sculpted() {
+        let (mut scene, rv3d, w, h) = sphere_scene();
+        scene.invert_mask_active();
+        let before = scene.active_object().unwrap().mesh().unwrap().clone();
+        let mut session = Session::new();
+        session.settings.radius_px = 40.0;
+        session.begin_stroke(&mut scene, &rv3d, w, h, [w / 2, h / 2], false, false);
+        session.move_stroke(&mut scene, &rv3d, w, h, [w / 2 + 30, h / 2]);
+        session.end_stroke();
         assert_eq!(scene.active_object().unwrap().mesh().unwrap(), &before);
     }
 
