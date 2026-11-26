@@ -192,6 +192,8 @@ mod widget_state_blend;
 mod blend_dna_read;
 #[allow(dead_code)]
 mod blend_mesh_read;
+#[allow(dead_code)]
+mod blend_object_read;
 
 use std::{num::NonZeroU32, sync::Arc};
 
