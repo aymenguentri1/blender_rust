@@ -40,7 +40,7 @@ def issues(label):
 
 def last_activity(issue):
     """Newest of: issue update/comments, linked PR activity, linked branch commits."""
-    times = [ts(issue["updated_at"])]
+    times = [ts(issue["created_at"])]   # not updated_at: our own label/comment edits must not renew a lease
     for c in call("GET", f"/issues/{issue['number']}/comments?per_page=100"):
         if "github-actions" not in c["user"]["login"]:      # our own stale notices are not activity
             times.append(ts(c["created_at"]))
