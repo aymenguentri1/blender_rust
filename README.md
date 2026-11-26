@@ -19,6 +19,7 @@ enough vertices (Add > UV Sphere, or Alt + C to bake a subdivision level into th
 | X / S / G / I / C | Draw / Smooth / Grab / Inflate / Clay Strips brush |
 | Ctrl + Shift + D | Subdivide the base mesh once (Catmull-Clark), for meshes too coarse to sculpt |
 | Shift + T / P / Shift + C | Flatten / Pinch / Crease brush |
+| Shift + X / Shift + S | Fill / Scrape brush (these two keys are not Blender's) |
 | F / Shift + F | Brush radius / strength: move the mouse, click or Enter confirms, Esc cancels |
 | Alt + X / Y / Z | Toggle mirror symmetry on that axis (X is on, as in Blender) |
 | Ctrl + Z | Undo, one step per stroke |
