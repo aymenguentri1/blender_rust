@@ -20,6 +20,10 @@ enough vertices (Add > UV Sphere, or Alt + C to bake a subdivision level into th
 | Ctrl + Shift + D | Subdivide the base mesh once (Catmull-Clark), for meshes too coarse to sculpt |
 | Shift + T / P / Shift + C | Flatten / Pinch / Crease brush |
 | Shift + X / Shift + S | Fill / Scrape brush (these two keys are not Blender's) |
+| L | Layer brush: raises the surface to a capped height, so repeated passes build a flat topped layer instead of piling up (Ctrl digs one) |
+| K | Snake Hook brush: the brush follows the mouse and drags the surface under it along, stretching it (falloff and mask apply, symmetry mirrors the pull) |
+| N | Nudge brush: drags the surface under the brush along the stroke direction, kept on the surface |
+| Shift + B | Blob brush: inflates with an outward push as well, so the surface swells into a ball (Ctrl dents it) |
 | M | Mask brush: paints the mask (Ctrl + drag erases it). Masked vertices are drawn dark grey and every brush, Grab included, is scaled by `1 - mask` |
 | Alt + M / Ctrl + I | Clear the mask / invert it (an empty mask becomes fully masked), one undo step each |
 | F / Shift + F | Brush radius / strength: move the mouse, click or Enter confirms, Esc cancels |

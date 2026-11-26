@@ -1337,6 +1337,10 @@ impl ApplicationHandler for App {
                             KeyCode::KeyX if shift_only => sc.settings.brush = sculpt::Brush::Fill,
                             KeyCode::KeyS if shift_only => sc.settings.brush = sculpt::Brush::Scrape,
                             KeyCode::KeyM if plain => sc.settings.brush = sculpt::Brush::Mask,
+                            KeyCode::KeyL if plain => sc.settings.brush = sculpt::Brush::Layer,
+                            KeyCode::KeyK if plain => sc.settings.brush = sculpt::Brush::SnakeHook,
+                            KeyCode::KeyN if plain => sc.settings.brush = sculpt::Brush::Nudge,
+                            KeyCode::KeyB if shift_only => sc.settings.brush = sculpt::Brush::Blob,
                             /* `paint.mask_flood_fill`: Alt + M clears the mask, Ctrl + I inverts it. */
                             KeyCode::KeyM if alt_only => {
                                 if self.scene.clear_mask_active() {

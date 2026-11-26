@@ -5,7 +5,7 @@
 //! inside the brush radius by `strength * falloff(distance)`, with the Smooth curve preset of the brush
 //! (`3 t^2 - 2 t^3`, `t = 1 - distance / radius`).
 //!
-//! Brushes: Draw, Smooth, Grab, Inflate, Flatten, Pinch, Crease, Clay Strips, Fill, Scrape and Mask. The mask
+//! Brushes: Draw, Smooth, Grab, Inflate, Flatten, Pinch, Crease, Clay Strips, Fill, Scrape, Mask, Layer, Snake Hook, Nudge and Blob. The mask
 //! (`Object::mask`, 0 to 1 per vertex) scales every brush down by `1 - mask`, so a masked vertex stays put, and is
 //! painted by the Mask brush (Ctrl erases), cleared with Alt + M and inverted with Ctrl + I. Ctrl inverts the brush (the ring turns light
 //! blue like `cursor_color_subtract`), Shift smooths while it is held. Symmetry mirrors every dab across the
@@ -38,11 +38,15 @@ pub enum Brush {
     Fill,
     Scrape,
     Mask,
+    Layer,
+    SnakeHook,
+    Nudge,
+    Blob,
 }
 
 impl Brush {
     #[allow(dead_code)]
-    pub const ALL: [Brush; 11] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask];
+    pub const ALL: [Brush; 15] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask, Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -57,6 +61,10 @@ impl Brush {
             Brush::Fill => "Fill",
             Brush::Scrape => "Scrape",
             Brush::Mask => "Mask",
+            Brush::Layer => "Layer",
+            Brush::SnakeHook => "Snake Hook",
+            Brush::Nudge => "Nudge",
+            Brush::Blob => "Blob",
         }
     }
 }
@@ -68,6 +76,12 @@ const BLEND_FACTOR: f32 = 0.3;
 const PINCH_FACTOR: f32 = 0.2;
 /// Mask painted by a Mask dab at full strength and falloff.
 const MASK_FACTOR: f32 = 0.25;
+/// Height a Layer stroke raises the surface to, in brush radii at full strength.
+const LAYER_HEIGHT: f32 = 0.25;
+/// Distance a Nudge dab drags the surface along the stroke, in brush radii at full strength and falloff.
+const NUDGE_FACTOR: f32 = 0.15;
+/// Displacement of a Blob dab, relative to a Draw dab.
+const BLOB_FACTOR: f32 = 1.5;
 /// `Brush::spacing` (percent of the brush diameter) of the dotted brushes.
 const SPACING: f32 = 0.10;
 const MIN_RADIUS_PX: f32 = 5.0;
@@ -189,7 +203,7 @@ pub fn dab(mesh: &mut Mesh, adj: &Topo, brush: Brush, center: V3, radius: f32, s
 /// `dab()` on a mesh with a mask (one value per vertex); the Mask brush paints it, the others are scaled by it.
 #[allow(clippy::too_many_arguments)]
 pub fn dab_masked(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
-    if brush == Brush::Grab {
+    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge) {
         return;
     }
     for s in mirror_signs(symmetry) {
@@ -305,7 +319,101 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
                 }
             }
         }
-        Brush::Grab | Brush::Mask => {}
+        Brush::Blob => {
+            /* `do_blob_brush()` (simplified): inflates with a push away from the dab centre as well, so the
+             * surface swells into a ball instead of a plateau. */
+            for (k, &(i, f)) in hit.iter().enumerate() {
+                let radial = normalized(sub(mesh.verts[i], center));
+                let d = normalized(add(normals[k], scale(radial, 0.5)));
+                mesh.verts[i] = add(mesh.verts[i], scale(d, push * BLOB_FACTOR * f * dir));
+            }
+        }
+        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge => {}
+    }
+}
+
+/// The falloff weighted mean of the vertex normals under a dab (`calc_area_normal()`).
+fn area_normal(mesh: &Mesh, adj: &Topo, hit: &[(usize, f32)]) -> V3 {
+    let mut area = [0.0f32; 3];
+    for &(i, f) in hit {
+        area = add(area, scale(vertex_normal(mesh, adj, i), f));
+    }
+    normalized(area)
+}
+
+/// One Nudge dab (`do_nudge_brush()`): drags the vertices under the brush along `dir`, the stroke direction in
+/// the local space of the mesh, projected onto the surface.
+#[allow(clippy::too_many_arguments)]
+pub fn nudge(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radius: f32, strength: f32, dir: V3, symmetry: [bool; 3]) {
+    for s in mirror_signs(symmetry) {
+        let hit = affected(mesh, mask, mirrored(center, s), radius);
+        if hit.is_empty() {
+            continue;
+        }
+        let area = area_normal(mesh, adj, &hit);
+        let d = mirrored(dir, s);
+        let tangent = sub(d, scale(area, dot(d, area)));
+        for &(i, f) in &hit {
+            mesh.verts[i] = add(mesh.verts[i], scale(tangent, radius * strength * NUDGE_FACTOR * f));
+        }
+    }
+}
+
+/// The state of a Layer stroke (`SCULPT_vertex_layer_disp`): the surface as it was when the stroke began and how
+/// far each vertex has been raised along its original normal. The raise is capped, so the stroke builds a plateau
+/// of constant height however often it passes.
+#[derive(Clone, Debug)]
+struct Layer {
+    orig: Vec<V3>,
+    normals: Vec<V3>,
+    disp: Vec<f32>,
+}
+
+impl Layer {
+    fn begin(mesh: &Mesh) -> Layer {
+        Layer { orig: mesh.verts.clone(), normals: mesh.vertex_normals(), disp: vec![0.0; mesh.verts.len()] }
+    }
+
+    /// One Layer dab (`do_layer_brush()`); the inverted brush digs a layer instead.
+    #[allow(clippy::too_many_arguments)]
+    fn dab(&mut self, mesh: &mut Mesh, mask: &[f32], center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
+        let dir = if invert { -1.0 } else { 1.0 };
+        let max = radius * strength * LAYER_HEIGHT;
+        let step = radius * strength * DRAW_FACTOR;
+        for s in mirror_signs(symmetry) {
+            for (i, f) in affected(mesh, mask, mirrored(center, s), radius) {
+                let d = (self.disp[i] + step * f * dir).clamp(-max, max);
+                /* A vertex only ever moves one way during a stroke (the other direction cannot undo it). */
+                let d = if invert { d.min(0.0).min(self.disp[i]) } else { d.max(0.0).max(self.disp[i]) };
+                self.disp[i] = d;
+                mesh.verts[i] = add(self.orig[i], scale(self.normals[i], d));
+            }
+        }
+    }
+}
+
+/// The surface a Snake Hook stroke drags (`do_snake_hook_brush()`): the brush centre follows the mouse and pulls
+/// the vertices under it along, so the surface stretches into a tentacle.
+#[derive(Clone, Debug)]
+struct Hook {
+    center: V3,
+    radius: f32,
+}
+
+impl Hook {
+    /// Moves the brush by `delta` (local space), dragging the vertices under its previous position with it.
+    fn apply(&mut self, mesh: &mut Mesh, mask: &[f32], delta: V3, symmetry: [bool; 3]) {
+        let mut taken = vec![false; mesh.verts.len()];
+        for s in mirror_signs(symmetry) {
+            let d = mirrored(delta, s);
+            for (i, f) in affected(mesh, mask, mirrored(self.center, s), self.radius) {
+                /* A vertex that two mirrors both reach (on the plane) moves with the first. */
+                if !std::mem::replace(&mut taken[i], true) {
+                    mesh.verts[i] = add(mesh.verts[i], scale(d, f));
+                }
+            }
+        }
+        self.center = add(self.center, delta);
     }
 }
 
@@ -360,6 +468,12 @@ struct Active {
     /// Distance walked since the last dab.
     carry: f32,
     grab: Option<Grab>,
+    layer: Option<Layer>,
+    hook: Option<Hook>,
+    /// The stroke direction in the local space of the mesh (Nudge), from the last mouse movement.
+    dir: V3,
+    /// The window depth of the first hit: the mouse moves in the plane at that depth (Snake Hook, Nudge).
+    depth: f32,
     inv: Mat4,
 }
 
@@ -461,16 +575,23 @@ impl Session {
         };
         let brush = if smooth_held { Brush::Smooth } else { self.settings.brush };
         scene.push_undo();
-        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, inv };
+        let depth = window_depth(rv3d, hit.world);
+        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, layer: None, hook: None, dir: [0.0; 3], depth, inv };
         let changed = if brush == Brush::Grab {
             let radius = self.local_radius(rv3d, &active, hit.world);
-            let depth = window_depth(rv3d, hit.world);
             if let Some((mesh, mask)) = scene.sculpt_mesh_mask_mut(id) {
-                active.grab = Some(Grab::begin(mesh, mask, hit.local, radius, self.settings.symmetry, px, depth));
+                active.grab = Some(Grab::begin(mesh, mask, hit.local, radius, self.settings.symmetry, px, active.depth));
             }
             true
+        } else if brush == Brush::SnakeHook {
+            let radius = self.local_radius(rv3d, &active, hit.world);
+            active.hook = Some(Hook { center: hit.local, radius });
+            true
         } else {
-            self.dab_at(scene, rv3d, &active, &hit)
+            if brush == Brush::Layer {
+                active.layer = scene.sculpt_mesh_mut(id).map(|m| Layer::begin(m));
+            }
+            self.dab_at(scene, rv3d, &mut active, &hit)
         };
         self.stroke = Some(active);
         changed
@@ -487,9 +608,18 @@ impl Session {
         world_r * s.sum::<f32>() / 3.0
     }
 
-    fn dab_at(&self, scene: &mut Scene, rv3d: &RegionView3D, a: &Active, hit: &Hit) -> bool {
+    fn dab_at(&self, scene: &mut Scene, rv3d: &RegionView3D, a: &mut Active, hit: &Hit) -> bool {
         let radius = self.local_radius(rv3d, a, hit.world);
         let Some((mesh, mask)) = scene.sculpt_mesh_mask_mut(a.id) else { return false };
+        let sym = self.settings.symmetry;
+        if let Some(layer) = a.layer.as_mut() {
+            layer.dab(mesh, mask, hit.local, radius, self.settings.strength, a.invert, sym);
+            return true;
+        }
+        if a.brush == Brush::Nudge {
+            nudge(mesh, mask, &a.adj, hit.local, radius, self.settings.strength, a.dir, sym);
+            return true;
+        }
         dab_masked(mesh, mask, &a.adj, a.brush, hit.local, radius, self.settings.strength, a.invert, self.settings.symmetry);
         true
     }
@@ -510,7 +640,26 @@ impl Session {
                 }
             }
             a.last = cur;
+        } else if a.hook.is_some() {
+            let p0 = rv3d.unproject_v3(rw, rh, a.last[0], a.last[1], a.depth);
+            let p1 = rv3d.unproject_v3(rw, rh, cur[0], cur[1], a.depth);
+            if let (Some(p0), Some(p1)) = (p0, p1) {
+                let delta = mat4_mul_dir(&a.inv, sub(p1, p0));
+                let sym = self.settings.symmetry;
+                if let (Some(hook), Some((mesh, mask))) = (a.hook.as_mut(), scene.sculpt_mesh_mask_mut(a.id)) {
+                    hook.apply(mesh, mask, delta, sym);
+                    changed = true;
+                }
+            }
+            a.last = cur;
         } else {
+            if a.brush == Brush::Nudge {
+                let p0 = rv3d.unproject_v3(rw, rh, a.last[0], a.last[1], a.depth);
+                let p1 = rv3d.unproject_v3(rw, rh, cur[0], cur[1], a.depth);
+                if let (Some(p0), Some(p1)) = (p0, p1) {
+                    a.dir = normalized(mat4_mul_dir(&a.inv, sub(p1, p0)));
+                }
+            }
             let spacing = (self.settings.radius_px * 2.0 * SPACING).max(1.0);
             let d = ((cur[0] - a.last[0]).powi(2) + (cur[1] - a.last[1]).powi(2)).sqrt();
             if d > 0.0 {
@@ -521,7 +670,7 @@ impl Session {
                     let p = [a.last[0] + dir[0] * travelled, a.last[1] + dir[1] * travelled];
                     let obj = scene.index_of(a.id).map(|i| &scene.objects[i]);
                     if let Some(hit) = obj.and_then(|o| cast(o, rv3d, rw, rh, p)) {
-                        changed |= self.dab_at(scene, rv3d, &a, &hit);
+                        changed |= self.dab_at(scene, rv3d, &mut a, &hit);
                     }
                     travelled += spacing;
                     dabs += 1;
@@ -895,6 +1044,121 @@ mod tests {
         session.move_stroke(&mut scene, &rv3d, w, h, [w / 2 + 30, h / 2]);
         session.end_stroke();
         assert_eq!(scene.active_object().unwrap().mesh().unwrap(), &before);
+    }
+
+    fn centre_vertex(m: &Mesh) -> usize {
+        m.verts.iter().position(|v| v[0].abs() < 1e-3 && v[1].abs() < 1e-3).unwrap()
+    }
+
+    #[test]
+    fn blob_swells_and_ctrl_blob_dents() {
+        let adj = adjacency(&grid());
+        let mut m = grid();
+        let i = centre_vertex(&m);
+        let up = m.vertex_normals()[i][2].signum();
+        dab(&mut m, &adj, Brush::Blob, [0.0; 3], 0.5, 1.0, false, [false; 3]);
+        assert!(m.verts[i][2] * up > 0.01);
+        assert_eq!(height_at(&m, 0.9, 0.9), 0.0);
+        let mut d = grid();
+        dab(&mut d, &adj, Brush::Blob, [0.0; 3], 0.5, 1.0, true, [false; 3]);
+        assert!(d.verts[i][2] * up < -0.01);
+    }
+
+    #[test]
+    fn layer_builds_a_plateau_of_capped_height() {
+        let m0 = grid();
+        let i = centre_vertex(&m0);
+        let up = m0.vertex_normals()[i][2].signum();
+        let (radius, strength) = (0.5f32, 1.0f32);
+        let mut m = m0.clone();
+        let mut layer = Layer::begin(&m);
+        let mut last = 0.0;
+        for _ in 0..200 {
+            layer.dab(&mut m, &[], [0.0; 3], radius, strength, false, [false; 3]);
+            let h = m.verts[i][2] * up;
+            assert!(h >= last - 1e-6, "never lowers");
+            last = h;
+        }
+        let cap = radius * strength * LAYER_HEIGHT;
+        assert!((last - cap).abs() < 1e-4, "height {last} cap {cap}");
+        /* Dabbing on a vertex that is already at the cap does not go on raising it. */
+        layer.dab(&mut m, &[], [0.0; 3], radius, strength, false, [false; 3]);
+        assert!((m.verts[i][2] * up - cap).abs() < 1e-4);
+        /* A new stroke starts from the raised surface, so the cap applies on top of it. */
+        let mut layer2 = Layer::begin(&m);
+        layer2.dab(&mut m, &[], [0.0; 3], radius, strength, false, [false; 3]);
+        assert!(m.verts[i][2] * up > cap);
+        /* The inverted brush digs. */
+        let mut dug = m0.clone();
+        let mut l3 = Layer::begin(&dug);
+        for _ in 0..50 {
+            l3.dab(&mut dug, &[], [0.0; 3], radius, strength, true, [false; 3]);
+        }
+        assert!(dug.verts[i][2] * up < -0.01);
+    }
+
+    #[test]
+    fn nudge_drags_along_the_stroke_on_the_surface() {
+        let mut m = grid();
+        let adj = adjacency(&m);
+        let i = m.verts.iter().position(|v| (v[0] - 0.2).abs() < 1e-3 && v[1].abs() < 1e-3).unwrap();
+        /* The direction has a component along the normal, which a nudge ignores. */
+        nudge(&mut m, &[], &adj, [0.0; 3], 0.5, 1.0, normalized([1.0, 0.0, 1.0]), [false; 3]);
+        assert!(m.verts[i][0] > 0.2 + 1e-4, "moved along the stroke");
+        assert_eq!(m.verts[i][2], 0.0, "stays on the surface");
+        assert_eq!(height_at(&m, 0.9, 0.9), 0.0);
+        let mut zero = grid();
+        nudge(&mut zero, &[], &adj, [0.0; 3], 0.5, 1.0, [0.0; 3], [false; 3]);
+        assert_eq!(zero, grid(), "no direction, no movement");
+        let mut masked = grid();
+        let mask = vec![1.0; masked.verts.len()];
+        nudge(&mut masked, &mask, &adj, [0.0; 3], 0.5, 1.0, [1.0, 0.0, 0.0], [false; 3]);
+        assert_eq!(masked, grid());
+    }
+
+    #[test]
+    fn snake_hook_pulls_the_centre_along_and_the_rim_less() {
+        let mut m = grid();
+        let i = centre_vertex(&m);
+        let near = m.verts.iter().position(|v| (v[0] - 0.3).abs() < 1e-3 && v[1].abs() < 1e-3).unwrap();
+        let mut hook = Hook { center: [0.0; 3], radius: 0.5 };
+        for _ in 0..5 {
+            hook.apply(&mut m, &[], [0.0, 0.0, 0.1], [false; 3]);
+        }
+        assert!((m.verts[i][2] - 0.5).abs() < 1e-4, "the centre follows the brush exactly, got {}", m.verts[i][2]);
+        assert!(m.verts[near][2] > 0.0 && m.verts[near][2] < m.verts[i][2]);
+        assert_eq!(height_at(&m, 0.9, 0.9), 0.0);
+        assert!((hook.center[2] - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn snake_hook_with_symmetry_moves_a_plane_vertex_once() {
+        let mut m = grid();
+        let i = centre_vertex(&m);
+        let mut hook = Hook { center: [0.0; 3], radius: 0.5 };
+        hook.apply(&mut m, &[], [0.0, 0.0, 0.1], [true, false, false]);
+        assert!((m.verts[i][2] - 0.1).abs() < 1e-5, "{}", m.verts[i][2]);
+    }
+
+    #[test]
+    fn new_brushes_stroke_through_the_scene_and_undo_in_one_step() {
+        for brush in [Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob] {
+            let (mut scene, rv3d, w, h) = sphere_scene();
+            let before = scene.active_object().unwrap().mesh().unwrap().clone();
+            let mut session = Session::new();
+            session.settings.radius_px = 40.0;
+            session.settings.brush = brush;
+            assert!(session.begin_stroke(&mut scene, &rv3d, w, h, [w / 2, h / 2], false, false), "{brush:?}");
+            for k in 1..6 {
+                session.move_stroke(&mut scene, &rv3d, w, h, [w / 2 + k * 8, h / 2 - k * 3]);
+            }
+            session.end_stroke();
+            let after = scene.active_object().unwrap().mesh().unwrap().clone();
+            assert_ne!(before, after, "{brush:?} changed nothing");
+            assert!(after.verts.iter().all(|v| v.iter().all(|c| c.is_finite())), "{brush:?}");
+            assert!(scene.undo());
+            assert_eq!(scene.active_object().unwrap().mesh().unwrap(), &before, "{brush:?}");
+        }
     }
 
     #[test]
