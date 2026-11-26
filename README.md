@@ -36,6 +36,7 @@ Blender has no keys for modifiers (they live in the properties editor), so these
 | Ctrl + Alt + J | Array modifier: toggle Merge (1 mm): vertices that touch are joined, here across the whole array (Blender joins only neighbouring copies) |
 | Ctrl + Alt + `,` | Array modifier: cycles Fit Length Fixed Count -> 2 m -> 4 m -> 8 m -> Fixed Count. With a length the copy count is the length divided by the offset length, rounded down (at least 1), as in Blender; the stack line shows `Array fit 4 m` and `-` / `+` in the panel move the length by 0.5 m. A zero offset has no length, so the fixed count is used |
 | Ctrl + Alt + W | Solidify modifier: toggle (0.01 m, offset -1) |
+| Ctrl + Alt + `;` | Solidify modifier: toggle Even Thickness. Each vertex is moved by the mean of 1 / cos(angle to its faces) times the offset (the cosine is held above 0.3), so a cube's walls keep their thickness at the corners instead of thinning to 58 % there; the stack line shows `Solidify 0.01 m even`. Blender's Nonmanifold Thickness modes, Thickness Clamp and vertex groups are not modelled |
 | Ctrl + Alt + B | Bevel modifier: toggle (one segment, 0.1 m, clamped under half the shortest edge) |
 | Ctrl + Alt + `.` | Bevel modifier: cycles the segments 1 -> 2 -> 3 -> 4 -> 6 -> 8 -> 1 (the rim follows a curve bulging towards the original edge, not Blender's superellipse profile; the stack line shows `x3`) |
 | Ctrl + Alt + M | Smooth modifier: toggle (factor 0.5, 1 repeat) |

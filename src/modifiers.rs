@@ -16,7 +16,8 @@ pub enum Modifier {
     /// `fit` is Blender's Fit Length in metres (0 is Fixed Count): the number of copies is then the length divided by
     /// the length of the offset, rounded down, and `count` is not used.
     Array { count: u32, relative: V3, constant: V3, merge: f32, fit: f32 },
-    Solidify { thickness: f32, offset: f32 },
+    /// `even` is Even Thickness: the shell is stretched at corners so the wall keeps its thickness there.
+    Solidify { thickness: f32, offset: f32, even: bool },
     /// `Offset` width, `segments` segments (1 is a chamfer).
     Bevel { width: f32, segments: u32 },
     /// Neighbour averaging: `factor` per round, `repeat` rounds.
@@ -101,7 +102,7 @@ impl Modifier {
     }
 
     pub fn solidify() -> Modifier {
-        Modifier::Solidify { thickness: 0.01, offset: -1.0 }
+        Modifier::Solidify { thickness: 0.01, offset: -1.0, even: false }
     }
 
     pub fn bevel() -> Modifier {
@@ -269,7 +270,7 @@ impl Modifier {
                 }
                 d
             }
-            Modifier::Solidify { thickness, .. } => format!(" {} m", num(*thickness)),
+            Modifier::Solidify { thickness, even, .. } => format!(" {} m{}", num(*thickness), if *even { " even" } else { "" }),
             Modifier::Bevel { width, segments } if *segments > 1 => format!(" {} m x{segments}", num(*width)),
             Modifier::Bevel { width, .. } => format!(" {} m", num(*width)),
             Modifier::Smooth { factor, repeat } => format!(" {} x{repeat}", num(*factor)),
@@ -392,7 +393,7 @@ impl Modifier {
                     m
                 }
             }
-            Modifier::Solidify { thickness, offset } => mesh.solidified(*thickness, *offset),
+            Modifier::Solidify { thickness, offset, even } => mesh.solidified(*thickness, *offset, *even),
             Modifier::Bevel { width, segments } => mesh.beveled_segments(*width, *segments),
             Modifier::Smooth { factor, repeat } => mesh.smoothed(*factor, *repeat),
             Modifier::SimpleDeform { mode, amount } => mesh.deformed(*mode, *amount),
@@ -596,6 +597,17 @@ mod tests {
         assert!(m.adjust(1) && m.summary() == "Boolean: Union");
         assert!(m.adjust(-1) && m.summary() == "Boolean: Difference");
         assert!(!m.adjust(3), "a full turn is no change");
+    }
+
+    #[test]
+    fn solidify_even_thickness_shows_in_the_summary_and_the_mesh() {
+        let cube = Mesh::cube(2.0);
+        let plain = Modifier::Solidify { thickness: 0.2, offset: -1.0, even: false };
+        let even = Modifier::Solidify { thickness: 0.2, offset: -1.0, even: true };
+        assert_eq!(plain.summary(), "Solidify 0.2 m");
+        assert_eq!(even.summary(), "Solidify 0.2 m even");
+        assert_eq!(plain.apply(&cube).faces, even.apply(&cube).faces);
+        assert_ne!(plain.apply(&cube).verts, even.apply(&cube).verts);
     }
 
     #[test]
