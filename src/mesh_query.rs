@@ -111,6 +111,37 @@ impl<'a> Topology<'a> {
         }
     }
 
+    /// `BM_face_find_double`: walks the radial cycle of the face's first loop edge and returns the first face (other
+    /// loop) of equal length whose edge sequence matches in the same or the opposite winding.
+    pub fn face_find_double(&self, f: usize) -> Option<usize> {
+        let l_first: Loop = (f, 0);
+        let len = self.mesh.faces[f].len();
+        let mut l_iter = self.radial_next(l_first);
+        while l_iter != l_first {
+            if self.mesh.faces[l_iter.0].len() == len {
+                let same = self.vert(l_iter) == self.vert(l_first);
+                let (mut l_a, mut l_b) = (l_first, l_iter);
+                let mut matched = true;
+                loop {
+                    if self.edge(l_a) != self.edge(l_b) {
+                        matched = false;
+                        break;
+                    }
+                    l_a = if same { self.next(l_a) } else { self.prev(l_a) };
+                    l_b = self.next(l_b);
+                    if l_b == l_iter {
+                        break;
+                    }
+                }
+                if matched {
+                    return Some(l_iter.0);
+                }
+            }
+            l_iter = self.radial_next(l_iter);
+        }
+        None
+    }
+
     /// `BM_vert_is_manifold`: the faces around the vertex form a single fan (open or closed).
     pub fn vert_is_manifold(&self, v: u32) -> bool {
         let edges = self.vert_edges(v);
@@ -211,5 +242,25 @@ mod tests {
         assert!(!t.vert_is_manifold(0));
         assert!(!t.vert_is_edge_pair(0)); // four edges
         assert!(!t.vert_is_manifold(9)); // loose vertex
+    }
+
+    #[test]
+    fn find_double_same_and_reversed_winding() {
+        let mesh = m(5, &[&[0, 1, 2], &[2, 1, 4], &[0, 2, 1], &[1, 2, 0]]);
+        let t = Topology::new(&mesh);
+        // face 0 -> first matching other face along its first edge (0,1): face 2 is its reverse, face 3 is a rotation
+        assert_eq!(t.face_find_double(0), Some(2));
+        assert_eq!(t.face_find_double(2), Some(3));
+        assert_eq!(t.face_find_double(1), None); // shares edges but another vertex set
+    }
+
+    #[test]
+    fn find_double_none_for_different_sets_and_same_edge_quads() {
+        let mesh = m(6, &[&[0, 1, 2, 3], &[0, 1, 4, 5], &[0, 1, 2]]);
+        let t = Topology::new(&mesh);
+        assert_eq!(t.face_find_double(0), None);
+        let cube = Mesh::cube(1.0);
+        let tc = Topology::new(&cube);
+        assert!((0..6).all(|f| tc.face_find_double(f).is_none()));
     }
 }
