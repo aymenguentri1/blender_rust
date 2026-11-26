@@ -184,6 +184,8 @@ mod uvedit_line_endpoint;
 mod uvedit_minmax;
 #[allow(dead_code)]
 mod widget_colors;
+#[allow(dead_code)]
+mod widget_radius;
 
 use std::{num::NonZeroU32, sync::Arc};
 
