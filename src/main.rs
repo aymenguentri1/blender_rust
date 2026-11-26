@@ -186,6 +186,8 @@ mod uvedit_minmax;
 mod widget_colors;
 #[allow(dead_code)]
 mod widget_radius;
+#[allow(dead_code)]
+mod widget_state_blend;
 
 use std::{num::NonZeroU32, sync::Arc};
 
