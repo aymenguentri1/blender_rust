@@ -30,6 +30,18 @@ Smooth curve preset. Deviations: the displacement factors are tuned by eye, ther
 dynamic topology or multires, the brush curve cannot be changed, and the viewport tool header and brush asset
 shelf are not drawn.
 
+## Performance
+
+- The workbench rasteriser defers the opaque triangles of a frame and draws them in horizontal bands of the viewport on
+  up to 8 threads (`std::thread::scope`, no dependencies). Every band replays the triangles in the same order, so the
+  image, depth and object id buffers are identical for any thread count (there is a test for that). X-ray keeps the
+  single threaded path. The light constants (`exp2`, wrap factors, base colours) are computed once per frame, the edge
+  functions are set up once per triangle, and a flat face in an orthographic view is shaded once instead of per pixel.
+- Sculpt strokes build the vertex neighbours and the faces around each vertex once, take normals only for the vertices
+  under the brush, and cast the pick ray in the local space of the mesh (no vertex is transformed per dab).
+- `cargo test --release bench_draw_scene -- --ignored --nocapture` prints the milliseconds per frame of a smooth sphere
+  at 1280 x 720.
+
 ### 3D viewport header
 The header of the 3D viewport follows `VIEW3D_HT_header`: the editor type and `Object Mode` dropdowns, the
 `View`, `Select`, `Add` and `Object` menus, the transform cluster (orientation, pivot point, snapping,

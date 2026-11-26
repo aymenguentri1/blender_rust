@@ -38,6 +38,7 @@ pub enum Brush {
 }
 
 impl Brush {
+    #[allow(dead_code)]
     pub const ALL: [Brush; 10] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape];
 
     pub fn label(self) -> &'static str {
@@ -108,10 +109,21 @@ fn affected(mesh: &Mesh, center: V3, radius: f32) -> Vec<(usize, f32)> {
     out
 }
 
-/// The vertex neighbours through the edges of the faces.
-pub fn adjacency(mesh: &Mesh) -> Vec<Vec<u32>> {
+/// The topology a stroke needs, built once when it starts (the dabs only move vertices): the vertex neighbours
+/// through the edges of the faces, and the faces around each vertex (for normals of just the vertices under a dab).
+#[derive(Clone, Debug, Default)]
+pub struct Topo {
+    pub adj: Vec<Vec<u32>>,
+    pub vfaces: Vec<Vec<u32>>,
+}
+
+pub fn adjacency(mesh: &Mesh) -> Topo {
     let mut adj = vec![Vec::<u32>::new(); mesh.verts.len()];
-    for face in &mesh.faces {
+    let mut vfaces = vec![Vec::<u32>::new(); mesh.verts.len()];
+    for (f, face) in mesh.faces.iter().enumerate() {
+        for &v in face {
+            vfaces[v as usize].push(f as u32);
+        }
         for i in 0..face.len() {
             let (a, b) = (face[i], face[(i + 1) % face.len()]);
             if !adj[a as usize].contains(&b) {
@@ -122,7 +134,16 @@ pub fn adjacency(mesh: &Mesh) -> Vec<Vec<u32>> {
             }
         }
     }
-    adj
+    Topo { adj, vfaces }
+}
+
+/// The smooth shading normal of vertex `i` (what `Mesh::vertex_normals()` gives, for one vertex).
+fn vertex_normal(mesh: &Mesh, topo: &Topo, i: usize) -> V3 {
+    let mut n = [0.0f32; 3];
+    for &f in &topo.vfaces[i] {
+        n = add(n, mesh.face_area_normal(f as usize));
+    }
+    normalized(n)
 }
 
 /// The mirror combinations of the enabled axes (`+++` first), as sign triples.
@@ -147,7 +168,7 @@ fn mirrored(v: V3, s: [f32; 3]) -> V3 {
 
 /// One dab of `brush` (not Grab) at `center`, in the local space of `mesh`, with every mirror of it.
 #[allow(clippy::too_many_arguments)]
-pub fn dab(mesh: &mut Mesh, adj: &[Vec<u32>], brush: Brush, center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
+pub fn dab(mesh: &mut Mesh, adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
     if brush == Brush::Grab {
         return;
     }
@@ -156,17 +177,18 @@ pub fn dab(mesh: &mut Mesh, adj: &[Vec<u32>], brush: Brush, center: V3, radius: 
     }
 }
 
-fn dab_one(mesh: &mut Mesh, adj: &[Vec<u32>], brush: Brush, center: V3, radius: f32, strength: f32, invert: bool) {
+fn dab_one(mesh: &mut Mesh, adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool) {
     let hit = affected(mesh, center, radius);
     if hit.is_empty() {
         return;
     }
     let dir = if invert { -1.0 } else { 1.0 };
-    let normals = mesh.vertex_normals();
+    /* Only the vertices under the brush need a normal. */
+    let normals: Vec<V3> = hit.iter().map(|&(i, _)| vertex_normal(mesh, adj, i)).collect();
     /* `calc_area_normal()`: the falloff weighted mean of the vertex normals under the brush. */
     let mut area = [0.0f32; 3];
-    for &(i, f) in &hit {
-        area = add(area, scale(normals[i], f));
+    for (k, &(_, f)) in hit.iter().enumerate() {
+        area = add(area, scale(normals[k], f));
     }
     let area = normalized(area);
     let push = radius * strength * DRAW_FACTOR;
@@ -177,20 +199,20 @@ fn dab_one(mesh: &mut Mesh, adj: &[Vec<u32>], brush: Brush, center: V3, radius: 
             }
         }
         Brush::Inflate => {
-            for &(i, f) in &hit {
-                mesh.verts[i] = add(mesh.verts[i], scale(normals[i], push * f * dir));
+            for (k, &(i, f)) in hit.iter().enumerate() {
+                mesh.verts[i] = add(mesh.verts[i], scale(normals[k], push * f * dir));
             }
         }
         Brush::Smooth => {
             let moved: Vec<(usize, V3)> = hit
                 .iter()
-                .filter(|&&(i, _)| !adj[i].is_empty())
+                .filter(|&&(i, _)| !adj.adj[i].is_empty())
                 .map(|&(i, f)| {
                     let mut sum = [0.0f32; 3];
-                    for &n in &adj[i] {
+                    for &n in &adj.adj[i] {
                         sum = add(sum, mesh.verts[n as usize]);
                     }
-                    let avg = scale(sum, 1.0 / adj[i].len() as f32);
+                    let avg = scale(sum, 1.0 / adj.adj[i].len() as f32);
                     let v = mesh.verts[i];
                     (i, add(v, scale(sub(avg, v), (f * strength).min(1.0))))
                 })
@@ -300,14 +322,13 @@ impl Grab {
 #[derive(Clone, Debug)]
 struct Active {
     id: u32,
-    adj: Vec<Vec<u32>>,
+    adj: Topo,
     brush: Brush,
     invert: bool,
     last: [f32; 2],
     /// Distance walked since the last dab.
     carry: f32,
     grab: Option<Grab>,
-    world: Mat4,
     inv: Mat4,
 }
 
@@ -334,33 +355,35 @@ pub struct Hit {
     pub local: V3,
 }
 
-/// The nearest front facing hit of the pixel ray `px` (region pixels, y up) with the base mesh of `obj`.
+/// The nearest front facing hit of the pixel ray `px` (region pixels, y up) with the base mesh of `obj`. The ray is
+/// moved into the local space of the mesh once, so no vertex is transformed, and the triangle fans are walked in place.
 pub fn cast(obj: &Object, rv3d: &RegionView3D, rw: i32, rh: i32, px: [f32; 2]) -> Option<Hit> {
     let mesh = obj.mesh()?;
     let near = rv3d.unproject_v3(rw, rh, px[0], px[1], 0.0)?;
     let far = rv3d.unproject_v3(rw, rh, px[0], px[1], 1.0)?;
-    let dir = normalized(sub(far, near));
+    let world = obj.world_matrix();
+    let inv = invert_m4_m4(&world);
+    let (o, f) = (mat4_mul_point(&inv, near), mat4_mul_point(&inv, far));
+    let dir = sub(f, o);
     if dot(dir, dir) == 0.0 {
         return None;
     }
-    let world = obj.world_matrix();
-    let pts: Vec<V3> = mesh.verts.iter().map(|&v| mat4_mul_point(&world, v)).collect();
     let mut best: Option<f32> = None;
-    for (_, [a, b, c]) in mesh.triangles() {
-        let (pa, pb, pc) = (pts[a as usize], pts[b as usize], pts[c as usize]);
-        if dot(cross(sub(pb, pa), sub(pc, pa)), dir) >= 0.0 {
-            continue;
-        }
-        if let Some(t) = ray_triangle(near, dir, pa, pb, pc) {
-            if best.map_or(true, |bt| t < bt) {
-                best = Some(t);
+    for face in &mesh.faces {
+        for k in 1..face.len().saturating_sub(1) {
+            let (pa, pb, pc) = (mesh.verts[face[0] as usize], mesh.verts[face[k] as usize], mesh.verts[face[k + 1] as usize]);
+            if dot(cross(sub(pb, pa), sub(pc, pa)), dir) >= 0.0 {
+                continue;
+            }
+            if let Some(t) = ray_triangle(o, dir, pa, pb, pc) {
+                if best.map_or(true, |bt| t < bt) {
+                    best = Some(t);
+                }
             }
         }
     }
-    let t = best?;
-    let hit = add(near, scale(dir, t));
-    let inv = invert_m4_m4(&world);
-    Some(Hit { world: hit, local: mat4_mul_point(&inv, hit) })
+    let local = add(o, scale(dir, best?));
+    Some(Hit { world: mat4_mul_point(&world, local), local })
 }
 
 /// The window depth (0..1) of a world position.
@@ -400,14 +423,14 @@ impl Session {
         let px = [mval[0] as f32 + 0.5, mval[1] as f32 + 0.5];
         let obj = &scene.objects[index];
         let Some(hit) = cast(obj, rv3d, rw, rh, px) else { return false };
-        let (world, inv) = (obj.world_matrix(), invert_m4_m4(&obj.world_matrix()));
+        let inv = invert_m4_m4(&obj.world_matrix());
         let adj = match obj.mesh() {
             Some(m) => adjacency(m),
             None => return false,
         };
         let brush = if smooth_held { Brush::Smooth } else { self.settings.brush };
         scene.push_undo();
-        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, world, inv };
+        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, inv };
         let changed = if brush == Brush::Grab {
             let radius = self.local_radius(rv3d, &active, hit.world);
             let depth = window_depth(rv3d, hit.world);
