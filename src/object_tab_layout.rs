@@ -1,7 +1,9 @@
 //! Layout of the Object tab of the properties editor: panel order, labels and fields of
 //! `OBJECT_PT_transform`, `OBJECT_PT_delta_transform`, `OBJECT_PT_relations`, `OBJECT_PT_collections`
 //! and `OBJECT_PT_visibility` (scripts/startup/bl_ui/properties_object.py:36, :87, :133, :186, :413).
-//! Pure data, no drawing. Not modelled: Parent Inverse Transform, Instancing, Line Art, Motion Paths, Shading, Light Linking.
+//! Pure data, no drawing. Labels not given by `text=` come from RNA (rna_object.cc), e.g. use_camera_lock_parent (:3168).
+//! Not listed: the `lock_*` toggles (DECORATE_UNLOCKED icons) beside Location/Rotation/Scale and the
+//! `ANIM_MT_rotation_mode_convert` menu next to Mode. Not modelled: Parent Inverse Transform, Instancing, Line Art, Motion Paths, Shading, Light Linking.
 
 #![allow(dead_code)]
 
@@ -77,7 +79,7 @@ pub fn relations_columns() -> [Vec<Field>; 3] {
         vec![
             f("parent", "Parent"),
             f("parent_type", "Parent Type"),
-            f("use_camera_lock_parent", "Camera Lock Parent"),
+            f("use_camera_lock_parent", "Camera Parent Lock"),
         ],
         vec![f("track_axis", "Tracking Axis"), f("up_axis", "Up Axis")],
         vec![f("pass_index", "Pass Index")],
@@ -139,6 +141,7 @@ mod tests {
     #[test]
     fn relations_columns_match_blender() {
         let c = relations_columns();
+        assert_eq!(c[0][2].text, "Camera Parent Lock");
         assert_eq!(c[1][0].text, "Tracking Axis");
         assert_eq!(c[2][0].prop, "pass_index");
     }
