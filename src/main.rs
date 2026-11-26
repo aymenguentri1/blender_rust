@@ -58,6 +58,7 @@ mod mesh_reduce;
 mod mesh_hull;
 mod mesh_gen;
 mod mesh_build;
+mod mesh_boolean;
 mod mesh_corrective;
 mod modifiers;
 #[allow(dead_code)]

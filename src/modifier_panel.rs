@@ -32,7 +32,7 @@ pub enum Action {
     Duplicate(usize),
     Decrease(usize),
     Increase(usize),
-    /// The target picker of a Shrinkwrap: the next other mesh object, then none.
+    /// The target picker of a Shrinkwrap or Boolean: the next other mesh object, then none.
     CycleTarget(usize),
 }
 
@@ -55,7 +55,7 @@ pub struct Widget {
 }
 
 /// What the panel shows: the active mesh object, its modifiers as (name, summary, target row) and the active one.
-/// The target row is only there for modifiers that have a target (Shrinkwrap).
+/// The target row is only there for modifiers that have a target (Shrinkwrap, Boolean).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PanelState {
     pub object: Option<String>,
@@ -75,7 +75,7 @@ impl PanelState {
                     .iter()
                     .enumerate()
                     .map(|(i, m)| {
-                        let target = matches!(m, Modifier::Shrinkwrap { .. })
+                        let target = matches!(m, Modifier::Shrinkwrap { .. } | Modifier::Boolean { .. })
                             .then(|| format!("Target: {}", scene.target_name(i).unwrap_or_else(|| "(none)".into())));
                         (m.label(), m.summary(), target)
                     })

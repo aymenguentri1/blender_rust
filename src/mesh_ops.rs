@@ -190,6 +190,7 @@ impl Mesh {
 
     /// The Bevel modifier with one segment: a chamfer of `width` on every edge between two faces and a cap on
     /// every closed vertex. Open boundaries are not bevelled (their faces still shrink).
+    #[cfg(test)]
     pub fn beveled(&self, width: f32) -> Mesh {
         self.beveled_segments(width, 1)
     }
