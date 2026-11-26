@@ -64,6 +64,8 @@ mod workbench;
 mod taa;
 #[allow(dead_code)]
 mod mesh;
+#[allow(dead_code)]
+mod sculpt_hide;
 mod mesh_ops;
 mod mesh_deform;
 mod mesh_wire;
