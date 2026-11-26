@@ -62,6 +62,12 @@ pub enum Style {
     Field,
     /// No box, only the icon (the disclosure triangle).
     Flat,
+    /// The number field of a value row (`Count: 2`, text centred between the arrows): the box covers the whole row,
+    /// the arrow widgets at its ends are drawn on top of it.
+    NumField,
+    /// The `<` / `>` ends of a number field: only the triangle, the box belongs to the `NumField`.
+    NumArrowL,
+    NumArrowR,
     /// The drag handle of a modifier header: six dots, no box.
     Handle,
     /// The type icon of a modifier header: no box, the label is the kind's name.
@@ -325,11 +331,24 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
             (_, Some(f)) => (f.clone(), Style::Field, Action::EditValue(i)),
             _ => (summary.clone(), Style::Field, Action::Select(i)),
         };
-        let value = vec![
-            (x0, m1 - gap - 1, text, field_style, Some(field_action), false),
-            (m1, m1 + small - 1, "-".into(), Style::Button, Some(Action::Decrease(i)), true),
-            (m2, x1, "+".into(), Style::Button, Some(Action::Increase(i)), true),
-        ];
+        let value = if field.is_some() && field_style == Style::Field {
+            /* Blender's number field: one box with `<` and `>` at its ends and the text centred between them. While
+             * typing, the arrows go and the whole row is the text field. */
+            let ab = unit;
+            vec![
+                (x0 + ab, x1 - ab, text, Style::NumField, Some(field_action), true),
+                (x0, x0 + ab - 1, "<".into(), Style::NumArrowL, Some(Action::Decrease(i)), true),
+                (x1 - ab + 1, x1, ">".into(), Style::NumArrowR, Some(Action::Increase(i)), true),
+            ]
+        } else if field.is_some() {
+            vec![(x0, x1, text, field_style, Some(field_action), false)]
+        } else {
+            vec![
+                (x0, m1 - gap - 1, text, field_style, Some(field_action), false),
+                (m1, m1 + small - 1, "-".into(), Style::Button, Some(Action::Decrease(i)), true),
+                (m2, x1, "+".into(), Style::Button, Some(Action::Increase(i)), true),
+            ]
+        };
         row(&mut out, &mut top, value);
         if let Some(label) = target {
             row(&mut out, &mut top, vec![(x0, x1, label.clone(), Style::Button, Some(Action::CycleTarget(i)), false)]);
@@ -376,6 +395,19 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
             Style::Editing => {
                 draw_round_box(buf, width, height, user, w.rect, theme::WCOL_MENU_INNER, Rgba::hex(0x4772b3ff), theme::WCOL_TOOL_ROUNDNESS);
                 font::draw_label(buf, width, height, user, w.rect, &w.label, theme::WCOL_PULLDOWN_TEXT);
+                continue;
+            }
+            Style::NumField => {
+                /* The box spans the whole row, including the arrow zones that are drawn after it. */
+                let full = Rcti { xmin: w.rect.xmin - user.widget_unit, xmax: w.rect.xmax + user.widget_unit, ..w.rect };
+                draw_round_box(buf, width, height, user, full, theme::WCOL_TOOL_INNER, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS);
+                let pad = ((w.rect.size_x() + 1 - font::string_width(user, &w.label)) / 2).max(0);
+                font::draw_label_pad(buf, width, height, user, w.rect, &w.label, theme::WCOL_PULLDOWN_TEXT, pad);
+                continue;
+            }
+            Style::NumArrowL | Style::NumArrowR => {
+                let icon = if w.style == Style::NumArrowL { Icon::LeftArrow } else { Icon::RightArrow };
+                icons::draw_icon(buf, width, height, user, w.rect, icon, theme::WCOL_PULLDOWN_TEXT);
                 continue;
             }
             Style::Handle => {
@@ -649,6 +681,35 @@ mod tests {
         assert!(!s.panel_move_modifier_index(2, 2) && !s.panel_move_modifier_index(9, 0), "no move, no step");
         assert!(s.undo());
         assert_eq!(names(&s), ["Array", "Weld", "Solidify"], "one undo step");
+    }
+
+    #[test]
+    fn a_value_row_is_one_number_field_with_arrows_at_its_ends() {
+        let mut s = Scene::startup();
+        let mut open = false;
+        assert!(apply(&mut s, &mut open, Action::Add(1)), "Array x2");
+        assert!(apply(&mut s, &mut open, Action::Add(0)), "Mirror has no number");
+        let user = UserDef::from_window_scale(1.0);
+        let ws = widgets(&user, window(), &PanelState::of(&s, false));
+        let find = |a| ws.iter().find(|w| w.action == Some(a)).unwrap();
+        let (field, dec, inc) = (find(Action::EditValue(0)), find(Action::Decrease(0)), find(Action::Increase(0)));
+        assert_eq!((field.style, dec.style, inc.style), (Style::NumField, Style::NumArrowL, Style::NumArrowR));
+        assert!(field.centered && field.label == "Count: 2");
+        assert_eq!((dec.rect.xmax + 1, inc.rect.xmin), (field.rect.xmin, field.rect.xmax + 1), "the three pieces tile the row");
+        assert_eq!((dec.rect.ymin, dec.rect.ymax), (field.rect.ymin, field.rect.ymax));
+        assert!(inc.rect.size_x() <= user.widget_unit && dec.rect.size_x() <= user.widget_unit, "arrow zones are one unit wide");
+        assert_eq!(action_at(&ws, [dec.rect.cent_x(), dec.rect.cent_y()]), Some(Action::Decrease(0)));
+        assert_eq!(action_at(&ws, [field.rect.cent_x(), field.rect.cent_y()]), Some(Action::EditValue(0)));
+        /* A modifier without a number keeps the summary field and its - / + buttons. */
+        let mirror = ws.iter().find(|w| w.action == Some(Action::Decrease(1))).unwrap();
+        assert_eq!((mirror.label.as_str(), mirror.style), ("-", Style::Button));
+        /* While typing the whole row is the text field. */
+        let st = PanelState::of(&s, false).with_edit(Some(&ValueEdit { index: 0, text: "3".into(), fresh: true }));
+        let ws = widgets(&user, window(), &st);
+        let f = ws.iter().find(|w| w.action == Some(Action::EditValue(0))).unwrap();
+        assert_eq!(f.style, Style::Editing);
+        assert!(ws.iter().all(|w| w.action != Some(Action::Decrease(0))), "no arrows while typing");
+        assert!(f.rect.size_x() > field.rect.size_x());
     }
 
     #[test]
