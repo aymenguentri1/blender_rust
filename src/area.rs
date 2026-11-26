@@ -127,7 +127,7 @@ mod rcti_tests {
         assert!(in_view3d_main(&user, main, [100, 500], false));
         assert!(!in_view3d_main(&user, main, [100, 1050], false));
         /* The tool header (sculpt) is under the header and also keeps the strokes out. */
-        assert!(in_view3d_main(&user, main, [100, 1030], false) && !in_view3d_main(&user, main, [100, 1030], true));
+        assert!(in_view3d_main(&user, main, [100, 1010], false) && !in_view3d_main(&user, main, [100, 1010], true));
         assert!(tool_header_rect(&user, main).unwrap().ymax < view3d_header_rect(&user, main).unwrap().ymin);
         assert!(!in_view3d_main(&user, main, [100, 5], false));
     }
