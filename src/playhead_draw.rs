@@ -151,6 +151,7 @@ fn blend(buf: &mut [u32], width: usize, height: usize, x: i32, y: i32, color: Rg
 
 /// `draw_roundbox_4fv_ex()` for one inner colour: SDF of `widget_base` over the float `rect`
 /// (xmin, xmax, ymin, ymax in window pixels, y up), outline band inside the rect.
+#[allow(clippy::too_many_arguments)]
 fn fill_round_box(
     buf: &mut [u32],
     width: usize,
@@ -244,7 +245,7 @@ pub fn draw_framerange(buf: &mut [u32], width: usize, height: usize, user: &User
 
     /* `UI_ANIM_MINY` is `HEADERY * UI_SCALE_FAC * 1.1`; `area_headersize()` is `HEADERY` scaled. */
     let min_height = (crate::area::area_headersize(user) as f32 * 1.1) as i32;
-    if window.size_y() + 1 <= min_height {
+    if window.size_y() < min_height {
         return;
     }
 

@@ -23,12 +23,24 @@ mod widget_draw;
 mod font;
 mod frame_range;
 mod buttons_context;
+mod object_tab_layout;
 mod outliner_draw;
 mod face_set;
+mod blend_sdna;
+mod gltf_accessor;
+mod gltf_prim_mode;
+mod face_set_create;
+mod obj_export;
+#[allow(dead_code)]
+mod multires;
+#[allow(dead_code)]
+mod obj_import;
+mod gltf_mesh;
 mod array_settings;
 mod solidify_settings;
 mod outliner_select;
 mod scene_units;
+mod outliner_rename;
 mod playhead_draw;
 
 mod status_input;
@@ -49,6 +61,8 @@ mod math_half;
 #[allow(dead_code)]
 mod math_solvers;
 #[allow(dead_code)]
+mod fcurve_eval;
+#[allow(dead_code)]
 mod math_time;
 #[allow(dead_code)]
 mod view3d;
@@ -62,7 +76,18 @@ mod workbench;
 #[allow(dead_code)]
 mod taa;
 #[allow(dead_code)]
+mod material_tab_layout;
 mod mesh;
+#[allow(dead_code)]
+mod mesh_bevel_edge;
+mod mesh_bevel_meet;
+mod mesh_extrude;
+#[allow(dead_code)]
+mod edit_select;
+mod mesh_extrude_faces;
+mod sculpt_hide;
+mod mesh_edgering;
+mod mesh_loopcut;
 mod mesh_ops;
 mod mesh_deform;
 mod mesh_wire;
@@ -89,8 +114,10 @@ mod modifier_panel;
 mod transform_panel;
 mod select_box;
 mod rename_popup;
+mod gltf_node;
 mod mirror_settings;
 mod bevel_settings;
+mod material;
 
 use std::{num::NonZeroU32, sync::Arc};
 
@@ -223,6 +250,10 @@ struct App {
     box_select: Option<BoxSelect>,
     /// The F2 rename popup.
     rename: Option<rename_popup::Rename>,
+    /// The outliner's rename text field (`TSE_TEXTBUT`).
+    outliner_rename: Option<outliner_rename::Rename>,
+    /// The last click on an outliner object row, for the double-click that renames it.
+    last_outliner_click: Option<(std::time::Instant, u32)>,
     /// The modifier value field being typed into.
     mod_edit: Option<modifier_panel::ValueEdit>,
     /// The open modifier dropdown menu: the modifier and the window position it opened at.
@@ -301,8 +332,13 @@ fn set_status_title(window: &Window, text: Option<&str>) {
 }
 
 /// What the 3D viewport header shows.
-fn header_state(wire: bool, xray: bool, overlays_hidden: bool, pivot: transform::PivotPoint, sculpt: bool) -> view3d_header::HeaderState {
-    view3d_header::HeaderState { wire, xray, overlays: !overlays_hidden, pivot, sculpt }
+/// The mode the header shows: Edit and Sculpt are exclusive (`mode_set`).
+fn mode_of(edit: bool, sculpt: bool) -> object_mode::ObjectMode {
+    if edit { object_mode::ObjectMode::Edit } else if sculpt { object_mode::ObjectMode::Sculpt } else { object_mode::ObjectMode::Object }
+}
+
+fn header_state(wire: bool, xray: bool, overlays_hidden: bool, pivot: transform::PivotPoint, mode: object_mode::ObjectMode) -> view3d_header::HeaderState {
+    view3d_header::HeaderState { wire, xray, overlays: !overlays_hidden, pivot, mode }
 }
 
 /// `object.mode_set` between Object Mode and Sculpt Mode (Ctrl + Tab, the header mode dropdown): Sculpt Mode needs an
@@ -453,7 +489,7 @@ impl ApplicationHandler for App {
                 if let Some(user) = self.user.as_ref() {
                     let hover = area::view3d_header_rect(user, layout.main)
                         .filter(|header| header.isect_pt_v([x, y]))
-                        .and_then(|header| view3d_header::action_at(&view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, self.sculpt.is_some())), [x, y]));
+                        .and_then(|header| view3d_header::action_at(&view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, mode_of(self.edit_mode, self.sculpt.is_some()))), [x, y]));
                     if hover != self.header_hover {
                         self.header_hover = hover;
                         gfx.window.request_redraw();
@@ -849,7 +885,7 @@ impl ApplicationHandler for App {
                     (Some(layout), Some(user)) => area::view3d_header_rect(user, layout.main)
                         .filter(|header| header.isect_pt_v(self.cursor))
                         .map(|header| {
-                            let items = view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, self.sculpt.is_some()));
+                            let items = view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, mode_of(self.edit_mode, self.sculpt.is_some())));
                             let action = view3d_header::action_at(&items, self.cursor);
                             let anchor = action.and_then(|a| view3d_header::rect_of(&items, a)).map(|r| [r.xmin, r.ymin]);
                             (action, anchor)
@@ -873,7 +909,10 @@ impl ApplicationHandler for App {
                         /* Opens the Add menu below the button, like Shift + A does at the cursor. */
                         Some(Action::MenuAdd) => self.add_menu = anchor,
                         /* The mode dropdown toggles Object Mode and Sculpt Mode (it has no menu here). */
-                        Some(Action::Mode) => toggle_sculpt(&mut self.sculpt, &self.scene),
+                        Some(Action::Mode) => {
+                            toggle_sculpt(&mut self.sculpt, &self.scene);
+                            self.edit_mode &= self.sculpt.is_none();
+                        }
                         _ => {}
                     }
                     gfx.window.request_redraw();
@@ -1025,7 +1064,18 @@ impl ApplicationHandler for App {
                         gfx.window.request_redraw();
                     }
                 } else if let Some(window) = outliner_draw::window_rect(user, layout.outliner).filter(|w| w.isect_pt_v(self.cursor)) {
-                    if let Some((id, col)) = outliner_draw::restrict_click(user, window, &self.scene, self.cursor[0], self.cursor[1]) {
+                    if let Some(edit) = self.outliner_rename.as_ref() {
+                        /* Clicking inside the field keeps editing, anywhere else confirms it. */
+                        let inside = outliner_draw::rename_field_rect(user, window, &self.scene, edit.id).is_some_and(|r| r.isect_pt_v(self.cursor));
+                        if !inside {
+                            if let Some(e) = self.outliner_rename.take() {
+                                if outliner_rename::commit(&mut self.scene, &e) {
+                                    scene_changed(&mut self.scene, &mut self.taa);
+                                }
+                            }
+                        }
+                        gfx.window.request_redraw();
+                    } else if let Some((id, col)) = outliner_draw::restrict_click(user, window, &self.scene, self.cursor[0], self.cursor[1]) {
                         let which = match col {
                             outliner_draw::RestrictCol::Hide | outliner_draw::RestrictCol::Viewport => scene::Restrict::Viewport,
                             outliner_draw::RestrictCol::Select => scene::Restrict::Select,
@@ -1037,6 +1087,20 @@ impl ApplicationHandler for App {
                         gfx.window.request_redraw();
                     } else if let Some(row) = outliner_draw::row_at(user, window, self.cursor[1]) {
                         let rows = self.scene.outliner_rows();
+                        /* `LEFTMOUSE` `DOUBLE_CLICK` -> `outliner.item_rename` on the name of the element under the cursor. */
+                        if let Some(scene::RowKind::Object(id)) = rows.get(row).map(|r| r.kind.clone()) {
+                            let now = std::time::Instant::now();
+                            let double = self.last_outliner_click.is_some_and(|(t, i)| i == id && now.duration_since(t).as_millis() < 400);
+                            self.last_outliner_click = if double { None } else { Some((now, id)) };
+                            let name_w = self.scene.index_of(id).map_or(0, |i| font::string_width(user, &self.scene.objects[i].name));
+                            let over_name = outliner_draw::rename_field_rect(user, window, &self.scene, id)
+                                .is_some_and(|r| self.cursor[0] >= r.xmin && self.cursor[0] <= r.xmin + name_w);
+                            if double && over_name {
+                                self.outliner_rename = outliner_rename::start(&self.scene, &scene::RowKind::Object(id));
+                                gfx.window.request_redraw();
+                                return;
+                            }
+                        }
                         if let Some(scene::RowKind::Object(id)) = rows.get(row).map(|r| r.kind.clone()) {
                             let click = outliner_select::Click::from_keys(self.modifiers.control_key(), extend);
                             outliner_select::item_activate(&mut self.scene, id, click);
@@ -1251,6 +1315,47 @@ impl ApplicationHandler for App {
                     gfx.window.request_redraw();
                     return;
                 }
+                /* The outliner's rename field: Enter confirms, ESC cancels (`ui_do_but_textedit()`). */
+                if self.outliner_rename.is_some() {
+                    use outliner_rename::Key;
+                    let mut done = None;
+                    if let Some(r) = self.outliner_rename.as_mut() {
+                        let key = match code {
+                            KeyCode::Enter | KeyCode::NumpadEnter => {
+                                done = Some(true);
+                                None
+                            }
+                            KeyCode::Escape => {
+                                done = Some(false);
+                                None
+                            }
+                            KeyCode::ArrowLeft => Some(Key::Left),
+                            KeyCode::ArrowRight => Some(Key::Right),
+                            KeyCode::Home => Some(Key::Home),
+                            KeyCode::End => Some(Key::End),
+                            KeyCode::Backspace => Some(Key::Backspace),
+                            KeyCode::Delete => Some(Key::Delete),
+                            KeyCode::KeyA if ctrl_k => Some(Key::SelectAll),
+                            _ => None,
+                        };
+                        if let Some(k) = key {
+                            r.key(k, shift_k);
+                        } else if done.is_none() && !ctrl_k && !alt_k {
+                            for ch in key_event.text.as_ref().map(|t| t.chars().collect::<Vec<_>>()).unwrap_or_default() {
+                                r.key(Key::Char(ch), false);
+                            }
+                        }
+                    }
+                    if let Some(apply) = done {
+                        if let Some(e) = self.outliner_rename.take() {
+                            if apply && outliner_rename::commit(&mut self.scene, &e) {
+                                scene_changed(&mut self.scene, &mut self.taa);
+                            }
+                        }
+                    }
+                    gfx.window.request_redraw();
+                    return;
+                }
                 /* The F2 rename popup takes the keyboard while it is open. */
                 if self.rename.is_some() {
                     let mut outcome = rename_popup::Outcome::Editing;
@@ -1403,6 +1508,7 @@ impl ApplicationHandler for App {
                 /* `object.mode_set`: Ctrl + Tab toggles Sculpt Mode on the active mesh object. */
                 if code == KeyCode::Tab && ctrl_k && !shift_k && !alt_k && !key_event.repeat {
                     toggle_sculpt(&mut self.sculpt, &self.scene);
+                    self.edit_mode &= self.sculpt.is_none(); /* Sculpt and Edit Mode are exclusive */
                     gfx.window.request_redraw();
                     return;
                 }
@@ -1626,6 +1732,10 @@ impl ApplicationHandler for App {
                         /* `mesh.subdivide` (one cut, no smoothing) and `mesh.separate` by loose parts (P). */
                         KeyCode::KeyD if ctrl_k && alt_k && !shift_k => geometry = self.scene.subdivide_simple() > 0,
                         /* `wm.call_panel` of `TOPBAR_PT_name` on F2: rename the active object. */
+                        KeyCode::F2 if plain && self.layout.as_ref().zip(self.user.as_ref()).and_then(|(l, u)| outliner_draw::window_rect(u, l.outliner)).is_some_and(|w| w.isect_pt_v(self.cursor)) => {
+                            /* `outliner.item_rename` with `use_active` while the cursor is over the outliner. */
+                            self.outliner_rename = outliner_rename::start_active(&self.scene);
+                        }
                         KeyCode::F2 if plain => {
                             if let Some(name) = self.scene.active_object().map(|o| o.name.clone()) {
                                 self.rename = Some(rename_popup::Rename::open(self.cursor, &name));
@@ -2201,6 +2311,9 @@ impl ApplicationHandler for App {
                             outliner_draw::draw_row_stripes(&mut buf, w, h, user, window);
                             outliner_draw::draw_tree_rows(&mut buf, w, h, user, window, &outliner_draw::scene_rows(&self.scene));
                             outliner_draw::draw_restrict_buttons(&mut buf, w, h, user, window, &self.scene);
+                            if let Some(edit) = self.outliner_rename.as_ref() {
+                                outliner_draw::draw_rename_field(&mut buf, w, h, user, window, &self.scene, edit);
+                            }
                         }
                     }
                     /* Modifiers panel of the properties editor. */
@@ -2388,7 +2501,7 @@ impl ApplicationHandler for App {
                             /* Editor type, mode, menus, transform cluster, overlays, X-ray and shading buttons. The ones
                              * this port models are wired to the same state as their keys (Shift + Z, Alt + Z,
                              * Shift + Alt + Z, Period). */
-                            let items = view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, self.sculpt.is_some()));
+                            let items = view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, mode_of(self.edit_mode, self.sculpt.is_some())));
                             view3d_header::draw(&mut buf, w, h, user, &items, self.header_hover);
                         }
                     }

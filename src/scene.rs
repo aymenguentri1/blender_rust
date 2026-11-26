@@ -842,6 +842,19 @@ impl Scene {
         n
     }
 
+    /// `rna_Object_name_set` for object `id` (the outliner rename field): same rules as `rename_active`.
+    pub fn rename_object(&mut self, id: u32, name: &str) -> bool {
+        let name = name.trim();
+        let Some(i) = self.index_of(id) else { return false };
+        if name.is_empty() || self.objects[i].name == name {
+            return false;
+        }
+        self.push_undo();
+        let unique = self.unique_name(name);
+        self.objects[i].name = unique;
+        true
+    }
+
     /// `rna_Object_name_set` for the active object (F2): the name is made unique among the objects (`Cube.001`
     /// style) and is one undo step. Returns whether the name changed.
     pub fn rename_active(&mut self, name: &str) -> bool {
@@ -999,7 +1012,7 @@ impl Scene {
     /// stack. Undoable.
     fn edit_active_modifier(&mut self, mut f: impl FnMut(&mut Vec<Modifier>, &mut usize) -> bool) -> usize {
         let has = |o: &Object| o.selected && !o.hidden && o.mesh().is_some() && !o.modifiers.is_empty();
-        if !self.objects.iter().any(|o| has(o)) {
+        if !self.objects.iter().any(&has) {
             return 0;
         }
         self.push_undo();
@@ -1198,7 +1211,7 @@ impl Scene {
         let (id, stack, subsurf, flags) = (src.id, src.modifiers.clone(), src.subsurf, src.mod_flags.clone());
         let differs = |o: &Object| o.modifiers != stack || o.subsurf != subsurf || o.mod_flags != flags;
         let wants = |o: &Object| o.selected && !o.hidden && o.id != id && o.mesh().is_some() && differs(o);
-        if !self.objects.iter().any(|o| wants(o)) {
+        if !self.objects.iter().any(&wants) {
             return 0;
         }
         self.push_undo();
@@ -1353,7 +1366,7 @@ impl Scene {
         let mut flags = src.mod_flags.get(i).cloned().unwrap_or_default();
         flags.collapsed = false;
         let wants = |o: &Object| o.selected && !o.hidden && o.id != id && o.mesh().is_some();
-        if !self.objects.iter().any(|o| wants(o)) {
+        if !self.objects.iter().any(&wants) {
             return 0;
         }
         self.push_undo();
@@ -1493,9 +1506,9 @@ impl Scene {
             let Some(Modifier::Array { fit, .. }) = stack.iter_mut().find(|m| matches!(m, Modifier::Array { .. })) else { return false };
             *fit = match *fit {
                 f if f <= 0.0 => 2.0,
-                f if f == 2.0 => 4.0,
-                f if f == 4.0 => 8.0,
-                f if f == 8.0 => 0.0,
+                2.0 => 4.0,
+                4.0 => 8.0,
+                8.0 => 0.0,
                 _ => 2.0,
             };
             true
@@ -2030,7 +2043,7 @@ impl Scene {
             .selected()
             .filter_map(|o| {
                 let parts = o.mesh()?.loose_parts();
-                (parts.len() > 1).then(|| (o.id, parts))
+                (parts.len() > 1).then_some((o.id, parts))
             })
             .collect();
         if plan.is_empty() {
@@ -2399,7 +2412,7 @@ impl Scene {
             let world: Vec<V3> = mesh.verts.iter().map(|&v| mat4_mul_point(&m, v)).collect();
             for (_, [a, b, c]) in mesh.triangles() {
                 if let Some(t) = ray_triangle(near, dir, world[a as usize], world[b as usize], world[c as usize]) {
-                    if best.map_or(true, |(bt, _)| t < bt) {
+                    if best.is_none_or(|(bt, _)| t < bt) {
                         best = Some((t, o.id));
                     }
                 }

@@ -383,10 +383,10 @@ impl Transform {
         };
         let mut f = [factor; 3];
         if let Some(axis) = self.axis {
-            for k in 0..3 {
+            for (k, fk) in f.iter_mut().enumerate() {
                 let on_axis = k == axis.index();
                 if on_axis == self.plane {
-                    f[k] = 1.0;
+                    *fk = 1.0;
                 }
             }
         }

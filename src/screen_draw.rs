@@ -2,12 +2,12 @@
 //!
 //! Ported from Blender:
 //!  - `CORNER_RESOLUTION`, `do_vert_pair()`, `batch_screen_edges_get()`
-//!                                      (editors/screen/screen_draw.cc:39-97)
+//!    (editors/screen/screen_draw.cc:39-97)
 //!  - `drawscredge_area()`              (editors/screen/screen_draw.cc:102)
 //!  - `ED_screen_draw_edges()`          (editors/screen/screen_draw.cc:114-222, border part)
 //!  - `EDITORRADIUS`                    (editors/screen/screen_intern.hh:84)
 //!  - vertex + fragment stage of `area_borders`
-//!                                      (gpu/shaders/gpu_shader_area_borders.bsl.hh)
+//!    (gpu/shaders/gpu_shader_area_borders.bsl.hh)
 //!
 //! The GPU triangle strip is rasterised on the CPU. The rasteriser uses 8-bit
 //! sub-pixel fixed point, pixel-centre sampling and the top-left fill rule, so

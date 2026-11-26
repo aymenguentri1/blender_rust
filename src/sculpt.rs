@@ -478,10 +478,13 @@ pub fn filter_mask(mask: &mut [f32], adj: &Topo, filter: MaskFilter) {
     }
 }
 
+/// One Grab pass: the brush centre and the (vertex, falloff) pairs it holds.
+type GrabPass = ([f32; 3], Vec<(usize, f32)>);
+
 /// The vertices a Grab stroke holds (`sculpt_grab`): fixed when the stroke starts, moved by the mouse delta.
 #[derive(Clone, Debug)]
 struct Grab {
-    passes: Vec<([f32; 3], Vec<(usize, f32)>)>,
+    passes: Vec<GrabPass>,
     orig: Vec<V3>,
     start_px: [f32; 2],
     depth: f32,
@@ -574,7 +577,7 @@ pub fn cast(obj: &Object, rv3d: &RegionView3D, rw: i32, rh: i32, px: [f32; 2]) -
                 continue;
             }
             if let Some(t) = ray_triangle(o, dir, pa, pb, pc) {
-                if best.map_or(true, |bt| t < bt) {
+                if best.is_none_or(|bt| t < bt) {
                     best = Some(t);
                 }
             }
@@ -778,6 +781,7 @@ impl Session {
     /// The brush ring of `paint_draw_cursor()`: the outer circle at the radius and an inner one at the radius
     /// times the strength; the inverted brush is light blue (`cursor_color_subtract`), the add colour is white.
     /// `cursor` is the window position; `region` the viewport rect.
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_cursor(&self, buf: &mut [u32], width: usize, height: usize, region: Rcti, user: &UserDef, cursor: [i32; 2], invert: bool) {
         let invert = invert != self.settings.subtract;
         let size = (region.size_x() + 1, region.size_y() + 1);

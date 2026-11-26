@@ -194,6 +194,7 @@ pub fn project_segment(rv3d: &RegionView3D, a: [f32; 3], b: [f32; 3], size: (i32
 
 /// Draws the 3D cursor ring for `location` into `region` (inclusive Blender rect, y up) of the
 /// `0x00RRGGBB` buffer. `rv3d` must have been updated for the size of the region.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_cursor(
     buf: &mut [u32],
     width: usize,

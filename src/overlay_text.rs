@@ -131,6 +131,7 @@ fn lines(v3d: &View3D, rv3d: &RegionView3D, frame: i32, object: &ObjectInfo) -> 
 }
 
 /// Draws the info text into the main region `region` (inclusive window rect, y up).
+#[allow(clippy::too_many_arguments)]
 pub fn draw(buf: &mut [u32], width: usize, height: usize, region: Rcti, user: &UserDef, v3d: &View3D, rv3d: &RegionView3D, frame: i32, object: &ObjectInfo) {
     let line_height = font::UI_DEFAULT_TEXT_POINTS * user.scale_factor * 1.6;
     let x = region.xmin + (0.5 * user.widget_unit as f32) as i32;
