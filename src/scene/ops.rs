@@ -44,6 +44,15 @@ pub enum AlignMode {
     PositiveSides,
 }
 
+/// `rna_enum_object_type_items` for the object kinds this port has (`OB_MESH`, `OB_CAMERA`, `OB_LAMP`, `OB_EMPTY`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObjectType {
+    Mesh,
+    Camera,
+    Light,
+    Empty,
+}
+
 /// `OBJECT_OT_select_grouped`, the relationship types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GroupKind {
@@ -439,6 +448,29 @@ impl Scene {
             o.selected = hit || (extend && o.selected);
         }
         n
+    }
+
+    /// `OBJECT_OT_select_by_type`: without `extend` everything is deselected first, then every visible, selectable
+    /// object of `kind` is selected. Returns how many objects are selected afterwards that were not before.
+    pub fn select_by_type(&mut self, kind: ObjectType, extend: bool) -> usize {
+        let was: Vec<bool> = self.objects.iter().map(|o| o.selected).collect();
+        if !extend {
+            for o in &mut self.objects {
+                o.selected = false;
+            }
+        }
+        for o in &mut self.objects {
+            let ty = match o.data {
+                ObjectData::Mesh(_) => ObjectType::Mesh,
+                ObjectData::Camera => ObjectType::Camera,
+                ObjectData::Light(_) => ObjectType::Light,
+                ObjectData::Empty(_) => ObjectType::Empty,
+            };
+            if ty == kind && !o.hidden && !o.hide_select {
+                o.selected = true;
+            }
+        }
+        self.objects.iter().zip(&was).filter(|(o, w)| o.selected && !**w).count()
     }
 
     /// `object_select_more_less` (`OBJECT_OT_select_more` / `OBJECT_OT_select_less`): every selectable object
@@ -1256,6 +1288,41 @@ mod tests {
         s.update_eval();
         let st = s.statistics();
         assert!(st.verts > 8 && st.faces > 6);
+    }
+
+    #[test]
+    fn select_by_type_replaces_or_extends_and_skips_hidden() {
+        let mut s = Scene::startup();
+        s.add_primitive(Primitive::Cube, [1.0, 0.0, 0.0]);
+        let m3 = s.add_primitive(Primitive::Cube, [2.0, 0.0, 0.0]);
+        let hi = s.index_of(m3).unwrap();
+        s.objects[hi].hidden = true;
+        let cam = s.objects.iter().position(|o| matches!(o.data, ObjectData::Camera));
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        if let Some(c) = cam {
+            s.objects[c].selected = true;
+        }
+        let meshes = s.objects.iter().filter(|o| matches!(o.data, ObjectData::Mesh(_)) && !o.hidden).count();
+        assert_eq!(s.select_by_type(ObjectType::Mesh, false), meshes);
+        assert!(s.selected().all(|o| matches!(o.data, ObjectData::Mesh(_)) && !o.hidden));
+        if let Some(c) = cam {
+            assert!(!s.objects[c].selected, "no extend: the camera was deselected");
+            assert_eq!(s.select_by_type(ObjectType::Camera, true), 1);
+            assert_eq!(s.selected().count(), meshes + 1, "extend keeps the meshes");
+        }
+    }
+
+    #[test]
+    fn select_by_type_skips_hide_select_and_missing_types() {
+        let mut s = Scene::startup();
+        let i = s.objects.iter().position(|o| matches!(o.data, ObjectData::Mesh(_))).unwrap();
+        s.objects[i].hide_select = true;
+        s.objects[i].selected = false;
+        assert_eq!(s.select_by_type(ObjectType::Mesh, false), 0);
+        assert_eq!(s.select_by_type(ObjectType::Empty, false), 0);
+        assert_eq!(s.selected().count(), 0);
     }
 
     #[test]
