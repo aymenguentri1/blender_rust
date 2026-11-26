@@ -30,6 +30,7 @@ mod array_settings;
 mod solidify_settings;
 mod outliner_select;
 mod scene_units;
+mod outliner_rename;
 mod playhead_draw;
 
 mod status_input;
