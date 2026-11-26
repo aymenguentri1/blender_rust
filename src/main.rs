@@ -64,6 +64,8 @@ mod workbench;
 mod taa;
 #[allow(dead_code)]
 mod mesh;
+#[allow(dead_code)]
+mod mesh_extrude;
 mod mesh_ops;
 mod mesh_deform;
 mod mesh_wire;
