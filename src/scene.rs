@@ -1153,6 +1153,55 @@ impl Scene {
         true
     }
 
+    /// `OBJECT_OT_modifier_move_to_index` (Move to First / Move to Last): moves modifier `i` of the active object to
+    /// the start or the end of the stack and keeps it the active one.
+    pub fn panel_move_modifier_to(&mut self, i: usize, first: bool) -> bool {
+        self.edit_active_object_impl(
+            |o| {
+                let to = if first { 0 } else { o.modifiers.len().saturating_sub(1) };
+                if i >= o.modifiers.len() || i == to {
+                    return false;
+                }
+                let m = o.modifiers.remove(i);
+                o.modifiers.insert(to, m);
+                let f = o.mod_flags.remove(i);
+                o.mod_flags.insert(to, f);
+                o.active_modifier = to;
+                true
+            },
+            false,
+        )
+    }
+
+    /// `OBJECT_OT_modifier_copy_to_selected`: appends a copy of modifier `i` of the active object (with its name and
+    /// viewport flag, made unique) to every other selected visible mesh. Returns how many objects got it; one undo step.
+    pub fn panel_copy_modifier_to_selected(&mut self, i: usize) -> usize {
+        let Some(src) = self.active_object().filter(|o| o.mesh().is_some()) else { return 0 };
+        let (id, Some(m), Some(name)) = (src.id, src.modifiers.get(i).cloned(), src.modifier_name(i)) else { return 0 };
+        let mut flags = src.mod_flags.get(i).cloned().unwrap_or_default();
+        flags.collapsed = false;
+        let wants = |o: &Object| o.selected && !o.hidden && o.id != id && o.mesh().is_some();
+        if !self.objects.iter().any(|o| wants(o)) {
+            return 0;
+        }
+        self.push_undo();
+        let mut n = 0;
+        for o in self.objects.iter_mut().filter(|o| wants(o)) {
+            o.mod_flags.resize(o.modifiers.len(), modifiers::ModFlags::default());
+            let stem = split_suffix(&name).0.to_string();
+            let taken = |c: &str| (0..o.modifiers.len()).any(|j| o.modifier_name(j).as_deref() == Some(c));
+            let unique = if taken(&name) { (1..100_000).map(|k| format!("{stem}.{k:03}")).find(|c| !taken(c)).unwrap_or(name.clone()) } else { name.clone() };
+            let mut f = flags.clone();
+            f.name = (unique != m.label()).then_some(unique);
+            o.modifiers.push(m.clone());
+            o.mod_flags.push(f);
+            o.active_modifier = o.modifiers.len() - 1;
+            o.eval = None;
+            n += 1;
+        }
+        n
+    }
+
     /// Ctrl + click on a modifier's triangle (`UI_panel_drag_collapse` / `ui_handle_panel_header`): collapses every
     /// other panel and opens modifier `i`; when it already is the only open one, opens them all. UI state only.
     pub fn panel_collapse_others(&mut self, i: usize) -> bool {
