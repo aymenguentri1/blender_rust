@@ -38,6 +38,8 @@ mod obj_export;
 #[allow(dead_code)]
 mod keyframe_select;
 #[allow(dead_code)]
+mod keyframe_draw;
+#[allow(dead_code)]
 mod multires;
 #[allow(dead_code)]
 mod obj_import;
