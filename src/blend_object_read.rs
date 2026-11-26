@@ -45,11 +45,13 @@ pub fn read_object(sdna: &Sdna, ob: BlockReader) -> R<BlendObject> {
     Ok(BlendObject {
         name,
         ob_type: short("type")?,
-        data: ptr("ID", "*data")?,
+        // `void *data` in files written before the member was typed as `ID *`.
+        data: ptr(if sdna.member_offset("Object", "ID", "*data").is_some() { "ID" } else { "void" }, "*data")?,
         parent: ptr("Object", "*parent")?,
         loc: v3("loc[3]")?,
         rot: v3("rot[3]")?,
-        scale: v3("scale[3]")?,
+        // Written as `size`: `DNA_STRUCT_RENAME_MEMBER(Object, size, scale)`.
+        scale: v3("size[3]")?,
         rotmode: short("rotmode")?,
     })
 }
@@ -67,7 +69,7 @@ mod tests {
             members: ms.iter().map(|&(t, m)| StructMember { type_index: t, member_index: m }).collect(),
         };
         Sdna {
-            members: ["name[258]", "id", "type", "rotmode", "loc[3]", "rot[3]", "scale[3]", "*data", "*parent"]
+            members: ["name[258]", "id", "type", "rotmode", "loc[3]", "rot[3]", "size[3]", "*data", "*parent"]
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
@@ -116,6 +118,17 @@ mod tests {
         let p = payload("OBCube");
         let rd = BlockReader { data: &p[..300], big_endian: false, pointer_size: 8 };
         assert_eq!(read_object(&sdna(), rd), Err("short object"));
+    }
+
+    #[test]
+    fn untyped_data_pointer_of_older_files() {
+        let mut s = sdna();
+        s.types.push("void".to_string());
+        s.types_size.push(0);
+        s.structs[1].members[6].type_index = 5;
+        let p = payload("OBCube");
+        let rd = BlockReader { data: &p, big_endian: false, pointer_size: 8 };
+        assert_eq!(read_object(&s, rd).unwrap().data, 0xabc0);
     }
 
     #[test]

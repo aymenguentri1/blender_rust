@@ -1,5 +1,8 @@
 //! Read a `Mesh` ID block of a `.blend` into the repo `Mesh`.
 //!
+//! Members are looked up by their on-disk names (`dna_rename_defs.h`: `totvert` = `verts_num`,
+//! `totpoly` = `faces_num`, `totloop` = `corners_num`, `poly_offset_indices` = `face_offset_indices`,
+//! `vdata` = `vert_data`, `ldata` = `corner_data`).
 //! Layout from `DNA_mesh_types.h` (`verts_num`, `faces_num`, `corners_num`, `face_offset_indices`,
 //! `vert_data`, `corner_data`) and `DNA_customdata_types.h` (`CustomData::layers/totlayer`,
 //! `CustomDataLayer::type/name/data`). Geometry lives in the layers `"position"` (`CD_PROP_FLOAT3` = 48,
@@ -58,14 +61,14 @@ fn layer_data(
 /// Read one `Mesh` block payload (`me`) into a `Mesh`.
 pub fn read_mesh(sdna: &Sdna, src: &dyn BlockSource, me: BlockReader) -> R<Mesh> {
     let get = |name: &str| me.i32(off(sdna, "Mesh", "int", name)?).ok_or("short mesh");
-    let (verts_num, faces_num, corners_num) = (get("verts_num")?, get("faces_num")?, get("corners_num")?);
+    let (verts_num, faces_num, corners_num) = (get("totvert")?, get("totpoly")?, get("totloop")?);
     if verts_num < 0 || faces_num < 0 || corners_num < 0 {
         return Err("negative element count");
     }
     let (nv, nf, nc) = (verts_num as usize, faces_num as usize, corners_num as usize);
 
-    let vert_off = off(sdna, "Mesh", "CustomData", "vert_data")?;
-    let corner_off = off(sdna, "Mesh", "CustomData", "corner_data")?;
+    let vert_off = off(sdna, "Mesh", "CustomData", "vdata")?;
+    let corner_off = off(sdna, "Mesh", "CustomData", "ldata")?;
 
     let mut mesh = Mesh::default();
     if nv > 0 {
@@ -76,7 +79,7 @@ pub fn read_mesh(sdna: &Sdna, src: &dyn BlockSource, me: BlockReader) -> R<Mesh>
         }
     }
     if nf > 0 {
-        let offs_ptr = me.ptr(off(sdna, "Mesh", "int", "*face_offset_indices")?).ok_or("short mesh")?;
+        let offs_ptr = me.ptr(off(sdna, "Mesh", "int", "*poly_offset_indices")?).ok_or("short mesh")?;
         let offs = BlockReader { data: src.block(offs_ptr).ok_or("unresolved face offsets")?, ..me };
         let p = layer_data(sdna, src, me, corner_off, CD_PROP_INT32, ".corner_vert")?;
         let cv = BlockReader { data: src.block(p).ok_or("unresolved corner data")?, ..me };
@@ -123,8 +126,8 @@ mod tests {
     fn sdna() -> Sdna {
         let types = ["int", "char", "void", "CustomDataLayer", "CustomData", "Mesh"];
         let members = [
-            "type", "name[68]", "*data", "_pad[4]", "*layers", "totlayer", "verts_num", "faces_num",
-            "corners_num", "*face_offset_indices", "vert_data", "corner_data",
+            "type", "name[68]", "*data", "_pad[4]", "*layers", "totlayer", "totvert", "totpoly",
+            "totloop", "*poly_offset_indices", "vdata", "ldata",
         ];
         let st = |ty: i16, ms: &[(i16, i16)]| Struct {
             type_index: ty,
