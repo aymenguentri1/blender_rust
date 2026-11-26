@@ -178,6 +178,8 @@ mod mesh_face_metrics;
 mod uvedit_udim;
 #[allow(dead_code)]
 mod uvedit_align_weld;
+#[allow(dead_code)]
+mod uvedit_line_endpoint;
 
 use std::{num::NonZeroU32, sync::Arc};
 
