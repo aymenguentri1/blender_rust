@@ -122,6 +122,7 @@ mod transform_panel;
 mod select_box;
 mod rename_popup;
 mod gltf_node;
+mod collection;
 mod mirror_settings;
 mod bevel_settings;
 mod material;
