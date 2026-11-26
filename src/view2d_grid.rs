@@ -80,7 +80,7 @@ pub fn get_parallel_lines_draw_steps(line_distance: f32, view_bounds: (f32, f32)
         let steps = ((view_bounds.1 - start) / line_distance).floor().max(0.0) as u32 + 1;
         (start, steps)
     } else {
-        (0.0, 0)
+        (start, 0)
     }
 }
 
@@ -126,6 +126,6 @@ mod tests {
     fn parallel_lines() {
         assert_eq!(get_parallel_lines_draw_steps(10.0, (5.0, 35.0)), (10.0, 3));
         assert_eq!(get_parallel_lines_draw_steps(10.0, (10.0, 10.0)), (0.0, 0));
-        assert_eq!(get_parallel_lines_draw_steps(10.0, (11.0, 19.0)), (0.0, 0));
+        assert_eq!(get_parallel_lines_draw_steps(10.0, (11.0, 19.0)), (20.0, 0));
     }
 }
