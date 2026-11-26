@@ -41,6 +41,7 @@ mod keyframe_select;
 mod keyframe_draw;
 #[allow(dead_code)]
 mod graph_handle_type;
+mod graph_transform;
 #[allow(dead_code)]
 mod multires;
 #[allow(dead_code)]
