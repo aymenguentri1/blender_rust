@@ -149,6 +149,38 @@ fn rand_signed(id: u32, seed: u32, channel: u32) -> f32 {
     (h as f32 / 4_294_967_296.0) * 2.0 - 1.0
 }
 
+/// Python `fnmatch.fnmatchcase`: `*`, `?`, `[abc]`, `[a-z]` and `[!abc]` (an unclosed `[` matches itself).
+fn fnmatch_case(name: &[char], pat: &[char]) -> bool {
+    let Some((&p, rest)) = pat.split_first() else { return name.is_empty() };
+    match p {
+        '*' => (0..=name.len()).any(|k| fnmatch_case(&name[k..], rest)),
+        '?' => !name.is_empty() && fnmatch_case(&name[1..], rest),
+        '[' => {
+            /* The set ends at the first `]` after an optional `!` and one leading member (which may itself be `]`). */
+            let neg = rest.first() == Some(&'!');
+            let body = if neg { &rest[1..] } else { rest };
+            let Some(end) = body.iter().skip(1).position(|&c| c == ']').map(|e| e + 1) else {
+                return name.first() == Some(&'[') && fnmatch_case(&name[1..], rest);
+            };
+            let Some(&c) = name.first() else { return false };
+            let set = &body[..end];
+            let mut hit = false;
+            let mut j = 0;
+            while j < set.len() {
+                if j + 2 < set.len() && set[j + 1] == '-' {
+                    hit |= set[j] <= c && c <= set[j + 2];
+                    j += 3;
+                } else {
+                    hit |= set[j] == c;
+                    j += 1;
+                }
+            }
+            hit != neg && fnmatch_case(&name[1..], &body[end + 1..])
+        }
+        _ => name.first() == Some(&p) && fnmatch_case(&name[1..], rest),
+    }
+}
+
 /// The volume centroid of a closed triangulated surface, `None` when it has no volume (flat or open meshes with
 /// a tiny signed volume).
 fn volume_centroid(mesh: &Mesh) -> Option<V3> {
@@ -487,6 +519,27 @@ impl Scene {
             n += 1;
         }
         n
+    }
+
+    /// `object.select_pattern` (`SelectPattern` in `bl_operators/object.py`): selects the visible objects whose name
+    /// matches the unix wildcard `pattern` (`*`, `?`, `[abc]`). Without `case_sensitive` both sides are upper-cased;
+    /// without `extend` everything is deselected first. Returns how many objects are selected afterwards that were
+    /// not before. (Blender defaults: pattern `*`, case insensitive, extend on.)
+    pub fn select_pattern(&mut self, pattern: &str, case_sensitive: bool, extend: bool) -> usize {
+        let was: Vec<bool> = self.objects.iter().map(|o| o.selected).collect();
+        if !extend {
+            for o in &mut self.objects {
+                o.selected = false;
+            }
+        }
+        let fold = |t: &str| -> Vec<char> { if case_sensitive { t.chars().collect() } else { t.to_uppercase().chars().collect() } };
+        let pat = fold(pattern);
+        for o in self.objects.iter_mut().filter(|o| !o.hidden && !o.hide_select) {
+            if fnmatch_case(&fold(&o.name), &pat) {
+                o.selected = true;
+            }
+        }
+        self.objects.iter().zip(&was).filter(|(o, w)| o.selected && !**w).count()
     }
 
     /// `object_select_more_less` (`OBJECT_OT_select_more` / `OBJECT_OT_select_less`): every selectable object
@@ -1367,6 +1420,40 @@ mod tests {
         assert_eq!(s.select_same_collection("Nope"), 0);
         assert_eq!(s.select_same_collection("XGen Guides"), 0);
         assert_eq!(s.selected().count(), 0);
+    }
+
+    #[test]
+    fn fnmatch_wildcards_and_sets() {
+        let m = |n: &str, p: &str| fnmatch_case(&n.chars().collect::<Vec<_>>(), &p.chars().collect::<Vec<_>>());
+        assert!(m("Cube.001", "*") && m("", "*") && m("Cube.001", "Cube*") && m("Cube.001", "*.0?1"));
+        assert!(m("Cube", "C?be") && !m("Cube", "C?b") && !m("Cube", "Cub"));
+        assert!(m("Cube", "[abC]ube") && !m("Cube", "[abc]ube") && !m("Cube", "[!C]ube") && m("Cube", "[!x]ube") && m("Cube", "[A-Z]ube"));
+        assert!(m("a]", "a[]]") && m("a[", "a[") && m("x[b", "x[b"), "unclosed set is literal, `]` first is a member");
+        assert!(!m("Cube", "cube"), "fnmatchcase is case sensitive");
+    }
+
+    #[test]
+    fn select_pattern_case_extend_and_visibility() {
+        let mut s = Scene::startup();
+        let a = s.add_primitive(Primitive::Cube, [1.0, 0.0, 0.0]);
+        let b = s.add_primitive(Primitive::Cube, [2.0, 0.0, 0.0]);
+        let (ai, bi) = (s.index_of(a).unwrap(), s.index_of(b).unwrap());
+        s.objects[bi].hidden = true;
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        s.objects[0].selected = true;
+        /* Case insensitive by default, extend keeps the old selection; hidden Cube.002 is not a visible object. */
+        let first = s.objects[0].name.clone();
+        assert_eq!(s.select_pattern("cube.0*", false, true), 1);
+        assert!(s.objects[0].selected && s.objects[ai].selected && !s.objects[bi].selected);
+        assert_eq!(s.select_pattern("cube.0*", true, false), 0, "case sensitive: no match, and nothing kept");
+        assert_eq!(s.selected().count(), 0);
+        assert_eq!(s.select_pattern(&first, true, false), 1);
+        let rest = s.objects.iter().filter(|o| !o.hidden && !o.selected).count();
+        assert!(rest >= 1 && !s.objects[bi].selected);
+        assert_eq!(s.select_pattern("*", false, true), rest, "extend adds the remaining visible objects only");
+        assert!(!s.objects[bi].selected, "the hidden object stays unselected");
     }
 
     #[test]
