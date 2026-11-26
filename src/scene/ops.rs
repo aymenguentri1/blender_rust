@@ -441,6 +441,36 @@ impl Scene {
         n
     }
 
+    /// `object_select_more_less` (`OBJECT_OT_select_more` / `OBJECT_OT_select_less`): every selectable object
+    /// whose selected state differs from its parent's, and the parent of such a pair, is selected (`select`) or
+    /// deselected. Returns whether any object changed.
+    pub fn select_more_less(&mut self, select: bool) -> bool {
+        let sel: Vec<(u32, bool)> = self.objects.iter().map(|o| (o.id, o.selected)).collect();
+        let state = |id: u32| sel.iter().find(|(i, _)| *i == id).map(|(_, s)| *s);
+        let mut doit = vec![false; self.objects.len()];
+        for (j, o) in self.objects.iter().enumerate() {
+            if o.hidden || o.hide_select {
+                continue;
+            }
+            let Some(pid) = o.parent else { continue };
+            let Some(ps) = state(pid) else { continue };
+            if o.selected != ps {
+                doit[j] = true;
+                if let Some(pj) = self.index_of(pid) {
+                    doit[pj] = true;
+                }
+            }
+        }
+        let mut changed = false;
+        for (j, o) in self.objects.iter_mut().enumerate() {
+            if doit[j] && !o.hidden && !o.hide_select && o.selected != select {
+                o.selected = select;
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// The world position of the active object's origin (`VIEW3D_OT_snap_cursor_to_active`).
     pub fn active_origin(&self) -> Option<V3> {
         let w = self.active_object()?.world_matrix()[3];
@@ -1226,6 +1256,37 @@ mod tests {
         s.update_eval();
         let st = s.statistics();
         assert!(st.verts > 8 && st.faces > 6);
+    }
+
+    #[test]
+    fn select_more_grows_across_parent_links_and_less_shrinks() {
+        let mut s = family();
+        let a = s.objects.iter().find(|o| o.name == "Cube.001").unwrap().id;
+        let ai = s.index_of(a).unwrap();
+        s.objects[ai].selected = true;
+        /* Cube.001 selected: its parent (Cube) and child (Cube.002) join; the sibling Cube.003 does not. */
+        assert!(s.select_more_less(true));
+        assert_eq!(names(&s), ["Cube", "Cube.001", "Cube.002"]);
+        /* Less: only Cube differs from a neighbour (its unselected child Cube.003), so it alone drops out. */
+        assert!(s.select_more_less(false));
+        assert_eq!(names(&s), ["Cube.001", "Cube.002"]);
+    }
+
+    #[test]
+    fn select_more_less_report_no_change_and_skip_unselectable() {
+        let mut s = family();
+        assert!(!s.select_more_less(true), "nothing selected: no boundary");
+        let a = s.objects.iter().find(|o| o.name == "Cube.001").unwrap().id;
+        let ai = s.index_of(a).unwrap();
+        s.objects[ai].selected = true;
+        let b = s.objects.iter().position(|o| o.name == "Cube.002").unwrap();
+        s.objects[b].hide_select = true;
+        assert!(s.select_more_less(true));
+        assert_eq!(names(&s), ["Cube", "Cube.001"]);
+        for o in &mut s.objects {
+            o.selected = true;
+        }
+        assert!(!s.select_more_less(true), "everything selected: nothing to add");
     }
 }
 
