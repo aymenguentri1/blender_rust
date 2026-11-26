@@ -162,6 +162,31 @@ impl<T> UndoStack<T> {
         }
     }
 
+    /// `BKE_undosys_step_find_by_name`: the newest step with that name (`BLI_rfindstring`).
+    pub fn find_by_name(&self, name: &str) -> Option<usize> {
+        self.steps.iter().rposition(|s| s.name == name)
+    }
+
+    /// `ed_undo_step_by_name`: undoes the step called `name`, i.e. loads the step before it (stepping over skipped
+    /// steps, in whichever direction that lies). True = `OPERATOR_FINISHED`, false = `OPERATOR_CANCELLED` (unknown
+    /// name, or the first step which cannot be undone).
+    pub fn step_by_name(&mut self, name: &str, decode: impl FnMut(&UndoStep<T>, StepDir, bool)) -> bool {
+        let Some(found) = self.find_by_name(name) else { return false };
+        let Some(target) = found.checked_sub(1) else { return false };
+        self.load_data_ex(Some(target), None, true, false, decode);
+        true
+    }
+
+    /// `ed_undo_step_by_index`: loads the step at `index` (several steps at once). Cancelled when it is already the
+    /// active step; an out of range index is refused (Blender would assert on a null step).
+    pub fn step_by_index(&mut self, index: usize, decode: impl FnMut(&UndoStep<T>, StepDir, bool)) -> bool {
+        if index >= self.steps.len() || Some(index) == self.active {
+            return false;
+        }
+        self.load_data(Some(index), decode);
+        true
+    }
+
     /// `BKE_undosys_stack_limit_steps_and_memory`; `steps == -1` and `memory_limit == 0` mean unlimited.
     pub fn limit_steps_and_memory(&mut self, steps: i32, memory_limit: usize) {
         if steps == -1 && memory_limit == 0 {
@@ -322,5 +347,37 @@ mod tests {
         s.load_from_index(4, |_, _, _| panic!("already active"));
         assert_eq!(s.calc_direction(Some(4), None), StepDir::Undo); // the active step counts as undo
         assert_eq!(s.calc_direction(Some(9), None), StepDir::Invalid);
+    }
+
+    #[test]
+    fn find_by_name_returns_newest_match() {
+        let mut s = stack(3);
+        s.push("s1", 9, 1);
+        assert_eq!(s.find_by_name("s1"), Some(3));
+        assert_eq!(s.find_by_name("s0"), Some(0));
+        assert_eq!(s.find_by_name("nope"), None);
+    }
+
+    #[test]
+    fn step_by_name_loads_previous_step_or_cancels() {
+        let mut s = stack(5);
+        assert!(s.step_by_name("s3", |_, _, _| {})); // undoing "s3" lands on s2
+        assert_eq!(s.active, Some(2));
+        assert!(s.step_by_name("s4", |_, _, _| {})); // "s4" is ahead: redo up to the step before it
+        assert_eq!(s.active, Some(3));
+        assert!(!s.step_by_name("s0", |_, _, _| panic!("no step before it")));
+        assert!(!s.step_by_name("unknown", |_, _, _| panic!("not found")));
+        assert_eq!(s.active, Some(3));
+    }
+
+    #[test]
+    fn step_by_index_checks_range_and_active() {
+        let mut s = stack(4);
+        assert!(!s.step_by_index(3, |_, _, _| panic!("already active")));
+        assert!(!s.step_by_index(4, |_, _, _| panic!("out of range")));
+        assert!(s.step_by_index(0, |_, _, _| {}));
+        assert_eq!(s.active, Some(0));
+        assert!(s.step_by_index(2, |_, _, _| {}));
+        assert_eq!(s.active, Some(2));
     }
 }
