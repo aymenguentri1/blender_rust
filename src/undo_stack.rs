@@ -187,6 +187,52 @@ impl<T> UndoStack<T> {
         true
     }
 
+    /// `BKE_undosys_stack_clear_active`: removes the active step and all following ones; the new active step is the
+    /// one before it after rewinding over `skip` steps.
+    pub fn clear_active(&mut self) {
+        let Some(a) = self.active else { return };
+        let mut us = a.checked_sub(1);
+        while let Some(i) = us {
+            if !self.steps[i].skip {
+                break;
+            }
+            us = i.checked_sub(1);
+        }
+        self.active = us;
+        self.steps.truncate(us.map_or(0, |i| i + 1));
+    }
+
+    /// `ed_undo_grouped_check_by_name`: the active step has this name.
+    pub fn grouped_check_by_name(&self, name: &str) -> bool {
+        self.active.is_some_and(|a| self.steps[a].name == name)
+    }
+
+    /// `ED_undo_grouped_push`: a push with the name of the active step replaces that step (it is cleared first), so
+    /// repeated pushes of one operator stay a single step.
+    pub fn grouped_push(&mut self, name: &str, data: T, data_size: usize) {
+        if self.grouped_check_by_name(name) {
+            self.clear_active();
+        }
+        self.push(name, data, data_size);
+    }
+
+    /// `BKE_undosys_stack_group_begin`.
+    pub fn group_begin(&mut self) {
+        debug_assert!(self.group_level >= 0);
+        self.group_level += 1;
+    }
+
+    /// `BKE_undosys_stack_group_end`: the last end makes the active step a normal (non-skip) step again.
+    pub fn group_end(&mut self) {
+        self.group_level -= 1;
+        debug_assert!(self.group_level >= 0);
+        if self.group_level == 0 {
+            if let Some(a) = self.active {
+                self.steps[a].skip = false;
+            }
+        }
+    }
+
     /// `BKE_undosys_stack_limit_steps_and_memory`; `steps == -1` and `memory_limit == 0` mean unlimited.
     pub fn limit_steps_and_memory(&mut self, steps: i32, memory_limit: usize) {
         if steps == -1 && memory_limit == 0 {
@@ -379,5 +425,48 @@ mod tests {
         assert_eq!(s.active, Some(0));
         assert!(s.step_by_index(2, |_, _, _| {}));
         assert_eq!(s.active, Some(2));
+    }
+
+    #[test]
+    fn grouped_push_same_name_replaces_active_step() {
+        let mut s = stack(3); // s0 s1 s2
+        s.grouped_push("s2", 7, 1);
+        assert_eq!(s.steps.iter().map(|x| x.data).collect::<Vec<_>>(), vec![0, 1, 7]);
+        assert_eq!(s.steps.len(), 3); // no new step
+        s.grouped_push("other", 8, 1);
+        assert_eq!(s.steps.len(), 4);
+        assert!(s.grouped_check_by_name("other") && !s.grouped_check_by_name("s2"));
+        assert!(!UndoStack::<u8>::new().grouped_check_by_name("x"));
+    }
+
+    #[test]
+    fn clear_active_rewinds_over_skip_and_drops_redo() {
+        let mut s = stack(5);
+        s.steps[2].skip = true;
+        s.active = Some(3);
+        s.clear_active(); // prev of 3 is skipped 2, so the active step becomes 1; 3 and 4 are freed
+        assert_eq!((s.active, s.steps.len()), (Some(1), 2));
+        let mut t = stack(1);
+        t.clear_active();
+        assert_eq!((t.active, t.steps.len()), (None, 0));
+    }
+
+    #[test]
+    fn group_begin_end_nesting() {
+        let mut s = UndoStack::new();
+        s.push("a", 0, 1);
+        s.group_begin();
+        s.group_begin();
+        s.push("b", 1, 1);
+        s.push("c", 2, 1);
+        assert!(s.steps[1].skip && s.steps[2].skip);
+        s.group_end();
+        assert!(s.steps[2].skip, "inner end keeps the group open");
+        s.group_end();
+        // only the last step of the group becomes visible
+        assert_eq!((s.group_level, s.steps[1].skip, s.steps[2].skip), (0, true, false));
+        s.group_begin();
+        s.group_end(); // no push inside the group: nothing changes
+        assert!(!s.steps[2].skip);
     }
 }
