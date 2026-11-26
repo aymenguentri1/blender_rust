@@ -75,6 +75,8 @@ pub fn tabs_list(pathflag: u32) -> Vec<Tab> {
     for c in [Object, Modifier, Physics, Constraint, Data, Material] {
         add(&mut tabs, c);
     }
+    /* `add_spacer()` after Collection, Material and Texture: the unmodelled groups add nothing, the dedupe keeps one. */
+    spacer(&mut tabs);
     tabs
 }
 
@@ -114,7 +116,7 @@ mod tests {
         let s = Scene::startup();
         let f = path_flags(&s);
         /* Tool | Render Output Scene ViewLayer World | Object Modifier Physics Constraint Data Material */
-        assert_eq!(names(&tabs_list(f)), vec![14, -1, 0, 16, 1, 13, 2, -1, 3, 10, 8, 11, 4, 5]);
+        assert_eq!(names(&tabs_list(f)), vec![14, -1, 0, 16, 1, 13, 2, -1, 3, 10, 8, 11, 4, 5, -1]);
     }
 
     #[test]
@@ -122,7 +124,7 @@ mod tests {
         let mut s = Scene::startup();
         s.active = None;
         let t = tabs_list(path_flags(&s));
-        /* `add_spacer` runs after the scene group even when nothing follows, so a trailing separator stays. */
+        /* The spacers after the scene and object groups run even when nothing follows, so one trailing separator stays. */
         assert_eq!(names(&t), vec![14, -1, 0, 16, 1, 13, 2, -1]);
     }
 
