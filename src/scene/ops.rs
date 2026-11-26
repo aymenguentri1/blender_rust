@@ -1048,6 +1048,22 @@ mod tests {
     }
 
     #[test]
+    fn displace_direction_cycles_only_with_a_displace() {
+        let mut s = Scene::startup();
+        assert_eq!(s.cycle_displace_direction(), 0, "no Displace modifier yet");
+        s.toggle_displace();
+        let dir = |s: &Scene| match &s.active_object().unwrap().modifiers[0] {
+            Modifier::Displace { dir, .. } => *dir,
+            _ => unreachable!(),
+        };
+        use crate::mesh_deform::DisplaceDir::*;
+        for want in [X, Y, Z, Normal] {
+            assert_eq!(s.cycle_displace_direction(), 1);
+            assert_eq!(dir(&s), want);
+        }
+    }
+
+    #[test]
     fn array_fit_cycles_and_sizes_the_array() {
         let mut s = Scene::startup();
         assert_eq!(s.cycle_array_fit(), 0, "no Array modifier yet");

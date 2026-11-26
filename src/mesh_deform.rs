@@ -21,6 +21,36 @@
 
 use crate::mesh::{Mesh, V3};
 
+/// The Displace modifier's Direction: along the vertex normals (the default) or along a local axis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DisplaceDir {
+    Normal,
+    X,
+    Y,
+    Z,
+}
+
+impl DisplaceDir {
+    pub fn label(self) -> &'static str {
+        match self {
+            DisplaceDir::Normal => "Normal",
+            DisplaceDir::X => "X",
+            DisplaceDir::Y => "Y",
+            DisplaceDir::Z => "Z",
+        }
+    }
+
+    /// Blender's menu order: Normal, X, Y, Z, then round again.
+    pub fn next(self) -> DisplaceDir {
+        match self {
+            DisplaceDir::Normal => DisplaceDir::X,
+            DisplaceDir::X => DisplaceDir::Y,
+            DisplaceDir::Y => DisplaceDir::Z,
+            DisplaceDir::Z => DisplaceDir::Normal,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeformMode {
     Twist,
@@ -144,8 +174,19 @@ impl Mesh {
     }
 
     /// The Displace modifier: moves each vertex along its normal by `(noise - midlevel) * strength`.
+    #[cfg(test)]
     pub fn displaced(&self, strength: f32, midlevel: f32, noise_scale: f32) -> Mesh {
-        let normals = self.vertex_normals();
+        self.displaced_along(strength, midlevel, noise_scale, DisplaceDir::Normal)
+    }
+
+    /// `displaced()` along `dir`: the vertex normals, or the local X, Y or Z axis.
+    pub fn displaced_along(&self, strength: f32, midlevel: f32, noise_scale: f32, dir: DisplaceDir) -> Mesh {
+        let normals = match dir {
+            DisplaceDir::Normal => self.vertex_normals(),
+            DisplaceDir::X => vec![[1.0, 0.0, 0.0]; self.verts.len()],
+            DisplaceDir::Y => vec![[0.0, 1.0, 0.0]; self.verts.len()],
+            DisplaceDir::Z => vec![[0.0, 0.0, 1.0]; self.verts.len()],
+        };
         let verts = self
             .verts
             .iter()
@@ -228,6 +269,24 @@ pub fn value_noise(p: V3) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn displace_along_an_axis_moves_only_that_axis() {
+        let cube = Mesh::cube(2.0);
+        for (dir, axis) in [(DisplaceDir::X, 0), (DisplaceDir::Y, 1), (DisplaceDir::Z, 2)] {
+            let d = cube.displaced_along(0.5, 0.0, 1.0, dir);
+            assert_ne!(d.verts, cube.verts);
+            for (a, b) in d.verts.iter().zip(&cube.verts) {
+                for k in 0..3 {
+                    if k != axis {
+                        assert_eq!(a[k], b[k], "{dir:?} moved axis {k}");
+                    }
+                }
+            }
+        }
+        assert_eq!(cube.displaced_along(0.5, 0.5, 1.0, DisplaceDir::Normal), cube.displaced(0.5, 0.5, 1.0));
+        assert_eq!(DisplaceDir::Z.next().next(), DisplaceDir::X);
+    }
 
     #[test]
     fn smoothing_shrinks_a_cube_towards_its_center() {

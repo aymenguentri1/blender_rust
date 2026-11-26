@@ -43,6 +43,7 @@ Blender has no keys for modifiers (they live in the properties editor), so these
 | Ctrl + Alt + T | Simple Deform modifier (Z axis): each press cycles Twist (45 degrees) -> Bend (45 degrees) -> Taper (0.5) -> Stretch (0.5) -> off |
 | Ctrl + Alt + E | Weld modifier: toggle (merge by distance, 1 mm) |
 | Ctrl + Alt + G | Displace modifier: toggle (noise along the normals, strength 0.2 m, midlevel 0.5) |
+| Ctrl + Alt + `'` | Displace modifier: cycles the Direction Normal -> X -> Y -> Z -> Normal (X / Y / Z move every vertex along that local axis by the same noise value; the stack line shows `Displace 0.2 m Y`). Blender's texture slot, RGB directions and coordinate spaces are not modelled |
 | Ctrl + Alt + R | Triangulate modifier: toggle |
 | Ctrl + Alt + C | Cast modifier: each press cycles Sphere (factor 0.5) -> Cylinder -> off |
 | Ctrl + Alt + Q | Wireframe modifier: toggle (0.02 m frames; stack it after Triangulate to frame triangles) |

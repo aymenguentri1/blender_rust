@@ -6,7 +6,7 @@
 
 use crate::mesh::{Mesh, V3};
 use crate::mesh_boolean::BoolOp;
-use crate::mesh_deform::{CastShape, DeformMode};
+use crate::mesh_deform::{CastShape, DeformMode, DisplaceDir};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Modifier {
@@ -25,7 +25,7 @@ pub enum Modifier {
     /// Twist (radians) / Taper / Stretch (factor) about the Z axis.
     SimpleDeform { mode: DeformMode, amount: f32 },
     /// Noise displacement along the normals.
-    Displace { strength: f32, midlevel: f32, scale: f32 },
+    Displace { strength: f32, midlevel: f32, scale: f32, dir: DisplaceDir },
     Triangulate,
     /// Blend towards a sphere or cylinder; radius 0 is the average distance.
     Cast { shape: CastShape, factor: f32, radius: f32 },
@@ -125,7 +125,7 @@ impl Modifier {
 
     /// Midlevel 0.5 as in Blender; the strength is 0.2 m (Blender's 1 m is huge next to the 2 m default cube).
     pub fn displace() -> Modifier {
-        Modifier::Displace { strength: 0.2, midlevel: 0.5, scale: 1.0 }
+        Modifier::Displace { strength: 0.2, midlevel: 0.5, scale: 1.0, dir: DisplaceDir::Normal }
     }
 
     /// Factor 0.5 as in Blender.
@@ -278,7 +278,8 @@ impl Modifier {
                 DeformMode::Twist | DeformMode::Bend => format!(": {} {}\u{b0}", mode.label(), num(amount.to_degrees())),
                 DeformMode::Taper | DeformMode::Stretch => format!(": {} {}", mode.label(), num(*amount)),
             },
-            Modifier::Displace { strength, .. } => format!(" {} m", num(*strength)),
+            Modifier::Displace { strength, dir: DisplaceDir::Normal, .. } => format!(" {} m", num(*strength)),
+            Modifier::Displace { strength, dir, .. } => format!(" {} m {}", num(*strength), dir.label()),
             Modifier::Triangulate => String::new(),
             Modifier::Cast { shape, factor, .. } => format!(": {} {}", shape.label(), num(*factor)),
             Modifier::Decimate { ratio } => format!(" {}", num(*ratio)),
@@ -397,7 +398,7 @@ impl Modifier {
             Modifier::Bevel { width, segments } => mesh.beveled_segments(*width, *segments),
             Modifier::Smooth { factor, repeat } => mesh.smoothed(*factor, *repeat),
             Modifier::SimpleDeform { mode, amount } => mesh.deformed(*mode, *amount),
-            Modifier::Displace { strength, midlevel, scale } => mesh.displaced(*strength, *midlevel, *scale),
+            Modifier::Displace { strength, midlevel, scale, dir } => mesh.displaced_along(*strength, *midlevel, *scale, *dir),
             Modifier::Triangulate => mesh.triangulated(),
             Modifier::Cast { shape, factor, radius } => mesh.casted(*shape, *factor, *radius),
             Modifier::Decimate { ratio } => mesh.decimated(*ratio),
@@ -608,6 +609,17 @@ mod tests {
         assert_eq!(even.summary(), "Solidify 0.2 m even");
         assert_eq!(plain.apply(&cube).faces, even.apply(&cube).faces);
         assert_ne!(plain.apply(&cube).verts, even.apply(&cube).verts);
+    }
+
+    #[test]
+    fn displace_direction_shows_in_the_summary() {
+        let mut m = Modifier::displace();
+        assert_eq!(m.summary(), "Displace 0.2 m");
+        let Modifier::Displace { dir, .. } = &mut m else { unreachable!() };
+        *dir = DisplaceDir::Y;
+        assert_eq!(m.summary(), "Displace 0.2 m Y");
+        let cube = Mesh::cube(2.0);
+        assert_ne!(m.apply(&cube), Modifier::displace().apply(&cube));
     }
 
     #[test]

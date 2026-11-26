@@ -1214,6 +1214,16 @@ impl Scene {
         })
     }
 
+    /// Cycles the Direction of the first Displace modifier of each selected mesh: Normal, X, Y, Z, Normal.
+    /// Returns how many changed.
+    pub fn cycle_displace_direction(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            let Some(Modifier::Displace { dir, .. }) = stack.iter_mut().find(|m| matches!(m, Modifier::Displace { .. })) else { return false };
+            *dir = dir.next();
+            true
+        })
+    }
+
     /// Adds a Displace modifier to the selected meshes, or removes the one they have.
     pub fn toggle_displace(&mut self) -> usize {
         self.edit_modifiers(|stack| {
