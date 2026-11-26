@@ -26,6 +26,7 @@ use crate::modifiers::{self, Modifier};
 use crate::view3d::{Mat4, RegionView3D};
 
 pub mod ops;
+mod blend_open;
 mod parent_drop;
 pub use ops::{snap_to_grid, AlignMode, AlignTo, ApplyMask, GroupKind, Randomize};
 

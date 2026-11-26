@@ -194,8 +194,8 @@ mod blend_dna_read;
 mod blend_mesh_read;
 #[allow(dead_code)]
 mod blend_object_read;
-#[allow(dead_code)]
 mod blend_scene;
+mod blend_drop;
 
 use std::{num::NonZeroU32, sync::Arc};
 
@@ -446,6 +446,33 @@ fn set_wire(wire: &mut bool, scene_depth: &mut Vec<f32>, taa: &mut taa::TaaState
     }
 }
 
+impl App {
+    /// A `.blend` dropped on the window replaces the scene; other files and drops during a transform are ignored.
+    fn drop_file(&mut self, path: &std::path::Path) {
+        if self.xform.is_some() || !blend_drop::is_blend_path(path) {
+            return;
+        }
+        let result = blend_drop::open(path);
+        if let Ok(objects) = &result {
+            self.scene.open_blend_objects(objects.clone());
+            /* The modes and popups that refer to the replaced objects end. */
+            self.sculpt = None;
+            self.edit_mode = false;
+            self.field_edit = None;
+            self.mod_edit = None;
+            self.mod_menu = None;
+            self.mod_drag = None;
+            self.rename = None;
+            self.outliner_rename = None;
+            scene_changed(&mut self.scene, &mut self.taa);
+        }
+        if let Some(gfx) = self.gfx.as_ref() {
+            set_status_title(&gfx.window, result.err().as_deref());
+            gfx.window.request_redraw();
+        }
+    }
+}
+
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.gfx.is_some() {
@@ -514,6 +541,8 @@ impl ApplicationHandler for App {
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
+
+            WindowEvent::DroppedFile(path) => self.drop_file(&path),
 
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 let user = UserDef::from_window_scale(scale_factor);
