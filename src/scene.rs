@@ -378,6 +378,17 @@ impl Scene {
         self.objects.iter().position(|o| o.id == id)
     }
 
+    /// The base mesh of object `id` for sculpting; drops its evaluated mesh (the caller runs `update_eval()`).
+    pub fn sculpt_mesh_mut(&mut self, id: u32) -> Option<&mut Mesh> {
+        let i = self.index_of(id)?;
+        let o = &mut self.objects[i];
+        o.eval = None;
+        match &mut o.data {
+            ObjectData::Mesh(m) => Some(m),
+            _ => None,
+        }
+    }
+
     pub fn active_object(&self) -> Option<&Object> {
         self.active.and_then(|id| self.index_of(id)).map(|i| &self.objects[i])
     }
@@ -2480,7 +2491,7 @@ fn ray_hits_aabb(origin: V3, dir: V3, lo: V3, hi: V3) -> bool {
 }
 
 /// Möller-Trumbore, double sided; the distance along `dir` of the hit in front of the origin.
-fn ray_triangle(origin: V3, dir: V3, a: V3, b: V3, c: V3) -> Option<f32> {
+pub(crate) fn ray_triangle(origin: V3, dir: V3, a: V3, b: V3, c: V3) -> Option<f32> {
     let (e1, e2) = (sub(b, a), sub(c, a));
     let p = cross(dir, e2);
     let det = dot(e1, p);
