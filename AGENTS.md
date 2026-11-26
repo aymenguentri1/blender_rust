@@ -23,6 +23,20 @@ Goal: a full Blender clone in Rust. Read this file completely before you do anyt
 - Cite the Blender source file you ported in a comment or the PR description (`Ported from source/blender/.../file.c`).
 - Do not add third-party code, assets, or algorithms from anywhere else. Dependencies need approval (see section 6).
 
+### Mandatory reference procedure (no exceptions)
+Never write Blender behaviour from memory. For every feature, fix or UI element:
+1. `scripts/blender_ref.sh setup` (clones https://github.com/aymenguentri1/blender read-only next to this repo).
+2. Find the real source: `scripts/blender_ref.sh find <name>` and `scripts/blender_ref.sh grep <text>`.
+   UI layout and labels come from `scripts/startup/bl_ui/*.py`; operators and behaviour from
+   `source/blender/editors/**`; data and algorithms from `source/blender/blenkernel`, `bmesh`, `modifiers`, `draw`, `gpu`.
+3. Read the actual code. Copy exact names, defaults, constants, key maps and ordering from it.
+4. If you cannot find it in the reference repo, **it does not exist: do not build it.** Open an issue instead.
+5. List every file you used under `## Blender source ported from` in the PR body (full repo-relative paths).
+   The `blender-ref` CI check verifies each path exists in the reference repo and **blocks the merge** if the section is
+   missing or a path is wrong. Reviewers must also open the cited files and confirm the Rust matches them.
+6. Any difference from Blender goes in `docs/DECISIONS.md` and the README deviations, with the reason.
+Doc/CI/meta-only PRs are exempt from the CI check, never from rule 4.
+
 ## 2. Licensing (decided, do not change)
 Blender is GPL-2.0-or-later. Because we port its code, **this project is licensed GPL-3.0-or-later**
 (compatible with Blender's "or later"). Keep Blender's copyright credit in files that are direct ports.
