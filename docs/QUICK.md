@@ -1,5 +1,11 @@
 # QUICK card: read only this (about 1 minute). Full rules: AGENTS.md, docs/FAILSAFE.md (only if something below is unclear).
 
+> **SOLO MODE (active while `scripts/SOLO_MODE` exists).** Only one agent works on this repo. There is no second reviewer:
+> the `review-gate` check passes by itself, `factory.py` does not require it, you may review/merge your own PRs and the
+> REVIEW and "never review your own PR" rules below do not apply. Instead, before `ready`: run `factory.py diff`, open the
+> cited Blender files yourself and compare, run `factory.py check`. Still never push to main and never merge red CI.
+> Abandoned drafts of agents that no longer exist: take them over (`next` does) or close them. Delete the file to go back to many agents.
+
 ## Start (any Claude, same prompt)
 ```
 export GH_TOKEN=<token>  AGENT_NAME=claude-<4 random chars>      # unique name, lowercase

@@ -15,7 +15,9 @@
 import argparse, base64, json, os, re, subprocess, sys, time, urllib.request, urllib.error
 REPO = os.environ.get("FACTORY_REPO", "aymenguentri1/blender_rust")
 TOKEN = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
-REQUIRED = ["build-test", "blender-ref", "pr-size", "review-gate"]
+ROOT0 = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+SOLO = os.path.exists(os.path.join(ROOT0, "scripts", "SOLO_MODE"))   # one agent does everything: no second reviewer needed
+REQUIRED = ["build-test", "blender-ref", "pr-size"] + ([] if SOLO else ["review-gate"])
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 REFDIR = os.environ.get("BLENDER_REF_DIR", os.path.join(os.path.dirname(ROOT), "blender"))
 MIN_AVAILABLE = 15
@@ -97,7 +99,7 @@ def cmd_next(a):
     for p in sorted(ready, key=lambda x: x["number"]):
         if all(cache[p["number"]].get(r) == "success" for r in REQUIRED): finish(f"MERGE #{p['number']}: `python3 scripts/factory.py merge {p['number']}` (approved and green).")
     for p in sorted(ready, key=lambda x: x["number"]):
-        if author_of(p) in (name, None): continue
+        if SOLO or author_of(p) in (name, None): continue
         st = cache[p["number"]]
         if st.get("review-gate") == "success" or st.get("build-test") == "failure" or changes_pending(p): continue
         finish(f"REVIEW #{p['number']} ({p['title']}): `python3 scripts/factory.py diff {p['number']}`, open the cited Blender files, compare, `cargo test` if unsure, then "
@@ -182,7 +184,7 @@ def cmd_diff(a):
 
 def cmd_review(a):
     name = me(a); pr = api("GET", f"/pulls/{a.pr}"); au = author_of(pr)
-    if au == name: die("you cannot review your own PR")
+    if au == name and not SOLO: die("you cannot review your own PR")
     if a.changes: body = f"CHANGES REQUESTED agent={name}: {a.changes}"
     else:
         if not a.paths: die("approve needs --paths <blender files you actually opened>")
@@ -198,7 +200,7 @@ def cmd_merge(a):
         if pr["draft"]: die("PR is a draft: `factory.py ready` first")
         st = checks(pr["head"]["sha"]); sha = pr["head"]["sha"]; ms = pr["mergeable_state"]
         fails = [k for k in REQUIRED if st.get(k) == "failure"]
-        if "review-gate" in fails and all(st.get(k) == "success" for k in REQUIRED if k != "review-gate"): die("NEEDS REVIEW: no approval from another agent after the last push", 2)
+        if "review-gate" in fails and not SOLO and all(st.get(k) == "success" for k in REQUIRED if k != "review-gate"): die("NEEDS REVIEW: no approval from another agent after the last push", 2)
         if [f for f in fails if f != "review-gate"]: die(f"CI FAILED: {[f for f in fails if f != 'review-gate']}. Fix and push.", 4)
         if ms == "dirty": die("CONFLICT with main: `git fetch && git rebase origin/main`, resolve, `git push --force-with-lease` (your own branch only), ask for re-review.", 3)
         if ms == "behind":

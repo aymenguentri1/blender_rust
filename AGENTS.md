@@ -1,5 +1,11 @@
 # AGENTS.md - rules for every Claude (and human) working on blender_rust
 
+> **SOLO MODE (active while `scripts/SOLO_MODE` exists).** Only one agent works on this repo. There is no second reviewer:
+> the `review-gate` check passes by itself, `factory.py` does not require it, you may review/merge your own PRs and the
+> REVIEW and "never review your own PR" rules below do not apply. Instead, before `ready`: run `factory.py diff`, open the
+> cited Blender files yourself and compare, run `factory.py check`. Still never push to main and never merge red CI.
+> Abandoned drafts of agents that no longer exist: take them over (`next` does) or close them. Delete the file to go back to many agents.
+
 Goal: a full Blender clone in Rust. **Start with `docs/QUICK.md` (1 minute) and run `python3 scripts/factory.py next`; read the rest of this file only when a rule is unclear.**
 `CLAUDE.md` points here. These rules apply to every agent equally.
 
