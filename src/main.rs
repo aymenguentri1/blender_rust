@@ -32,6 +32,8 @@ mod gltf_prim_mode;
 mod face_set_create;
 mod obj_export;
 #[allow(dead_code)]
+mod keyframe_select;
+#[allow(dead_code)]
 mod multires;
 #[allow(dead_code)]
 mod obj_import;
