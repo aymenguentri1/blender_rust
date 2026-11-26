@@ -195,6 +195,7 @@ mod blend_mesh_read;
 #[allow(dead_code)]
 mod blend_object_read;
 mod blend_scene;
+mod blend_zstd;
 mod blend_drop;
 
 use std::{num::NonZeroU32, sync::Arc};

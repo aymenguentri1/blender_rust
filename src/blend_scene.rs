@@ -1,8 +1,8 @@
 //! Assemble the mesh objects of a `.blend`: Object blocks linked to Mesh blocks by `Object::data`.
 //!
 //! As in `readfile.cc` (`read_data_into_datamap`), the `DATA` blocks that follow an ID block belong to
-//! that ID, so their old addresses are only looked up inside it. Compression is detected like
-//! `BLI_file_magic_is_gzip()` / `BLI_file_magic_is_zstd()` (fileops_c.cc) and rejected.
+//! that ID, so their old addresses are only looked up inside it. zstd files are decompressed first
+//! (`blend_zstd`); gzip files are rejected.
 
 use std::collections::HashMap;
 
@@ -12,6 +12,7 @@ use crate::blend_mesh_read::{read_mesh, BlockSource};
 use crate::blend_object_read::{read_object, OB_MESH, ROT_MODE_EUL};
 use crate::blend_reader::{read_blocks, Block, CODE_ID_OB};
 use crate::blend_sdna::{parse_sdna, Sdna};
+use crate::blend_zstd::{decompress, is_zstd};
 use crate::mesh::Mesh;
 
 const CODE_ID_ME: [u8; 4] = [b'M', b'E', 0, 0];
@@ -40,18 +41,20 @@ fn payload<'a>(bytes: &'a [u8], b: &Block) -> Result<&'a [u8], &'static str> {
     bytes.get(b.data..b.data + b.len as usize).ok_or("truncated block data")
 }
 
-fn is_compressed(bytes: &[u8]) -> bool {
-    let Some(&[a, b, c, d]) = bytes.get(..4) else { return false };
-    let magic = u32::from_le_bytes([a, b, c, d]);
-    [a, b, c] == [0x1f, 0x8b, 0x08] || magic == 0xFD2F_B528 || (magic >> 4) == 0x184D_2A5
-}
-
 /// Mesh objects of the file, in file order. Other object types, and objects whose mesh is not stored
 /// in this file (linked libraries), are skipped.
 pub fn load_scene(bytes: &[u8]) -> Result<Vec<BlendSceneObject>, &'static str> {
-    if is_compressed(bytes) {
-        return Err("compressed .blend files are not supported: save without Compress");
+    // `BLI_file_magic_is_gzip()` (fileops_c.cc).
+    if bytes.starts_with(&[0x1f, 0x8b, 0x08]) {
+        return Err("gzip compressed .blend files are not supported");
     }
+    let unpacked;
+    let bytes = if is_zstd(bytes) {
+        unpacked = decompress(bytes)?;
+        &unpacked[..]
+    } else {
+        bytes
+    };
     let header = match decode_blender_header(bytes) {
         HeaderVariant::Header(h) => h,
         _ => return Err("not a Blender file"),
@@ -207,9 +210,10 @@ mod tests {
 
     #[test]
     fn compressed_and_foreign_files_are_errors() {
-        for magic in [[0x1f, 0x8b, 0x08, 0], [0x28, 0xb5, 0x2f, 0xfd], [0x50, 0x2a, 0x4d, 0x18]] {
-            assert!(load_scene(&magic).unwrap_err().starts_with("compressed"), "{magic:?}");
-        }
+        assert!(load_scene(&[0x1f, 0x8b, 0x08, 0]).unwrap_err().starts_with("gzip"));
+        assert_eq!(load_scene(&[0x28, 0xb5, 0x2f, 0xfd]), Err("damaged compressed .blend file"));
+        let packed = ruzstd::encoding::compress_to_vec(&b"BLENDER-v405ENDB"[..], ruzstd::encoding::CompressionLevel::Fastest);
+        assert_eq!(load_scene(&packed), Err("missing DNA1 block"));
         assert_eq!(load_scene(b"hello world!"), Err("not a Blender file"));
         assert_eq!(load_scene(b"BLENDER-v405ENDB"), Err("missing DNA1 block"));
     }
