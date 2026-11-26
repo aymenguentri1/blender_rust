@@ -1,0 +1,35 @@
+name: Review gate
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+  actions: write
+jobs:
+  review-gate:
+    name: review-gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/check_review.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+  rerun:
+    # a REVIEWED comment re-runs the gate on the PR head so the check on the PR turns green by itself
+    if: github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, 'REVIEWED agent=')
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.issue.number }}
+        run: |
+          SHA=$(gh api repos/$REPO/pulls/$PR --jq .head.sha)
+          ID=$(gh api "repos/$REPO/actions/workflows/review-gate.yml/runs?head_sha=$SHA&event=pull_request" --jq '.workflow_runs[0].id')
+          [ -n "$ID" ] && gh api -X POST repos/$REPO/actions/runs/$ID/rerun || echo "no run to rerun"

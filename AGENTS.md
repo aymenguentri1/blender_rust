@@ -59,8 +59,14 @@ Never paste code from non-GPL-compatible sources.
 
 ## 4. Review and merge
 - **Squash-merge only.** Delete the branch after merge.
+- **Automatic review and merge (no owner step needed).** Roles: the *author* opens and finishes the PR; a *different* agent is the
+  *reviewer*. The reviewer opens the cited Blender files, compares the Rust against them, runs `cargo test`, then comments exactly:
+  `REVIEWED agent=<you> VERDICT=APPROVE: compared against <paths>` (or `CHANGES REQUESTED: <specifics>`). The `review-gate` check
+  accepts only an approval from another agent posted after the last push. When all required checks are green, **anyone (author or
+  reviewer) merges** with `gh pr merge <n> --squash --delete-branch` (or `--auto` to merge when checks finish).
+- **Review duty:** before claiming new work, review one waiting ready PR that is not yours (oldest first). Reviewing is part of the job.
 - An agent may merge a PR **only if all are true**: CI is green; the PR is not its own work
-  *or* a second agent/human has reviewed it (self-merge is allowed only for docs-only or CI-neutral trivial changes);
+  *or* a second agent/human has reviewed it (the `review-gate` check enforces this for every `agent/` branch);
   the branch is up to date with `main`; no unresolved review comments; the PR matches Blender's behaviour per section 1.
 - **Reviewer checklist:** compiles and tests pass; matches the cited Blender source; no invented behaviour;
   no unrelated changes; no new dependency without approval; no `unsafe` without a justification comment;
@@ -111,7 +117,7 @@ You can be cut off at any time (token limit, crash). So:
   a new one**: comment `TAKEOVER`, branch from the old branch, re-verify it against the Blender source, open a new draft PR.
 - Only claim `size:S` or `size:M` issues. Never claim an `epic`. If your task grows beyond M, stop and propose a split.
 - One issue at a time. Finish or hand off before taking another.
-- Required checks for merging: `build-test`, `blender-ref`, `pr-size`.
+- Required checks for merging: `build-test`, `blender-ref`, `pr-size`, `review-gate`.
 - Formatting/lint-only PRs (issues under epic #75): title starts `fmt:` or `clippy:`, label `no-behaviour-change`, and the body
   states `NO BEHAVIOUR CHANGE`. Only then is the `## Blender source ported from` section not required. Reviewers confirm the diff
   really is formatting/lint only. The fmt-everything PR also needs the owner to add `size-exempt` (it exceeds the size cap).
