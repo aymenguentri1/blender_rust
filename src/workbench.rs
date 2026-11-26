@@ -23,6 +23,7 @@
 
 use crate::area::Rcti;
 use crate::colorspace_lut::{linear_to_srgb8, srgb8_to_linear};
+use crate::material::Material;
 use crate::mesh::Mesh;
 use crate::scene::{mat3_mul_v3, mat4_mul_point, normal_matrix, Scene};
 use crate::view3d::{Mat4, RegionView3D};
@@ -65,10 +66,6 @@ const LIGHTS: [SolidLight; 4] = [
     },
 ];
 
-/// `Material::r, g, b`, `roughness` and `metallic` of the default material.
-const BASE_COLOR: V3 = [0.8; 3];
-const ROUGHNESS: f32 = 0.4;
-const METALLIC: f32 = 0.0;
 
 fn dot(a: V3, b: V3) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -100,10 +97,10 @@ fn wrapped_lighting(nl: f32, w: f32) -> f32 {
 
 /// The roughness and metallic the composite pass sees: `pack_data()` stores the square root of the
 /// roughness as 8 bit, `float_pair_encode()` keeps 5 bits of roughness and 3 bits of metallic.
-fn material_roughness_metallic() -> (f32, f32) {
-    let to_uchar = |v: f32| ((v * 255.0 + 0.5) as u32).min(255) as f32 / 255.0;
-    let roughness = to_uchar(ROUGHNESS.sqrt());
-    let metallic = to_uchar(METALLIC);
+fn material_roughness_metallic(roughness: f32, metallic: f32) -> (f32, f32) {
+    let to_uchar = |v: f32| ((v.clamp(0.0, 1.0) * 255.0 + 0.5) as u32).min(255) as f32 / 255.0;
+    let roughness = to_uchar(roughness.sqrt());
+    let metallic = to_uchar(metallic);
     let (iv1, iv2) = ((roughness * 31.0) as i32, (metallic * 7.0) as i32);
     (iv1 as f32 / 31.0, iv2 as f32 / 7.0)
 }
@@ -132,7 +129,13 @@ struct Lighting {
 }
 
 impl Lighting {
-    fn new(roughness: f32, metallic: f32) -> Lighting {
+    /// `get_material()` for `V3D_SHADING_MATERIAL_COLOR`: `Material(mat)` takes `r, g, b`, `roughness` and `metallic`.
+    fn from_material(mat: &Material) -> Lighting {
+        let (roughness, metallic) = material_roughness_metallic(mat.roughness, mat.metallic);
+        Lighting::new(roughness, metallic, [mat.base_color[0], mat.base_color[1], mat.base_color[2]])
+    }
+
+    fn new(roughness: f32, metallic: f32, base_color: V3) -> Lighting {
         let lights = LIGHTS
             .iter()
             .map(|l| {
@@ -154,9 +157,13 @@ impl Lighting {
         Lighting {
             roughness,
             lights,
-            diffuse_color: BASE_COLOR.map(|c| c * (1.0 - metallic)),
-            specular_base: BASE_COLOR.map(|c| 0.05 * (1.0 - metallic) + c * metallic),
+            diffuse_color: base_color.map(|c| c * (1.0 - metallic)),
+            specular_base: base_color.map(|c| 0.05 * (1.0 - metallic) + c * metallic),
         }
+    }
+
+    fn same_as(&self, o: &Lighting) -> bool {
+        self.roughness == o.roughness && self.diffuse_color == o.diffuse_color && self.specular_base == o.specular_base
     }
 
     /// `get_world_lighting()` with specular on and a black ambient colour; `n` and `i` are in view space.
@@ -201,7 +208,7 @@ impl Lighting {
 
 #[cfg(test)]
 fn world_lighting(roughness: f32, metallic: f32, n: V3, i: V3) -> V3 {
-    Lighting::new(roughness, metallic).shade(n, i)
+    Lighting::new(roughness, metallic, [0.8; 3]).shade(n, i)
 }
 
 /// `drw_view_incident_vector()` for the pixel ray through `ndc` (the composite pass uses a point at
@@ -304,7 +311,10 @@ struct Target<'a> {
     cur_id: u32,
     /// The sculpt mask at the corners of the triangles being drawn (all zero when the object has no mask).
     cur_mask: [f32; 3],
-    lighting: Lighting,
+    /// The distinct materials of the frame; `Job::light` and `cur_light` index it.
+    lightings: Vec<Lighting>,
+    /// The `lightings` entry of the object being drawn.
+    cur_light: usize,
     /// The opaque triangles of the frame, rasterised by `flush()` in horizontal bands on several threads.
     jobs: Vec<Job>,
     /// `Some` in X-ray mode (`SceneState::xray_mode`): every face goes to the transparent pass.
@@ -363,7 +373,7 @@ impl Target<'_> {
             }
         }
         if self.xray.is_none() {
-            self.jobs.push(Job { t, ns, area, id: self.cur_id, mask: self.cur_mask });
+            self.jobs.push(Job { t, ns, area, id: self.cur_id, light: self.cur_light, mask: self.cur_mask });
             return;
         }
         let flat = ns[0] == ns[1] && ns[1] == ns[2];
@@ -372,7 +382,7 @@ impl Target<'_> {
         let (e1x, e1y, o1x, o1y) = (t[0][0] - t[2][0], t[0][1] - t[2][1], t[2][0], t[2][1]);
         let (e2x, e2y, o2x, o2y) = (t[1][0] - t[0][0], t[1][1] - t[0][1], t[0][0], t[0][1]);
         /* A flat face seen in an orthographic view has one colour for all its pixels. */
-        let flat_color = (flat && rv3d.ortho).then(|| self.lighting.shade(ns[0], [0.0, 0.0, 1.0]));
+        let flat_color = (flat && rv3d.ortho).then(|| self.lightings[self.cur_light].shade(ns[0], [0.0, 0.0, 1.0]));
 
         let min_x = t[0][0].min(t[1][0]).min(t[2][0]);
         let max_x = t[0][0].max(t[1][0]).max(t[2][0]);
@@ -415,7 +425,7 @@ impl Target<'_> {
                     Some(c) => c,
                     None => {
                         let ndc = [p[0] / self.rw as f32 * 2.0 - 1.0, p[1] / self.rh as f32 * 2.0 - 1.0];
-                        self.lighting.shade(n, incident_vector(rv3d, ndc))
+                        self.lightings[self.cur_light].shade(n, incident_vector(rv3d, ndc))
                     }
                 };
 
@@ -449,6 +459,8 @@ struct Job {
     ns: [V3; 3],
     area: f32,
     id: u32,
+    /// Index into `Target::lightings`.
+    light: usize,
     /// The sculpt mask at the three corners.
     mask: [f32; 3],
 }
@@ -479,7 +491,7 @@ struct Band<'a> {
 /// Everything a band needs that is the same for all bands.
 struct BandCtx<'a> {
     rv3d: &'a RegionView3D,
-    lighting: &'a Lighting,
+    lightings: &'a [Lighting],
     out: OutPtr,
     width: usize,
     height: usize,
@@ -509,7 +521,7 @@ fn raster_band(ctx: &BandCtx, band: &mut Band, jobs: &[Job]) {
         let (e1x, e1y, o1x, o1y) = (t[0][0] - t[2][0], t[0][1] - t[2][1], t[2][0], t[2][1]);
         let (e2x, e2y, o2x, o2y) = (t[1][0] - t[0][0], t[1][1] - t[0][1], t[0][0], t[0][1]);
         let masked = job.mask.iter().any(|&m| m > 0.0);
-        let flat_color = (flat && ctx.rv3d.ortho && !masked).then(|| ctx.lighting.shade(ns[0], [0.0, 0.0, 1.0]));
+        let flat_color = (flat && ctx.rv3d.ortho && !masked).then(|| ctx.lightings[job.light].shade(ns[0], [0.0, 0.0, 1.0]));
         for py in y0..=y1 {
             for px in x0..=x1 {
                 let p = [px as f32 + 0.5, py as f32 + 0.5];
@@ -538,7 +550,7 @@ fn raster_band(ctx: &BandCtx, band: &mut Band, jobs: &[Job]) {
                             normalize(std::array::from_fn(|k| (w0 * ns[0][k] + w1 * ns[1][k] + w2 * ns[2][k]) / area))
                         };
                         let ndc = [p[0] / rw as f32 * 2.0 - 1.0, p[1] / rh as f32 * 2.0 - 1.0];
-                        ctx.lighting.shade(n, incident_vector(ctx.rv3d, ndc))
+                        ctx.lightings[job.light].shade(n, incident_vector(ctx.rv3d, ndc))
                     }
                 };
                 let c = if masked { mask_shade(c, (w0 * job.mask[0] + w1 * job.mask[1] + w2 * job.mask[2]) / area) } else { c };
@@ -574,7 +586,7 @@ impl Target<'_> {
         let threads = if jobs.len() < 64 || rh < 32 { 1 } else { threads.clamp(1, (rh / 16).max(1) as usize) };
         let band_rows = if threads == 1 { rh } else { ((rh + threads as i32 * 4 - 1) / (threads as i32 * 4)).max(8) };
         let out = OutPtr(self.buf.as_mut_ptr(), self.buf.len());
-        let ctx = BandCtx { rv3d, lighting: &self.lighting, out, width: self.width, height: self.height, region: self.region, rw, rh };
+        let ctx = BandCtx { rv3d, lightings: &self.lightings, out, width: self.width, height: self.height, region: self.region, rw, rh };
         let rows = (band_rows * rw) as usize;
         let mut bands: Vec<Band> = self
             .depth
@@ -704,7 +716,6 @@ pub fn draw_scene_threads(buf: &mut [u32], width: usize, height: usize, region: 
     if rw <= 0 || rh <= 0 {
         return SceneRender { depth: Vec::new(), ids: Vec::new() };
     }
-    let (roughness, metallic) = material_roughness_metallic();
     let n = (rw * rh) as usize;
     let mut target = Target {
         buf,
@@ -723,13 +734,24 @@ pub fn draw_scene_threads(buf: &mut [u32], width: usize, height: usize, region: 
             weight: vec![0.0; n],
             reveal: vec![1.0; n],
         }),
-        lighting: Lighting::new(roughness, metallic),
+        lightings: Vec::new(),
+        cur_light: 0,
         jobs: Vec::new(),
     };
 
     for o in scene.objects.iter().filter(|o| !o.hidden) {
         let Some(mesh) = o.evaluated() else { continue };
         target.cur_id = o.id + 1;
+        /* The material of the active slot, `BKE_material_default_empty()` (the DNA defaults) without one. */
+        let mat = o.material_slots.get(o.material_slots.active).and_then(|i| scene.materials.get(i)).cloned().unwrap_or_else(|| Material::new(""));
+        let wanted = Lighting::from_material(&mat);
+        target.cur_light = match target.lightings.iter().position(|l| l.same_as(&wanted)) {
+            Some(k) => k,
+            None => {
+                target.lightings.push(wanted);
+                target.lightings.len() - 1
+            }
+        };
         let mask = (o.mask.len() == mesh.verts.len() && o.mask.iter().any(|&m| m > 0.0)).then_some(o.mask.as_slice());
         draw_mesh(&mut target, rv3d, &o.world_matrix(), mesh, o.smooth, mask);
     }
@@ -853,10 +875,45 @@ mod tests {
         assert_eq!(buf[(h - 1) * w], bg);
     }
 
+    /* `get_material()` for `V3D_SHADING_MATERIAL_COLOR`: the cube takes the base colour of the material in its active
+     * slot, and `BKE_material_default_empty()` (the DNA defaults, the same grey) without a slot. */
+    #[test]
+    fn the_surface_follows_the_material_base_colour() {
+        let centre = |scene: &Scene| {
+            let (buf, _, w, h) = render_scene(scene);
+            buf[(h - 1 - 50) * w + 100]
+        };
+        let default = centre(&Scene::startup());
+
+        let mut red = Scene::startup();
+        red.materials[0].base_color = [0.8, 0.05, 0.05, 1.0];
+        let c = centre(&red);
+        let (r, g) = ((c >> 16) & 255, (c >> 8) & 255);
+        assert!(r > g + 50, "{c:06x}");
+        assert_ne!(c, default);
+
+        let mut bare = Scene::startup();
+        let cube = bare.objects.iter_mut().find(|o| o.name == "Cube").unwrap();
+        cube.material_slots = Default::default();
+        assert_eq!(centre(&bare), default);
+    }
+
+    /* Roughness and metallic of the material change the shading too (`Material(mat)` packs both). */
+    #[test]
+    fn metallic_materials_shade_differently() {
+        let (n, i) = ([0.0, 0.0, 1.0], [0.0, 0.0, 1.0]);
+        let plain = Lighting::from_material(&Material::new("a")).shade(n, i);
+        let mut m = Material::new("b");
+        m.metallic = 1.0;
+        let metal = Lighting::from_material(&m).shade(n, i);
+        assert_ne!(plain, metal);
+        assert!(Lighting::from_material(&Material::new("a")).same_as(&Lighting::from_material(&Material::new("c"))));
+    }
+
     /* The quantised material: roughness sqrt(0.4) -> 161 / 255 -> 19 / 31, metallic 0. */
     #[test]
     fn material_quantisation() {
-        let (r, m) = material_roughness_metallic();
+        let (r, m) = material_roughness_metallic(0.4, 0.0);
         assert!((r - 19.0 / 31.0).abs() < 1e-6, "{r}");
         assert_eq!(m, 0.0);
     }
