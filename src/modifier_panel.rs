@@ -307,7 +307,7 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
     top -= gap;
     for (i, ModRow { name, kind, summary, target, shown, editmode, render, collapsed, axes, field }) in st.modifiers.iter().enumerate() {
         let style = if i == st.active { Style::Selected } else { Style::Button };
-        /* Right to left: remove, drag handle, dropdown, camera, monitor, edit mode; the name takes the rest. Blender's
+        /* Right to left: drag handle (the panel's grip, interface_panel.cc), remove, dropdown, camera, monitor, edit mode; the name takes the rest. Blender's
         header buttons are one unit wide, which leaves the name field room in the narrow properties editor. */
         let hb = unit;
         let slot = |k: i32| x1 - (k + 1) * hb - k * gap + 1;
@@ -322,8 +322,8 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
             (slot(4), slot(4) + hb - 1, String::new(), eye_style, Some(Action::ToggleViewport(i)), true),
             (slot(3), slot(3) + hb - 1, String::new(), cam_style, Some(Action::ToggleRender(i)), true),
             (slot(2), slot(2) + hb - 1, String::new(), Style::Button, Some(Action::OpenMenu(i)), true),
-            (slot(1), slot(1) + hb - 1, String::new(), Style::Handle, Some(Action::DragStart(i)), true),
-            (slot(0), x1, "x".into(), Style::Button, Some(Action::Remove(i)), true),
+            (slot(1), slot(1) + hb - 1, "x".into(), Style::Button, Some(Action::Remove(i)), true),
+            (slot(0), x1, String::new(), Style::Handle, Some(Action::DragStart(i)), true),
         ];
         row(&mut out, &mut top, head);
         if *collapsed {
@@ -683,7 +683,7 @@ mod tests {
         let handle = ws.iter().find(|w| w.action == Some(Action::DragStart(0))).unwrap();
         let x = handle.rect.xmax + 1;
         let remove = ws.iter().find(|w| w.action == Some(Action::Remove(0))).unwrap();
-        assert!(handle.rect.xmax < remove.rect.xmin && handle.style == Style::Handle, "handle sits left of the X");
+        assert!(remove.rect.xmax < handle.rect.xmin && handle.style == Style::Handle, "the grip is the right-most header button, the X sits left of it");
         assert!(!apply(&mut s, &mut open, Action::DragStart(0)), "pressing the handle changes nothing");
         assert!(x > 0);
         let tops = header_tops(&ws);
