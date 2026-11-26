@@ -19,15 +19,20 @@ mod screen_draw;
 mod ui_layout;
 mod widget_draw;
 mod font;
+#[allow(dead_code)]
 mod frame_range;
+#[allow(dead_code)]
 mod buttons_context;
 mod object_tab_layout;
 mod outliner_draw;
+#[allow(dead_code)]
 mod face_set;
 mod blend_sdna;
+#[allow(dead_code)]
 mod face_set_create;
 #[allow(dead_code)]
 mod multires;
+#[allow(dead_code)]
 mod array_settings;
 mod solidify_settings;
 mod outliner_select;
@@ -70,9 +75,11 @@ mod mesh;
 #[allow(dead_code)]
 mod mesh_bevel_edge;
 mod mesh_bevel_meet;
+#[allow(dead_code)]
 mod mesh_extrude;
 #[allow(dead_code)]
 mod edit_select;
+#[allow(dead_code)]
 mod mesh_extrude_faces;
 mod sculpt_hide;
 mod mesh_ops;
@@ -84,6 +91,7 @@ mod mesh_gen;
 mod mesh_build;
 mod mesh_boolean;
 mod mesh_corrective;
+#[allow(dead_code)]
 mod modifiers;
 #[allow(dead_code)]
 mod scene;
@@ -93,16 +101,21 @@ mod overlay_outline;
 mod overlay_extra;
 mod add_menu;
 mod brush_menu;
+#[allow(dead_code)]
 mod add_modifier_menu;
 mod icons;
 mod view3d_header;
 mod modifier_menu;
+#[allow(dead_code)]
 mod modifier_panel;
 mod transform_panel;
 mod select_box;
 mod rename_popup;
+#[allow(dead_code)]
 mod gltf_node;
+#[allow(dead_code)]
 mod mirror_settings;
+#[allow(dead_code)]
 mod bevel_settings;
 
 use std::{num::NonZeroU32, sync::Arc};
