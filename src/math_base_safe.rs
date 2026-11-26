@@ -136,7 +136,7 @@ mod tests {
         use std::f32::consts::{FRAC_PI_2, PI};
         assert!(float_eq(safe_asinf(2.0), FRAC_PI_2));
         assert!(float_eq(safe_asinf(-2.0), -FRAC_PI_2));
-        assert!(float_eq(safe_asinf(0.5), 0.5235988));
+        assert!(float_eq(safe_asinf(0.5), std::f32::consts::FRAC_PI_6));
         assert_eq!(safe_acosf(2.0), 0.0);
         assert!(float_eq(safe_acosf(-2.0), PI));
         assert!(safe_acosf(f32::NAN).is_nan());
