@@ -1153,6 +1153,16 @@ impl Scene {
         true
     }
 
+    /// Typing a number into the value field of modifier `i` of the active object (`Modifier::set_main_value`); it
+    /// becomes the active modifier. One undo step; false when nothing changed.
+    pub fn panel_set_modifier_value(&mut self, i: usize, v: f32) -> bool {
+        self.edit_active_object(|o| {
+            let Some(m) = o.modifiers.get_mut(i) else { return false };
+            o.active_modifier = i;
+            m.set_main_value(v)
+        })
+    }
+
     /// `OBJECT_OT_modifier_move_to_index` (Move to First / Move to Last): moves modifier `i` of the active object to
     /// the start or the end of the stack and keeps it the active one.
     pub fn panel_move_modifier_to(&mut self, i: usize, first: bool) -> bool {

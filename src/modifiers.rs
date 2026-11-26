@@ -354,6 +354,71 @@ impl Modifier {
         *self != before
     }
 
+    /// The value the panel field edits (the one `adjust` steps): its label, the value in display units (degrees for
+    /// angles) and the unit suffix. `None` for Mirror, Triangulate and Boolean.
+    pub fn main_value(&self) -> Option<(&'static str, f32, &'static str)> {
+        Some(match self {
+            Modifier::Mirror { .. } | Modifier::Triangulate | Modifier::Boolean { .. } => return None,
+            Modifier::Array { fit, .. } if *fit > 0.0 => ("Length", *fit, " m"),
+            Modifier::Array { count, .. } => ("Count", *count as f32, ""),
+            Modifier::Solidify { thickness, .. } => ("Thickness", *thickness, " m"),
+            Modifier::Bevel { width, .. } => ("Width", *width, " m"),
+            Modifier::Smooth { factor, .. } => ("Factor", *factor, ""),
+            Modifier::SimpleDeform { mode, amount } => match mode {
+                DeformMode::Twist | DeformMode::Bend => ("Angle", amount.to_degrees(), " deg"),
+                DeformMode::Taper | DeformMode::Stretch => ("Factor", *amount, ""),
+            },
+            Modifier::Displace { strength, .. } => ("Strength", *strength, " m"),
+            Modifier::Cast { factor, .. } => ("Factor", *factor, ""),
+            Modifier::Decimate { ratio } => ("Ratio", *ratio, ""),
+            Modifier::EdgeSplit { angle } => ("Angle", *angle, " deg"),
+            Modifier::Wireframe { thickness } => ("Thickness", *thickness, " m"),
+            Modifier::Weld { distance } => ("Distance", *distance, " m"),
+            Modifier::Screw { angle, .. } => ("Angle", angle.to_degrees(), " deg"),
+            Modifier::Wave { height, .. } => ("Height", *height, " m"),
+            Modifier::LaplacianSmooth { factor, .. } => ("Factor", *factor, ""),
+            Modifier::Remesh { voxel } => ("Voxel Size", *voxel, " m"),
+            Modifier::Shrinkwrap { offset, .. } => ("Offset", *offset, " m"),
+            Modifier::CorrectiveSmooth { factor, .. } => ("Factor", *factor, ""),
+            Modifier::Build { length, .. } => ("Length", *length, " fr"),
+        })
+    }
+
+    /// Sets the value `main_value` reports (display units) with the same limits as `adjust`, like typing into the
+    /// panel field. Returns whether the modifier changed; non-finite numbers and modifiers without a value change nothing.
+    pub fn set_main_value(&mut self, v: f32) -> bool {
+        if !v.is_finite() {
+            return false;
+        }
+        let before = self.clone();
+        match self {
+            Modifier::Mirror { .. } | Modifier::Triangulate | Modifier::Boolean { .. } => {}
+            Modifier::Array { fit, .. } if *fit > 0.0 => *fit = v.max(0.1),
+            Modifier::Array { count, .. } => *count = v.round().clamp(1.0, 1000.0) as u32,
+            Modifier::Solidify { thickness, .. } => *thickness = v.max(0.001),
+            Modifier::Bevel { width, .. } => *width = v.max(0.001),
+            Modifier::Smooth { factor, .. } => *factor = v.clamp(0.0, 2.0),
+            Modifier::SimpleDeform { mode, amount } => match mode {
+                DeformMode::Twist | DeformMode::Bend => *amount = v.to_radians(),
+                DeformMode::Taper | DeformMode::Stretch => *amount = v,
+            },
+            Modifier::Displace { strength, .. } => *strength = v,
+            Modifier::Cast { factor, .. } => *factor = v.clamp(0.0, 1.0),
+            Modifier::Decimate { ratio } => *ratio = v.clamp(0.01, 1.0),
+            Modifier::EdgeSplit { angle } => *angle = v.clamp(0.0, 180.0),
+            Modifier::Wireframe { thickness } => *thickness = v.max(0.001),
+            Modifier::Weld { distance } => *distance = v.max(0.0001),
+            Modifier::Screw { angle, .. } => *angle = if v >= 360.0 { std::f32::consts::TAU } else { v.clamp(1.0, 360.0).to_radians() },
+            Modifier::Wave { height, .. } => *height = v,
+            Modifier::LaplacianSmooth { factor, .. } => *factor = v.clamp(0.0, 2.0),
+            Modifier::Remesh { voxel } => *voxel = v.max(0.01),
+            Modifier::Shrinkwrap { offset, .. } => *offset = v.clamp(-10.0, 10.0),
+            Modifier::CorrectiveSmooth { factor, .. } => *factor = v.clamp(0.0, 1.0),
+            Modifier::Build { length, .. } => *length = v.clamp(1.0, 1_000_000.0),
+        }
+        *self != before
+    }
+
     #[cfg(test)]
     pub fn apply(&self, mesh: &Mesh) -> Mesh {
         self.apply_with(mesh, &EvalCtx::default())
@@ -467,6 +532,47 @@ pub fn resync_flags(before: &[Modifier], after: &[Modifier], flags: &mut Vec<Mod
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_main_value_can_be_read_and_typed() {
+        for m in Modifier::catalog() {
+            let mut m = m.clone();
+            let Some((label, v, _)) = m.main_value() else {
+                assert!(!m.set_main_value(1.0), "{} has no value", m.label());
+                continue;
+            };
+            assert!(!label.is_empty());
+            assert!(!m.set_main_value(v), "{}: setting the current value changes nothing", m.label());
+            assert!(!m.set_main_value(f32::NAN) && !m.set_main_value(f32::INFINITY));
+            /* The value that adjust(1) produces can be typed in and gives the same modifier. */
+            let mut stepped = m.clone();
+            if stepped.adjust(1) {
+                let (_, sv, _) = stepped.main_value().unwrap();
+                let mut typed = m.clone();
+                assert!(typed.set_main_value(sv), "{}", m.label());
+                let (_, tv, _) = typed.main_value().unwrap();
+                assert!((tv - sv).abs() < 1e-3, "{}: {tv} vs {sv}", m.label());
+            }
+        }
+        let mut a = Modifier::array(2);
+        assert!(a.set_main_value(5.4));
+        assert_eq!(a.main_value(), Some(("Count", 5.0, "")), "counts are whole numbers");
+        assert!(a.set_main_value(5000.0));
+        assert_eq!(a.main_value().unwrap().1, 1000.0);
+        assert!(a.set_main_value(-3.0));
+        assert_eq!(a.main_value().unwrap().1, 1.0);
+        let mut t = Modifier::simple_deform(DeformMode::Twist);
+        assert!(t.set_main_value(90.0));
+        assert!((t.main_value().unwrap().1 - 90.0).abs() < 1e-3);
+        assert_eq!(t.main_value().unwrap().2, " deg");
+        let mut sc = Modifier::screw();
+        assert!(sc.set_main_value(90.0));
+        assert!(sc.set_main_value(720.0));
+        assert_eq!(sc.main_value().unwrap().1, 360.0, "a full turn at most");
+        let mut d = Modifier::decimate(0.5);
+        assert!(d.set_main_value(0.0));
+        assert_eq!(d.main_value().unwrap().1, 0.01);
+    }
 
     #[test]
     fn a_hidden_modifier_is_skipped() {

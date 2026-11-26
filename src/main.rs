@@ -207,6 +207,8 @@ struct App {
     box_select: Option<BoxSelect>,
     /// The F2 rename popup.
     rename: Option<rename_popup::Rename>,
+    /// The modifier value field being typed into.
+    mod_edit: Option<modifier_panel::ValueEdit>,
     /// The open modifier dropdown menu: the modifier and the window position it opened at.
     mod_menu: Option<(usize, [i32; 2])>,
     /// The last click on a modifier panel button, for the double-click on a name (rename).
@@ -650,6 +652,20 @@ impl ApplicationHandler for App {
             }
             /* `Transform Modal Map`: CONFIRM on LEFTMOUSE press (any modifier) while the cursor drag runs. */
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
+                /* A click outside the properties editor applies the number being typed into a modifier field
+                 * (and the click goes on to whatever is under it, as in Blender). */
+                if self.mod_edit.is_some() {
+                    let inside = match (self.layout.as_ref(), self.user.as_ref()) {
+                        (Some(layout), Some(user)) => modifier_panel::window_rect(user, layout.properties).is_some_and(|w| w.isect_pt_v(self.cursor)),
+                        _ => false,
+                    };
+                    if !inside {
+                        if self.mod_edit.take().is_some_and(|e| e.commit(&mut self.scene)) {
+                            scene_changed(&mut self.scene, &mut self.taa);
+                        }
+                        gfx.window.request_redraw();
+                    }
+                }
                 /* A click in the popup menu runs the entry under the cursor (`object.*_add`: the new object is
                  * placed at the 3D cursor); any click closes the menu, outside it nothing else happens. */
                 if self.rename.take().is_some() {
@@ -804,10 +820,25 @@ impl ApplicationHandler for App {
                 } else if let Some(window) = modifier_panel::window_rect(user, layout.properties).filter(|w| w.isect_pt_v(self.cursor)) {
                     /* The Modifiers panel of the properties editor acts on the active object. */
                     let below = area::Rcti { ymax: tp.as_ref().map_or(window.ymax, |l| l.bottom), ..window };
-                    let widgets = modifier_panel::widgets(user, below, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open));
+                    let widgets = modifier_panel::widgets(user, below, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open).with_edit(self.mod_edit.as_ref()));
                     if let Some(action) = modifier_panel::action_at(&widgets, self.cursor) {
                         let action = if self.modifiers.control_key() { modifier_panel::with_ctrl(action) } else { action };
                         /* A double-click on a modifier's name edits it (Blender's text field of the panel header). */
+                        /* A click on the field being typed into stays in it; any other panel click applies it first. */
+                        if let modifier_panel::Action::EditValue(i) = action {
+                            if !self.mod_edit.as_ref().is_some_and(|e| e.index == i) {
+                                if self.mod_edit.take().is_some_and(|e| e.commit(&mut self.scene)) {
+                                    scene_changed(&mut self.scene, &mut self.taa);
+                                }
+                                self.scene.panel_select_modifier(i);
+                                self.mod_edit = modifier_panel::ValueEdit::start(&self.scene, i);
+                            }
+                            gfx.window.request_redraw();
+                            return;
+                        }
+                        if self.mod_edit.take().is_some_and(|e| e.commit(&mut self.scene)) {
+                            scene_changed(&mut self.scene, &mut self.taa);
+                        }
                         if let modifier_panel::Action::OpenMenu(i) = action {
                             self.mod_menu = Some((i, [self.cursor[0], self.cursor[1]]));
                             gfx.window.request_redraw();
@@ -1006,6 +1037,32 @@ impl ApplicationHandler for App {
 
                 /* A field of the Transform panel that is being typed into takes the keyboard: Enter applies, ESC
                  * cancels, Backspace deletes, the number characters are typed. */
+                /* A modifier value field that is being typed into takes the keyboard: Enter applies, ESC cancels,
+                 * Backspace deletes, the number characters are typed. */
+                if self.mod_edit.is_some() {
+                    match code {
+                        KeyCode::Enter | KeyCode::NumpadEnter => {
+                            if self.mod_edit.take().is_some_and(|e| e.commit(&mut self.scene)) {
+                                scene_changed(&mut self.scene, &mut self.taa);
+                            }
+                        }
+                        KeyCode::Escape => self.mod_edit = None,
+                        KeyCode::Backspace => {
+                            if let Some(e) = self.mod_edit.as_mut() {
+                                e.backspace();
+                            }
+                        }
+                        _ => {
+                            if let (Some(e), Some(text)) = (self.mod_edit.as_mut(), key_event.text.as_ref()) {
+                                if !ctrl_k && !alt_k {
+                                    e.push(text);
+                                }
+                            }
+                        }
+                    }
+                    gfx.window.request_redraw();
+                    return;
+                }
                 /* The F2 rename popup takes the keyboard while it is open. */
                 if self.rename.is_some() {
                     let mut outcome = rename_popup::Outcome::Editing;
@@ -1857,7 +1914,7 @@ impl ApplicationHandler for App {
                             let tp = transform_panel::layout(user, window, &self.scene, self.field_edit.as_ref());
                             modifier_panel::draw(&mut buf, w, h, user, &tp.widgets);
                             let below = area::Rcti { ymax: tp.bottom, ..window };
-                            let widgets = modifier_panel::widgets(user, below, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open));
+                            let widgets = modifier_panel::widgets(user, below, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open).with_edit(self.mod_edit.as_ref()));
                             modifier_panel::draw(&mut buf, w, h, user, &widgets);
                         }
                     }

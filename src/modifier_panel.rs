@@ -15,7 +15,7 @@ use crate::font;
 use crate::icons::{self, Icon};
 use crate::modifiers::Modifier;
 use crate::scene::Scene;
-use crate::theme;
+use crate::theme::{self, Rgba};
 use crate::userdef::UserDef;
 use crate::widget_draw::draw_round_box;
 
@@ -35,6 +35,8 @@ pub enum Action {
     ToggleCollapse(usize),
     /// Ctrl + click on the triangle: collapses all the others (or opens all when it is the only open one).
     CollapseOthers(usize),
+    /// A click on the value field: starts typing a number (`ValueEdit`).
+    EditValue(usize),
     /// The dropdown arrow in the header: opens the modifier menu (`modifier_menu`).
     OpenMenu(usize),
     /// The monitor toggle in the header (`show_viewport`).
@@ -53,6 +55,8 @@ pub enum Style {
     Field,
     /// No box, only the icon (the disclosure triangle).
     Flat,
+    /// A value field that is being typed into (blue outline).
+    Editing,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -75,12 +79,14 @@ pub struct ModRow {
     pub shown: bool,
     /// Only the header row is drawn.
     pub collapsed: bool,
+    /// The editable value as `Label: 0.1 m`; `None` for modifiers without one (the summary is shown instead).
+    pub field: Option<String>,
 }
 
 impl ModRow {
     #[cfg(test)]
     fn new(name: &'static str, summary: &str, target: Option<&str>) -> ModRow {
-        ModRow { name: name.into(), summary: summary.into(), target: target.map(Into::into), shown: true, collapsed: false }
+        ModRow { name: name.into(), summary: summary.into(), target: target.map(Into::into), shown: true, collapsed: false, field: None }
     }
 }
 
@@ -91,9 +97,16 @@ pub struct PanelState {
     pub modifiers: Vec<ModRow>,
     pub active: usize,
     pub add_open: bool,
+    /// The value field being typed into: the modifier and its text.
+    pub editing: Option<(usize, String)>,
 }
 
 impl PanelState {
+    pub fn with_edit(mut self, edit: Option<&ValueEdit>) -> PanelState {
+        self.editing = edit.map(|e| (e.index, e.text.clone()));
+        self
+    }
+
     pub fn of(scene: &Scene, add_open: bool) -> PanelState {
         match scene.active_object().filter(|o| o.mesh().is_some()) {
             None => PanelState { add_open, ..Default::default() },
@@ -106,13 +119,80 @@ impl PanelState {
                     .map(|(i, m)| {
                         let target = matches!(m, Modifier::Shrinkwrap { .. } | Modifier::Boolean { .. })
                             .then(|| format!("Target: {}", scene.target_name(i).unwrap_or_else(|| "(none)".into())));
-                        ModRow { name: o.modifier_name(i).unwrap_or_default(), summary: m.summary(), target, shown: o.modifier_shown(i), collapsed: o.modifier_collapsed(i) }
+                        ModRow {
+                            name: o.modifier_name(i).unwrap_or_default(), summary: m.summary(), target, shown: o.modifier_shown(i), collapsed: o.modifier_collapsed(i),
+                            field: m.main_value().map(|(l, v, u)| format!("{l}: {}{u}", number(v))),
+                        }
                     })
                     .collect(),
                 active: o.active_modifier.min(o.modifiers.len().saturating_sub(1)),
                 add_open,
+                editing: None,
             },
         }
+    }
+}
+
+/// A number as typed into a field: at most 4 decimals, no trailing zeros.
+pub fn number(v: f32) -> String {
+    let s = format!("{:.4}", v);
+    let t = s.trim_end_matches('0').trim_end_matches('.');
+    if t.is_empty() || t == "-" || t == "-0" { "0".into() } else { t.into() }
+}
+
+/// The text of a value field being typed into. Like Blender's text buttons the whole text is selected when the
+/// field opens, so the first character typed replaces it (`fresh`); Backspace edits it, Enter applies.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ValueEdit {
+    pub index: usize,
+    pub text: String,
+    fresh: bool,
+}
+
+impl ValueEdit {
+    /// Opens the field of modifier `i` of the active object with its current value.
+    pub fn start(scene: &Scene, i: usize) -> Option<ValueEdit> {
+        let (_, v, _) = scene.active_object()?.modifiers.get(i)?.main_value()?;
+        Some(ValueEdit { index: i, text: number(v), fresh: true })
+    }
+
+    /// Types the number characters of `s` (digits, `.` or `,`, a leading `-` or `+`).
+    pub fn push(&mut self, s: &str) {
+        for c in s.chars() {
+            let c = if c == ',' { '.' } else { c };
+            let ok = c.is_ascii_digit() || (c == '.' && !self.keeps_point()) || ((c == '-' || c == '+') && (self.fresh || self.text.is_empty()));
+            if !ok || self.text.len() >= 12 {
+                continue;
+            }
+            if self.fresh {
+                self.text.clear();
+                self.fresh = false;
+            }
+            self.text.push(c);
+        }
+    }
+
+    fn keeps_point(&self) -> bool {
+        !self.fresh && self.text.contains('.')
+    }
+
+    pub fn backspace(&mut self) {
+        if self.fresh {
+            self.text.clear();
+            self.fresh = false;
+        } else {
+            self.text.pop();
+        }
+    }
+
+    /// The typed number, if the text is one.
+    pub fn parsed(&self) -> Option<f32> {
+        self.text.parse::<f32>().ok().filter(|v| v.is_finite())
+    }
+
+    /// Applies the text to the modifier; nothing happens when it is not a number. Returns whether the modifier changed.
+    pub fn commit(&self, scene: &mut Scene) -> bool {
+        self.parsed().is_some_and(|v| scene.panel_set_modifier_value(self.index, v))
     }
 }
 
@@ -165,7 +245,7 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
         }
     }
     top -= gap;
-    for (i, ModRow { name, summary, target, shown, collapsed }) in st.modifiers.iter().enumerate() {
+    for (i, ModRow { name, summary, target, shown, collapsed, field }) in st.modifiers.iter().enumerate() {
         let style = if i == st.active { Style::Selected } else { Style::Button };
         /* Right to left: remove, move down, move up, dropdown, monitor; the name takes the rest. */
         let slot = |k: i32| x1 - (k + 1) * small - k * gap + 1;
@@ -185,8 +265,13 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
             continue;
         }
         let (m2, m1) = (x1 - small + 1, x1 - 2 * small - gap + 1);
+        let (text, field_style, field_action) = match (&st.editing, field) {
+            (Some((e, t)), _) if *e == i => (format!("{t}|"), Style::Editing, Action::EditValue(i)),
+            (_, Some(f)) => (f.clone(), Style::Field, Action::EditValue(i)),
+            _ => (summary.clone(), Style::Field, Action::Select(i)),
+        };
         let value = vec![
-            (x0, m1 - gap - 1, summary.clone(), Style::Field, Some(Action::Select(i)), false),
+            (x0, m1 - gap - 1, text, field_style, Some(field_action), false),
             (m1, m1 + small - 1, "-".into(), Style::Button, Some(Action::Decrease(i)), true),
             (m2, x1, "+".into(), Style::Button, Some(Action::Increase(i)), true),
         ];
@@ -222,6 +307,11 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
             Style::Button => (theme::WCOL_TOOL_INNER, theme::WCOL_TOOL_ROUNDNESS),
             Style::Selected => (theme::WCOL_TOGGLE_INNER_SEL, theme::WCOL_TOOL_ROUNDNESS),
             Style::Field => (theme::WCOL_MENU_INNER, theme::WCOL_TOOL_ROUNDNESS),
+            Style::Editing => {
+                draw_round_box(buf, width, height, user, w.rect, theme::WCOL_MENU_INNER, Rgba::hex(0x4772b3ff), theme::WCOL_TOOL_ROUNDNESS);
+                font::draw_label(buf, width, height, user, w.rect, &w.label, theme::WCOL_PULLDOWN_TEXT);
+                continue;
+            }
             Style::Flat => {
                 let icon = if w.label == ">" { Icon::RightArrow } else { Icon::DownArrow };
                 icons::draw_icon(buf, width, height, user, w.rect, icon, theme::WCOL_PULLDOWN_TEXT);
@@ -264,7 +354,7 @@ pub fn apply(scene: &mut Scene, add_open: &mut bool, action: Action) -> bool {
         Action::Apply(i) => scene.panel_apply_modifier(i),
         Action::Duplicate(i) => scene.panel_duplicate_modifier(i),
         /* The menu is opened by the window, it has to know where the click was. */
-        Action::OpenMenu(_) => false,
+        Action::OpenMenu(_) | Action::EditValue(_) => false,
         Action::ToggleCollapse(i) => {
             scene.panel_toggle_collapse(i);
             false
@@ -313,6 +403,7 @@ mod tests {
             modifiers: vec![ModRow::new("Mirror", "Mirror X", None), ModRow::new("Array", "Array x2", None)],
             active: 1,
             add_open: false,
+            editing: None,
         };
         let ws = widgets(&user, window(), &st);
         /* title, add, then 2 x (7 header + 3 value) widgets */
@@ -447,6 +538,51 @@ mod tests {
         assert_eq!((st.modifiers[1].name.as_str(), st.modifiers[1].shown), ("Array", false), "the flag moved with the modifier");
         assert!(apply(&mut s, &mut open, Action::Remove(0)));
         assert!(!PanelState::of(&s, false).modifiers[0].shown, "removing another one keeps the flag");
+    }
+
+    #[test]
+    fn typing_a_number_into_the_value_field() {
+        let user = UserDef::from_window_scale(1.0);
+        let mut s = Scene::startup();
+        let mut open = false;
+        assert!(apply(&mut s, &mut open, Action::Add(1)), "Array x2");
+        assert!(apply(&mut s, &mut open, Action::Add(0)), "Mirror");
+        let st = PanelState::of(&s, false);
+        assert_eq!(st.modifiers[0].field.as_deref(), Some("Count: 2"));
+        assert_eq!(st.modifiers[1].field, None, "a Mirror has no number");
+        let ws = widgets(&user, window(), &st);
+        assert!(ws.iter().any(|w| w.action == Some(Action::EditValue(0)) && w.label == "Count: 2"));
+        assert!(ws.iter().any(|w| w.action == Some(Action::Select(1)) && w.label.starts_with("Mirror")), "no field: select");
+        assert!(ValueEdit::start(&s, 1).is_none() && ValueEdit::start(&s, 9).is_none());
+        /* The first character replaces the selected text. */
+        let mut e = ValueEdit::start(&s, 0).unwrap();
+        assert_eq!(e.text, "2");
+        e.push("5");
+        assert_eq!(e.text, "5");
+        e.push("x.y.");
+        assert_eq!(e.text, "5.", "letters and a second point are ignored");
+        e.backspace();
+        e.backspace();
+        e.push("-");
+        e.push("7");
+        assert_eq!(e.parsed(), Some(-7.0));
+        assert!(e.commit(&mut s), "clamped to one copy");
+        assert_eq!(s.active_object().unwrap().modifiers[0], Modifier::array(1));
+        assert_eq!(s.active_object().unwrap().active_modifier, 0);
+        let mut bad = ValueEdit::start(&s, 0).unwrap();
+        bad.backspace();
+        assert_eq!(bad.parsed(), None);
+        assert!(!bad.commit(&mut s), "an empty field changes nothing");
+        let mut c = ValueEdit::start(&s, 0).unwrap();
+        c.push("3");
+        assert!(c.commit(&mut s) && s.undo(), "one undo step");
+        assert_eq!(s.active_object().unwrap().modifiers[0], Modifier::array(1));
+        /* While typing, the field shows the text with a caret and the editing style. */
+        let st = PanelState::of(&s, false).with_edit(Some(&c));
+        let ws = widgets(&user, window(), &st);
+        let f = ws.iter().find(|w| w.action == Some(Action::EditValue(0))).unwrap();
+        assert_eq!((f.label.as_str(), f.style), ("3|", Style::Editing));
+        assert_eq!((number(0.1), number(2.0), number(-0.00001), number(1.23456)), ("0.1".into(), "2".into(), "0".into(), "1.2346".into()));
     }
 
     #[test]
