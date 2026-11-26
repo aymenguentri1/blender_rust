@@ -34,6 +34,13 @@ def main():
         print("docs/CI/meta-only PR: Blender reference not required"); return 0
 
     body = pr.get("body") or ""
+    labels = {l["name"] for l in pr.get("labels", [])}
+    # Narrow exemption for pure formatting/lint PRs: label + title prefix + explicit statement, all three required.
+    if ("no-behaviour-change" in labels and re.match(r"^(fmt|clippy):", pr.get("title", ""))
+            and "NO BEHAVIOUR CHANGE" in body):
+        print("fmt/clippy PR with label no-behaviour-change: Blender reference not required.\n"
+              "Reviewer: confirm the diff is formatting/lint only and tests are unchanged.")
+        return 0
     m = re.search(r"##\s*Blender source ported from\s*(.*?)(?=\n##\s|\Z)", body, re.S | re.I)
     section = m.group(1) if m else ""
     refs = sorted(set(re.findall(r"(?:source|scripts|release|intern|extern|tools|doc)/[\w.\-+/]+", section)))

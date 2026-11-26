@@ -112,3 +112,6 @@ You can be cut off at any time (token limit, crash). So:
 - Only claim `size:S` or `size:M` issues. Never claim an `epic`. If your task grows beyond M, stop and propose a split.
 - One issue at a time. Finish or hand off before taking another.
 - Required checks for merging: `build-test`, `blender-ref`, `pr-size`.
+- Formatting/lint-only PRs (issues under epic #75): title starts `fmt:` or `clippy:`, label `no-behaviour-change`, and the body
+  states `NO BEHAVIOUR CHANGE`. Only then is the `## Blender source ported from` section not required. Reviewers confirm the diff
+  really is formatting/lint only. The fmt-everything PR also needs the owner to add `size-exempt` (it exceeds the size cap).
