@@ -81,6 +81,7 @@ are required:
 | --- | --- |
 | Add Modifier | Opens a list of all 21 modifier kinds; a click appends one (with its defaults) and closes the list. Shrinkwrap (Nearest Surface Point, offset 0 m) snaps the vertices onto another object's surface, uses the target's base mesh and follows it when it moves; it has no key chord because it needs a target. Corrective Smooth (factor 0.5, 5 repeats, scale 1: smooths, then restores the detail the smoothing removed from the stack's starting mesh in a per-corner tangent space; Simple smoothing only, no Bind / vertex group / Only Smooth / Pin Boundary) has no chord either: use the list, then `-` / `+` for the factor | Boolean (`src/mesh_boolean.rs`, Difference by default; Union and Intersect) combines the mesh with another object's base mesh, so it needs a target and has no chord: use the list, pick the `Target:` row, then `-` / `+` steps through Difference, Union and Intersect. It is a BSP-tree CSG for closed, consistently wound meshes (Blender's Fast solver wants the same, its Exact solver and Self Intersection / Hole Tolerant options are not modelled). The cut faces stay as convex pieces and are not re-merged, so the result has more faces than Blender's; operands above 6000 triangles together leave the mesh unchanged. Hide the cutter with H to see the result |
 | Modifier name | Makes it the active modifier (highlighted) |
+| Monitor icon | Show in Viewport (`show_viewport`): lit blue while the modifier is evaluated, grey when it is skipped. A skipped modifier keeps its settings and its place; the stack line in the viewport shows it as `Array x2 (off)`, and `Apply` leaves it alone as Blender does. The flag moves with the modifier when it is reordered and is copied with Duplicate Object / Copy Modifiers; the render (camera) toggle is not modelled |
 | `^` / `v` | Move it up / down in the stack |
 | `x` | Remove it |
 | `Apply` | Bakes it into the mesh (Blender's Apply, Ctrl + A over the modifier), same as Ctrl + Shift + Alt + A |
@@ -88,8 +89,8 @@ are required:
 | `Target:` (Shrinkwrap and Boolean) | Cycles the target through the other mesh objects, then no target |
 | `-` / `+` (value row) | Lower / raise its main value, like Ctrl + Alt + `[` / `]` |
 
-Every panel edit is one undo step (Ctrl + Z). Not modelled: collapsing panels, per-setting fields, the viewport /
-render toggles and scrolling (rows that do not fit are left out).
+Every panel edit is one undo step (Ctrl + Z). Not modelled: collapsing panels, per-setting fields, the render
+toggle and scrolling (rows that do not fit are left out).
 
 ### Object and mesh operators
 | Keys | Operator |

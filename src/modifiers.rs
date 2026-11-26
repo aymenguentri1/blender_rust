@@ -423,12 +423,79 @@ pub fn evaluate(mesh: &Mesh, stack: &[Modifier]) -> Mesh {
 }
 
 pub fn evaluate_with(mesh: &Mesh, stack: &[Modifier], ctx: &EvalCtx) -> Mesh {
-    stack.iter().fold(mesh.clone(), |m, md| md.apply_rest(&m, ctx, &mesh.verts))
+    evaluate_flagged(mesh, stack, &[], ctx)
+}
+
+/// Per-modifier panel state that is not part of the modifier itself (`ModifierData::mode` / `ui_expand_flag`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ModFlags {
+    /// `eModifierMode_Realtime` cleared: the modifier is skipped in the viewport (Blender's monitor toggle).
+    pub hide_viewport: bool,
+}
+
+/// Like `evaluate_with`, skipping the modifiers whose flags hide them in the viewport. `flags` may be shorter than
+/// the stack (the missing ones are the defaults).
+pub fn evaluate_flagged(mesh: &Mesh, stack: &[Modifier], flags: &[ModFlags], ctx: &EvalCtx) -> Mesh {
+    let shown = |i: usize| !flags.get(i).is_some_and(|f| f.hide_viewport);
+    stack.iter().enumerate().filter(|(i, _)| shown(*i)).fold(mesh.clone(), |m, (_, md)| md.apply_rest(&m, ctx, &mesh.verts))
+}
+
+/// Keeps `flags` lined up with the stack after `after` was made from `before` by adding one modifier, removing
+/// one, or swapping two (every other edit leaves the structure alone).
+pub fn resync_flags(before: &[Modifier], after: &[Modifier], flags: &mut Vec<ModFlags>) {
+    flags.resize(before.len(), ModFlags::default());
+    let first_diff = |a: &[Modifier], b: &[Modifier]| (0..a.len().max(b.len())).find(|&j| a.get(j) != b.get(j)).unwrap_or(0);
+    if after.len() == before.len() + 1 {
+        flags.insert(first_diff(before, after).min(before.len()), ModFlags::default());
+    } else if after.len() + 1 == before.len() {
+        flags.remove(first_diff(before, after).min(before.len() - 1));
+    } else if after.len() == before.len() {
+        let diff: Vec<usize> = (0..after.len()).filter(|&j| before[j] != after[j]).collect();
+        if let [a, b] = diff[..] {
+            if before[a] == after[b] && before[b] == after[a] {
+                flags.swap(a, b);
+            }
+        }
+    }
+    flags.resize(after.len(), ModFlags::default());
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hidden_modifier_is_skipped() {
+        let cube = Mesh::cube(2.0);
+        let stack = [Modifier::array(2), Modifier::mirror(2)];
+        let hide = |i: usize| {
+            let mut f = vec![ModFlags::default(); 2];
+            f[i].hide_viewport = true;
+            f
+        };
+        let ctx = EvalCtx::default();
+        assert_eq!(evaluate_flagged(&cube, &stack, &[], &ctx).faces.len(), 24);
+        assert_eq!(evaluate_flagged(&cube, &stack, &hide(1), &ctx).faces.len(), 12);
+        assert_eq!(evaluate_flagged(&cube, &stack, &hide(0), &ctx).faces.len(), 12);
+        let all = [ModFlags { hide_viewport: true }; 2];
+        assert_eq!(evaluate_flagged(&cube, &stack, &all, &ctx), cube);
+    }
+
+    #[test]
+    fn flags_follow_adds_removals_and_swaps() {
+        let (a, b, c) = (Modifier::array(2), Modifier::mirror(0), Modifier::bevel());
+        let off = ModFlags { hide_viewport: true };
+        let mut f = vec![off, ModFlags::default()];
+        resync_flags(&[a.clone(), b.clone()], &[b.clone(), a.clone()], &mut f);
+        assert_eq!(f, [ModFlags::default(), off], "a swap moves the flags");
+        resync_flags(&[b.clone(), a.clone()], &[b.clone(), a.clone(), c.clone()], &mut f);
+        assert_eq!(f, [ModFlags::default(), off, ModFlags::default()], "an add at the end gets the defaults");
+        resync_flags(&[b.clone(), a.clone(), c.clone()], &[b.clone(), c.clone()], &mut f);
+        assert_eq!(f, [ModFlags::default(); 2], "removing the hidden one drops its flag");
+        let mut short = Vec::new();
+        resync_flags(&[b.clone()], &[b.clone(), c.clone()], &mut short);
+        assert_eq!(short.len(), 2, "a short list is padded");
+    }
 
     #[test]
     fn the_stack_runs_in_order() {

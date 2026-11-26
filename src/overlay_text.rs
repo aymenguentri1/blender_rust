@@ -52,7 +52,8 @@ impl ObjectInfo {
         match scene.active_object() {
             None => ObjectInfo::default(),
             Some(o) => {
-                let mut modifiers: Vec<String> = o.modifiers.iter().map(|m| m.summary()).collect();
+                let mut modifiers: Vec<String> =
+                    o.modifiers.iter().enumerate().map(|(i, m)| if o.modifier_shown(i) { m.summary() } else { format!("{} (off)", m.summary()) }).collect();
                 if o.subsurf > 0 {
                     modifiers.push(format!("Subdivision Surface {}", o.subsurf));
                 }

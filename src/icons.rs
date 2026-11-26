@@ -44,6 +44,8 @@ pub enum Icon {
     ShadingSolid,
     ShadingMaterial,
     ShadingRendered,
+    /// `ICON_RESTRICT_VIEW_OFF`: the monitor of a modifier's "Show in Viewport" toggle.
+    Monitor,
 }
 
 #[derive(Clone, Debug)]
@@ -176,6 +178,12 @@ fn shapes(icon: Icon) -> Vec<Shape> {
             ring(8.0, 8.0, 6.2, 1.3),
             disc(5.6, 5.6, 2.1),
             disc(10.4, 10.4, 2.1),
+        ],
+        Icon::Monitor => vec![
+            polyline(&[[2.0, 3.0], [14.0, 3.0], [14.0, 10.5], [2.0, 10.5]], 1.4, true),
+            poly(&[[3.6, 4.6], [12.4, 4.6], [12.4, 8.9], [3.6, 8.9]]).a(0.3),
+            line(8.0, 10.5, 8.0, 12.6, 1.4),
+            line(4.8, 12.9, 11.2, 12.9, 1.4),
         ],
         Icon::ShadingRendered => vec![disc(8.0, 8.0, 6.2).a(0.7), ring(8.0, 8.0, 6.2, 1.3), disc(5.8, 5.8, 2.3)],
     }
