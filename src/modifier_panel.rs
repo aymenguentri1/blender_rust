@@ -2,7 +2,7 @@
 //!
 //! Blender's panel (`properties_data_modifier.py`, `MOD_ui_common.cc`) lists the modifiers of the active
 //! object, each with its name, move / remove buttons and its settings, and an `Add Modifier` menu. This one is
-//! reduced to what the software UI can draw: per modifier a header row (the collapse triangle, select, the Show in Viewport monitor and Show in Render camera toggles, the dropdown menu, move up, move down, remove)
+//! reduced to what the software UI can draw: per modifier a header row (the collapse triangle, the type icon, select, the Show in Viewport monitor and Show in Render camera toggles, the dropdown menu, move up, move down, remove)
 //! and a value row (its summary with `-` / `+` buttons that act like Ctrl + Alt + `[` / `]`), and an
 //! `Add Modifier` button that opens a list of every kind. Not modelled: per-setting fields,
 //! the edit-mode toggle, scrolling (rows that do not fit are left out) and the tabs of the navigation
@@ -57,6 +57,8 @@ pub enum Style {
     Field,
     /// No box, only the icon (the disclosure triangle).
     Flat,
+    /// The type icon of a modifier header: no box, the label is the kind's name.
+    ModIcon,
     /// A value field that is being typed into (blue outline).
     Editing,
 }
@@ -81,6 +83,8 @@ pub struct ModRow {
     pub shown: bool,
     /// Enabled for rendering (the highlighted camera toggle).
     pub render: bool,
+    /// The modifier kind's name (`Modifier::label`), which picks the type icon of the header.
+    pub kind: &'static str,
     /// Only the header row is drawn.
     pub collapsed: bool,
     /// The editable value as `Label: 0.1 m`; `None` for modifiers without one (the summary is shown instead).
@@ -90,7 +94,7 @@ pub struct ModRow {
 impl ModRow {
     #[cfg(test)]
     fn new(name: &'static str, summary: &str, target: Option<&str>) -> ModRow {
-        ModRow { name: name.into(), summary: summary.into(), target: target.map(Into::into), shown: true, render: true, collapsed: false, field: None }
+        ModRow { name: name.into(), kind: "Array", summary: summary.into(), target: target.map(Into::into), shown: true, render: true, collapsed: false, field: None }
     }
 }
 
@@ -124,7 +128,7 @@ impl PanelState {
                         let target = matches!(m, Modifier::Shrinkwrap { .. } | Modifier::Boolean { .. })
                             .then(|| format!("Target: {}", scene.target_name(i).unwrap_or_else(|| "(none)".into())));
                         ModRow {
-                            name: o.modifier_name(i).unwrap_or_default(), summary: m.summary(), target, shown: o.modifier_shown(i), render: o.modifier_render(i), collapsed: o.modifier_collapsed(i),
+                            name: o.modifier_name(i).unwrap_or_default(), kind: m.label(), summary: m.summary(), target, shown: o.modifier_shown(i), render: o.modifier_render(i), collapsed: o.modifier_collapsed(i),
                             field: m.main_value().map(|(l, v, u)| format!("{l}: {}{u}", number(v))),
                         }
                     })
@@ -208,6 +212,27 @@ pub fn window_rect(user: &UserDef, totrct: Rcti) -> Option<Rcti> {
     if rect.is_empty() { None } else { Some(rect) }
 }
 
+/// The light blue of Blender's modifier icons.
+const MODIFIER_ICON: Rgba = Rgba::hex(0x8ab4ebff);
+
+/// The header icon of a modifier kind (`ICON_MOD_*`); kinds without a drawn glyph get the generic wrench.
+pub fn type_icon(kind: &str) -> Icon {
+    match kind {
+        "Mirror" => Icon::ModMirror,
+        "Array" => Icon::ModArray,
+        "Solidify" => Icon::ModSolidify,
+        "Bevel" => Icon::ModBevel,
+        "Smooth" | "Laplacian Smooth" | "Corrective Smooth" | "Wave" => Icon::ModSmooth,
+        "Simple Deform" | "Cast" => Icon::ModDeform,
+        "Triangulate" => Icon::ModTriangulate,
+        "Boolean" => Icon::ModBoolean,
+        "Wireframe" => Icon::ModWireframe,
+        "Decimate" => Icon::ModDecimate,
+        "Remesh" => Icon::ModRemesh,
+        _ => Icon::ModWrench,
+    }
+}
+
 /// The widgets of the panel in `window` (window coordinates, y up), top to bottom.
 pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
     let unit = user.widget_unit;
@@ -216,7 +241,7 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
     let small = unit * 3 / 2;
     let (x0, x1) = (window.xmin + pad, window.xmax - pad);
     let mut out = Vec::new();
-    if x1 - x0 < small * 8 {
+    if x1 - x0 < small * 9 {
         return out;
     }
     let mut top = window.ymax - pad + 1;
@@ -249,7 +274,7 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
         }
     }
     top -= gap;
-    for (i, ModRow { name, summary, target, shown, render, collapsed, field }) in st.modifiers.iter().enumerate() {
+    for (i, ModRow { name, kind, summary, target, shown, render, collapsed, field }) in st.modifiers.iter().enumerate() {
         let style = if i == st.active { Style::Selected } else { Style::Button };
         /* Right to left: remove, move down, move up, dropdown, camera, monitor; the name takes the rest. */
         let slot = |k: i32| x1 - (k + 1) * small - k * gap + 1;
@@ -257,7 +282,8 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
         let cam_style = if *render { Style::Selected } else { Style::Button };
         let head = vec![
             (x0, x0 + small - 1, if *collapsed { ">" } else { "v" }.into(), Style::Flat, Some(Action::ToggleCollapse(i)), true),
-            (x0 + small + gap, slot(5) - gap - 1, name.clone(), style, Some(Action::Select(i)), false),
+            (x0 + small + gap, x0 + 2 * small + gap - 1, kind.to_string(), Style::ModIcon, Some(Action::Select(i)), true),
+            (x0 + 2 * small + 2 * gap, slot(5) - gap - 1, name.clone(), style, Some(Action::Select(i)), false),
             (slot(5), slot(5) + small - 1, String::new(), eye_style, Some(Action::ToggleViewport(i)), true),
             (slot(4), slot(4) + small - 1, String::new(), cam_style, Some(Action::ToggleRender(i)), true),
             (slot(3), slot(3) + small - 1, String::new(), Style::Button, Some(Action::OpenMenu(i)), true),
@@ -316,6 +342,10 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
             Style::Editing => {
                 draw_round_box(buf, width, height, user, w.rect, theme::WCOL_MENU_INNER, Rgba::hex(0x4772b3ff), theme::WCOL_TOOL_ROUNDNESS);
                 font::draw_label(buf, width, height, user, w.rect, &w.label, theme::WCOL_PULLDOWN_TEXT);
+                continue;
+            }
+            Style::ModIcon => {
+                icons::draw_icon(buf, width, height, user, w.rect, type_icon(&w.label), MODIFIER_ICON);
                 continue;
             }
             Style::Flat => {
@@ -415,8 +445,8 @@ mod tests {
             editing: None,
         };
         let ws = widgets(&user, window(), &st);
-        /* title, add, then 2 x (8 header + 3 value) widgets */
-        assert_eq!(ws.len(), 2 + 2 * 11);
+        /* title, add, then 2 x (9 header + 3 value) widgets */
+        assert_eq!(ws.len(), 2 + 2 * 12);
         assert!(ws.iter().all(|w| window().isect(&w.rect) == Some(w.rect)));
         assert!(ws[1].rect.ymax < ws[0].rect.ymin);
         /* The active modifier's name is the one highlighted name; the monitor toggles are lit too (shown). */
@@ -443,7 +473,7 @@ mod tests {
             ..Default::default()
         };
         let ws = widgets(&user, window(), &st);
-        assert_eq!(ws.len(), 2 + 8 + 3 + 1);
+        assert_eq!(ws.len(), 2 + 9 + 3 + 1);
         let t = ws.iter().find(|w| w.action == Some(Action::CycleTarget(0))).unwrap();
         assert_eq!(t.label, "Target: (none)");
         assert_eq!(t.rect.xmin, ws[0].rect.xmin, "full width");
@@ -538,7 +568,7 @@ mod tests {
         assert_eq!(cam.style, Style::Button, "off: not highlighted");
         assert_eq!(eye.style, Style::Selected);
         assert!(eye.rect.xmax < cam.rect.xmin, "the monitor sits left of the camera, as in Blender");
-        let name = ws.iter().find(|w| w.action == Some(Action::Select(0))).unwrap();
+        let name = ws.iter().find(|w| w.action == Some(Action::Select(0)) && w.style != Style::ModIcon).unwrap();
         assert!(name.rect.xmax < eye.rect.xmin, "the name field does not overlap the toggles");
         assert!(crate::overlay_text::ObjectInfo::of(&s).modifiers[0].ends_with("(no render)"));
         assert!(!apply(&mut s, &mut open, Action::ToggleRender(7)), "no such modifier");
