@@ -103,17 +103,40 @@ impl Mesh {
         out
     }
 
-    /// The Solidify modifier (simple mode). `offset` is in -1..=1 as in Blender.
-    pub fn solidified(&self, thickness: f32, offset: f32) -> Mesh {
+    /// Per vertex, by how much the shell offset must be stretched along the vertex normal so that the wall stays
+    /// `thickness` thick next to every adjacent face (Solidify's Even Thickness): the mean of 1 / cos(angle
+    /// between the vertex normal and the face normal), with the cosine held above `EVEN_MIN_COS` so a sharp
+    /// spike cannot shoot off to infinity. A flat mesh gives 1 everywhere, a cube corner 1.73.
+    pub fn even_thickness_scale(&self, normals: &[V3]) -> Vec<f32> {
+        const EVEN_MIN_COS: f32 = 0.3;
+        let mut sum = vec![0.0f32; self.verts.len()];
+        let mut count = vec![0u32; self.verts.len()];
+        for (f, face) in self.faces.iter().enumerate() {
+            let fnrm = self.face_area_normal(f);
+            if dot(fnrm, fnrm) < 1e-20 {
+                continue;
+            }
+            let fnrm = normalized(fnrm);
+            for &i in face {
+                sum[i as usize] += 1.0 / dot(normals[i as usize], fnrm).max(EVEN_MIN_COS);
+                count[i as usize] += 1;
+            }
+        }
+        sum.iter().zip(&count).map(|(&s, &c)| if c > 0 { s / c as f32 } else { 1.0 }).collect()
+    }
+
+    /// The Solidify modifier (simple mode). `offset` is in -1..=1 as in Blender; `even` is Even Thickness.
+    pub fn solidified(&self, thickness: f32, offset: f32, even: bool) -> Mesh {
         let normals = self.vertex_normals();
+        let k = if even { self.even_thickness_scale(&normals) } else { vec![1.0; self.verts.len()] };
         let outer = thickness * (offset + 1.0) * 0.5;
         let n = self.verts.len() as u32;
         let mut out = Mesh::default();
-        for (v, nrm) in self.verts.iter().zip(&normals) {
-            out.verts.push(add(*v, scale(*nrm, outer)));
+        for ((v, nrm), k) in self.verts.iter().zip(&normals).zip(&k) {
+            out.verts.push(add(*v, scale(*nrm, outer * k)));
         }
-        for (v, nrm) in self.verts.iter().zip(&normals) {
-            out.verts.push(add(*v, scale(*nrm, outer - thickness)));
+        for ((v, nrm), k) in self.verts.iter().zip(&normals).zip(&k) {
+            out.verts.push(add(*v, scale(*nrm, (outer - thickness) * k)));
         }
         out.faces = self.faces.clone();
         for f in &self.faces {
@@ -539,18 +562,18 @@ mod tests {
     #[test]
     fn solidify_a_closed_mesh_makes_two_shells() {
         let c = Mesh::cube(2.0);
-        let m = c.solidified(0.1, -1.0);
+        let m = c.solidified(0.1, -1.0, false);
         assert_eq!((m.verts.len(), m.faces.len()), (16, 12));
         assert!(m.edges().iter().all(|e| e.faces == 2));
         /* Offset -1 keeps the original surface outside. */
         assert!((m.bounds().unwrap().1[0] - 1.0).abs() < 1e-6);
-        let out = c.solidified(0.1, 1.0);
+        let out = c.solidified(0.1, 1.0, false);
         assert!(out.bounds().unwrap().1[0] > 1.05);
     }
 
     #[test]
     fn solidify_a_plane_adds_a_rim_and_stays_closed() {
-        let m = Mesh::plane(2.0).solidified(0.2, 0.0);
+        let m = Mesh::plane(2.0).solidified(0.2, 0.0, false);
         assert_eq!((m.verts.len(), m.faces.len()), (8, 2 + 4));
         assert!(m.edges().iter().all(|e| e.faces == 2), "{:?}", m.edges());
         assert!(m.signed_volume() > 0.0);
@@ -687,6 +710,25 @@ mod tests {
         assert!(huge.verts.iter().all(|v| v.iter().all(|c| c.abs() <= 1.0 + 1e-5)));
         assert_eq!(Mesh::cube(2.0).beveled(0.0), Mesh::cube(2.0));
         assert_eq!(Mesh::default().beveled(0.1), Mesh::default());
+    }
+
+    #[test]
+    fn even_thickness_keeps_the_wall_thick_at_corners() {
+        let cube = Mesh::cube(2.0);
+        /* Inner shell of a 0.2 m wall: without Even Thickness the corner is pulled in only 0.2 * 0.577 along each
+         * axis, with it exactly 0.2 (a corner of the inner cube sits at 1 - 0.2 = 0.8). */
+        let plain = cube.solidified(0.2, -1.0, false);
+        let even = cube.solidified(0.2, -1.0, true);
+        let inner_corner = |m: &Mesh| m.verts[cube.verts.len()..].iter().map(|v| v[0].abs()).fold(f32::MAX, f32::min);
+        assert!((inner_corner(&even) - 0.8).abs() < 1e-4, "{}", inner_corner(&even));
+        assert!((inner_corner(&plain) - 0.8).abs() > 0.05);
+        /* A flat plane is unchanged by it. */
+        let plane = Mesh::plane(2.0);
+        assert_eq!(plane.solidified(0.2, 0.0, true), plane.solidified(0.2, 0.0, false));
+        /* Every scale is finite and bounded, even for a sharp spike. */
+        for k in Mesh::ico_sphere(2, 1.0).even_thickness_scale(&Mesh::ico_sphere(2, 1.0).vertex_normals()) {
+            assert!((1.0..=3.4).contains(&k));
+        }
     }
 
     #[test]

@@ -1163,6 +1163,15 @@ impl Scene {
         })
     }
 
+    /// Toggles Even Thickness on the first Solidify modifier of each selected mesh. Returns how many changed.
+    pub fn toggle_solidify_even(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            let Some(Modifier::Solidify { even, .. }) = stack.iter_mut().find(|m| matches!(m, Modifier::Solidify { .. })) else { return false };
+            *even = !*even;
+            true
+        })
+    }
+
     /// Cycles the segments of the first Bevel modifier of each selected mesh: 1, 2, 3, 4, 6, 8, then 1 again.
     pub fn cycle_bevel_segments(&mut self) -> usize {
         self.edit_modifiers(|stack| {

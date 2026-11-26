@@ -1035,6 +1035,19 @@ mod tests {
     }
 
     #[test]
+    fn solidify_even_toggles_only_with_a_solidify() {
+        let mut s = Scene::startup();
+        assert_eq!(s.toggle_solidify_even(), 0, "no Solidify modifier yet");
+        s.toggle_solidify();
+        let even = |s: &Scene| matches!(s.active_object().unwrap().modifiers[0], Modifier::Solidify { even: true, .. });
+        assert!(!even(&s));
+        assert_eq!(s.toggle_solidify_even(), 1);
+        assert!(even(&s));
+        assert_eq!(s.toggle_solidify_even(), 1);
+        assert!(!even(&s));
+    }
+
+    #[test]
     fn array_fit_cycles_and_sizes_the_array() {
         let mut s = Scene::startup();
         assert_eq!(s.cycle_array_fit(), 0, "no Array modifier yet");
