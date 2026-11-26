@@ -88,6 +88,7 @@ mod transform_panel;
 mod select_box;
 mod rename_popup;
 mod mirror_settings;
+mod bevel_settings;
 
 use std::{num::NonZeroU32, sync::Arc};
 
