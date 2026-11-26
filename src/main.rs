@@ -188,6 +188,8 @@ mod widget_colors;
 mod widget_radius;
 #[allow(dead_code)]
 mod widget_state_blend;
+#[allow(dead_code)]
+mod blend_dna_read;
 
 use std::{num::NonZeroU32, sync::Arc};
 
