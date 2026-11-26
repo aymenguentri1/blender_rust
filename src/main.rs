@@ -1314,6 +1314,8 @@ impl ApplicationHandler for App {
                          * X / Y / Z), Ctrl + Alt + J toggles Merge (1 mm). */
                         KeyCode::KeyO if ctrl_k && alt_k && !shift_k => geometry = self.scene.cycle_array_offset() > 0,
                         KeyCode::KeyJ if ctrl_k && alt_k && !shift_k => geometry = self.scene.toggle_array_merge() > 0,
+                        /* Ctrl + Alt + `,` cycles Array Fit Length (Fixed Count, 2, 4, 8 m). */
+                        KeyCode::Comma if ctrl_k && alt_k && !shift_k => geometry = self.scene.cycle_array_fit() > 0,
                         /* `object.select_linked`: Shift + L Object Data, Shift + Alt + L Modifiers. */
                         KeyCode::KeyL if shift_k && !ctrl_k && !alt_k => {
                             self.scene.select_linked_data();

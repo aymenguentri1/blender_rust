@@ -1098,6 +1098,22 @@ impl Scene {
         })
     }
 
+    /// Cycles Fit Length of the first Array modifier of each selected mesh: Fixed Count, then 2, 4 and 8 m, back to
+    /// Fixed Count (a custom length starts at 2 m). Returns how many changed.
+    pub fn cycle_array_fit(&mut self) -> usize {
+        self.edit_modifiers(|stack| {
+            let Some(Modifier::Array { fit, .. }) = stack.iter_mut().find(|m| matches!(m, Modifier::Array { .. })) else { return false };
+            *fit = match *fit {
+                f if f <= 0.0 => 2.0,
+                f if f == 2.0 => 4.0,
+                f if f == 4.0 => 8.0,
+                f if f == 8.0 => 0.0,
+                _ => 2.0,
+            };
+            true
+        })
+    }
+
     /// Toggles Merge (1 mm) on the first Array modifier of each selected mesh.
     pub fn toggle_array_merge(&mut self) -> usize {
         self.edit_modifiers(|stack| {
