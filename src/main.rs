@@ -24,6 +24,7 @@ mod buttons_context;
 mod outliner_draw;
 mod face_set;
 mod outliner_select;
+mod scene_units;
 mod playhead_draw;
 
 mod status_input;
