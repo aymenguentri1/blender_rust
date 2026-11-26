@@ -105,6 +105,34 @@ pub fn extrude_faces(mesh: &Mesh, faces: &[u32], use_normal_flip: bool) -> Extru
     out
 }
 
+/// Normal orientation of a face selection (`getTransformOrientation_ex()` face branch, 1005): the sum of the selected
+/// faces' unit normals, normalised. Cancelling normals give the global Z fallback (`createSpaceNormal()` fails).
+pub fn region_normal(mesh: &Mesh, faces: &[u32]) -> [f32; 3] {
+    let mut seen: Vec<u32> = Vec::new();
+    let mut n = [0.0f32; 3];
+    for &f in faces {
+        if (f as usize) < mesh.faces.len() && !seen.contains(&f) {
+            seen.push(f);
+            let fnrm = mesh.face_normal(f as usize);
+            n = [n[0] + fnrm[0], n[1] + fnrm[1], n[2] + fnrm[2]];
+        }
+    }
+    let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    if l > 1e-20 { [n[0] / l, n[1] / l, n[2] / l] } else { [0.0, 0.0, 1.0] }
+}
+
+/// `MESH_OT_extrude_region_move` with the normal constraint (`editmesh_extrude.cc`): extrudes `faces`, then translates the
+/// duplicated vertices by `distance` along the selection normal taken before the extrude.
+pub fn extrude_faces_move(mesh: &Mesh, faces: &[u32], distance: f32, use_normal_flip: bool) -> Extruded {
+    let n = region_normal(mesh, faces);
+    let mut out = extrude_faces(mesh, faces, use_normal_flip);
+    for &v in &out.new_verts {
+        let p = &mut out.mesh.verts[v as usize];
+        *p = [p[0] + n[0] * distance, p[1] + n[1] * distance, p[2] + n[2] * distance];
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,5 +202,28 @@ mod tests {
         let cube = Mesh::cube(2.0);
         let r = extrude_faces(&cube, &[99], false);
         assert_eq!(r.mesh, cube);
+    }
+
+    #[test]
+    fn moving_the_top_face_lifts_the_copy_along_its_normal() {
+        let cube = Mesh::cube(2.0);
+        let t = top_face(&cube);
+        let r = extrude_faces_move(&cube, &[t], 0.5, false);
+        let d = r.dup_faces[0] as usize;
+        let (c0, c1) = (cube.face_center(t as usize), r.mesh.face_center(d));
+        assert!((c1[2] - c0[2] - 0.5).abs() < 1e-5 && (c1[0] - c0[0]).abs() < 1e-5);
+        assert!(r.mesh.face_normal(d)[2] > 0.99);
+    }
+
+    #[test]
+    fn region_normal_sums_unit_normals_and_falls_back_to_z() {
+        let cube = Mesh::cube(2.0);
+        let t = top_face(&cube) as usize;
+        let opp = (0..6).find(|&i| cube.face_normal(i)[2] < -0.99).unwrap() as u32;
+        assert_eq!(region_normal(&cube, &[opp, t as u32]), [0.0, 0.0, 1.0]);
+        let side = (0..6).find(|&i| cube.face_normal(i)[0] > 0.99).unwrap() as u32;
+        let n = region_normal(&cube, &[t as u32, side, side]);
+        let h = std::f32::consts::FRAC_1_SQRT_2;
+        assert!((n[0] - h).abs() < 1e-5 && (n[2] - h).abs() < 1e-5 && n[1].abs() < 1e-5, "repeats count once");
     }
 }
