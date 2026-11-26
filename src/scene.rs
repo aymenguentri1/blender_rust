@@ -140,7 +140,7 @@ pub struct Object {
     /// The parent's world matrix as of the last `Scene::refresh_parents()` (identity without a parent).
     pub parent_world: Mat4,
     eval: Option<Mesh>,
-    /// What the cached `eval` was built against besides the object itself (the targets of its Shrinkwrap
+    /// What the cached `eval` was built against besides the object itself (the targets of its Shrinkwrap and Boolean
     /// modifiers and the transforms involved); 0 when the stack has no such dependency.
     eval_sig: u64,
 }
@@ -386,7 +386,10 @@ impl Scene {
         let targets: Vec<u32> = owner
             .modifiers
             .iter()
-            .filter_map(|m| if let Modifier::Shrinkwrap { target: Some(t), .. } = m { Some(*t) } else { None })
+            .filter_map(|m| match m {
+                Modifier::Shrinkwrap { target: Some(t), .. } | Modifier::Boolean { target: Some(t), .. } => Some(*t),
+                _ => None,
+            })
             .collect();
         if targets.is_empty() && !timed {
             return (ctx, 0);
@@ -952,14 +955,17 @@ impl Scene {
         })
     }
 
-    /// The Shrinkwrap target picker: moves modifier `i` of the active object to the next other mesh object
+    /// The Shrinkwrap / Boolean target picker: moves modifier `i` of the active object to the next other mesh object
     /// (by id) and, after the last one, to no target.
     pub fn panel_cycle_target(&mut self, i: usize) -> bool {
         let Some(active) = self.active else { return false };
         let mut ids: Vec<u32> = self.objects.iter().filter(|o| o.id != active && o.mesh().is_some()).map(|o| o.id).collect();
         ids.sort();
         self.edit_active_object(|o| {
-            let Some(Modifier::Shrinkwrap { target, .. }) = o.modifiers.get_mut(i) else { return false };
+            let target = match o.modifiers.get_mut(i) {
+                Some(Modifier::Shrinkwrap { target, .. }) | Some(Modifier::Boolean { target, .. }) => target,
+                _ => return false,
+            };
             *target = match *target {
                 None => ids.first().copied(),
                 Some(t) => ids.iter().position(|&x| x == t).and_then(|p| ids.get(p + 1).copied()),
@@ -969,10 +975,10 @@ impl Scene {
         })
     }
 
-    /// The name of the Shrinkwrap target of modifier `i` of the active object.
+    /// The name of the Shrinkwrap / Boolean target of modifier `i` of the active object.
     pub fn target_name(&self, i: usize) -> Option<String> {
         match self.active_object()?.modifiers.get(i)? {
-            Modifier::Shrinkwrap { target: Some(t), .. } => self.index_of(*t).map(|j| self.objects[j].name.clone()),
+            Modifier::Shrinkwrap { target: Some(t), .. } | Modifier::Boolean { target: Some(t), .. } => self.index_of(*t).map(|j| self.objects[j].name.clone()),
             _ => None,
         }
     }
@@ -2769,6 +2775,32 @@ mod tests {
         assert_eq!(s.apply_modifiers(), 1);
         assert_eq!(s.active_object().unwrap().mesh().unwrap().faces.len(), 3);
         assert_eq!(s.toggle_build(), 1);
+    }
+
+    #[test]
+    fn boolean_cuts_with_its_target_and_follows_it() {
+        let mut s = Scene::startup();
+        let cube = s.active;
+        let cutter = s.add_primitive(crate::mesh::Primitive::Cube, [1.0, 1.0, 1.0]);
+        s.active = cube;
+        assert!(s.panel_add_modifier(Modifier::boolean()));
+        assert!(s.panel_cycle_target(0));
+        assert_eq!(s.target_name(0), Some(s.objects[s.index_of(cutter).unwrap()].name.clone()));
+        s.update_eval();
+        let cut = s.active_object().unwrap().evaluated().unwrap().clone();
+        assert!(cut.faces.len() > 6, "the corner is cut out");
+        /* Moving the cutter away restores the plain cube. */
+        let j = s.index_of(cutter).unwrap();
+        s.objects[j].loc = [20.0, 0.0, 0.0];
+        s.update_eval();
+        assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), 6);
+        /* Applying bakes the cut into the mesh and removes the modifier. */
+        s.objects[j].loc = [1.0, 1.0, 1.0];
+        s.update_eval();
+        assert!(s.panel_apply_modifier(0));
+        let o = s.active_object().unwrap();
+        assert!(o.modifiers.is_empty());
+        assert_eq!(o.mesh().unwrap().faces.len(), cut.faces.len());
     }
 
     #[test]

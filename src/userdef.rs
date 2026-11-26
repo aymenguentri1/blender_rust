@@ -4,9 +4,11 @@
 
 #[derive(Clone, Copy, Debug)]
 pub struct UserDef {
+    #[allow(dead_code)]
     pub dpi: f32,
     pub pixelsize: i32,
     pub scale_factor: f32,
+    #[allow(dead_code)]
     pub inv_scale_factor: f32,
     /// `U.widget_unit` == UI_UNIT_X == UI_UNIT_Y (20 px at 1x).
     pub widget_unit: i32,
@@ -15,6 +17,7 @@ pub struct UserDef {
     /// `uiStyle::buttonspacex` (8) scaled like `ui::style_get_dpi()` (interface_style.cc:90, 434).
     pub button_space_x: i32,
     /// `uiStyle::buttonspacey` (2), scaled the same way (interface_style.cc:91, 435).
+    #[allow(dead_code)]
     pub button_space_y: i32,
 }
 

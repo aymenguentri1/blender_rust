@@ -75,6 +75,7 @@ impl Edit {
 impl Field {
     /// The field `delta` places on in reading order (Location X, Y, Z, then Rotation, then Scale), wrapping round:
     /// where Tab (1) and Shift + Tab (-1) go.
+    #[cfg(test)]
     pub fn step(self, delta: i32) -> Field {
         self.step_n(delta, 3)
     }
