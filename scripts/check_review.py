@@ -22,7 +22,14 @@ m = re.match(r"^agent/([^/]+)/", ref)
 if not m:
     print("not an agent/ branch: review gate not applied"); sys.exit(0)
 author = m.group(1)
-last_push = ts(api(f"{B}/commits/{pr['head']['sha']}")["commit"]["committer"]["date"])
+# update-branch merge commits (1 parent being main) do not change the PR's own work, so they must not invalidate an approval
+pcs, pg = [], 1
+while True:
+    ch = api(f"{B}/pulls/{n}/commits?per_page=100&page={pg}"); pcs += ch
+    if len(ch) < 100: break
+    pg += 1
+own = [c for c in pcs if len(c["parents"]) <= 1]
+last_push = max(ts(c["commit"]["committer"]["date"]) for c in (own or pcs))
 comments, page = [], 1
 while True:
     c = api(f"{B}/issues/{n}/comments?per_page=100&page={page}"); comments += c

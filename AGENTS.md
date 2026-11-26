@@ -1,6 +1,6 @@
 # AGENTS.md - rules for every Claude (and human) working on blender_rust
 
-Goal: a full Blender clone in Rust. Read this file completely before you do anything.
+Goal: a full Blender clone in Rust. **Start with `docs/QUICK.md` (1 minute) and run `python3 scripts/factory.py next`; read the rest of this file only when a rule is unclear.**
 `CLAUDE.md` points here. These rules apply to every agent equally.
 
 ## 0. Golden rules (never break these)
