@@ -50,6 +50,19 @@ pub enum Icon {
     Monitor,
     /// `ICON_RESTRICT_RENDER_OFF`: the camera of a modifier's "Show in Render" toggle.
     Camera,
+    /// The modifier type icons of the panel header (`ICON_MOD_*`); `ModWrench` is the generic `ICON_MODIFIER`.
+    ModWrench,
+    ModArray,
+    ModMirror,
+    ModSolidify,
+    ModBevel,
+    ModSmooth,
+    ModDeform,
+    ModTriangulate,
+    ModBoolean,
+    ModWireframe,
+    ModDecimate,
+    ModRemesh,
 }
 
 #[derive(Clone, Debug)]
@@ -195,6 +208,49 @@ fn shapes(icon: Icon) -> Vec<Shape> {
             poly(&[[3.4, 5.6], [8.6, 5.6], [8.6, 10.4], [3.4, 10.4]]).a(0.3),
             poly(&[[10.2, 7.0], [14.4, 4.6], [14.4, 11.4], [10.2, 9.0]]),
         ],
+        Icon::ModWrench => vec![
+            line(3.6, 12.4, 9.0, 7.0, 2.4),
+            polyline(&arc(10.6, 5.4, 3.2, 110.0, 400.0, 14), 1.7, false),
+        ],
+        Icon::ModArray => vec![
+            polyline(&[[1.2, 5.5], [5.0, 5.5], [5.0, 10.5], [1.2, 10.5]], 1.3, true),
+            polyline(&[[6.2, 5.5], [10.0, 5.5], [10.0, 10.5], [6.2, 10.5]], 1.3, true).a(0.75),
+            polyline(&[[11.2, 5.5], [15.0, 5.5], [15.0, 10.5], [11.2, 10.5]], 1.3, true).a(0.5),
+        ],
+        Icon::ModMirror => vec![
+            line(8.0, 1.5, 8.0, 14.5, 1.2),
+            poly(&[[1.8, 4.6], [6.6, 8.0], [1.8, 11.4]]).a(0.55),
+            polyline(&[[14.2, 4.6], [9.4, 8.0], [14.2, 11.4]], 1.3, true),
+        ],
+        Icon::ModSolidify => vec![
+            polyline(&[[2.0, 2.0], [14.0, 2.0], [14.0, 14.0], [2.0, 14.0]], 1.4, true),
+            poly(&[[5.0, 5.0], [11.0, 5.0], [11.0, 11.0], [5.0, 11.0]]).a(0.45),
+        ],
+        Icon::ModBevel => vec![
+            poly(&[[2.0, 14.0], [2.0, 6.0], [6.0, 2.0], [14.0, 2.0], [14.0, 14.0]]).a(0.3),
+            polyline(&[[2.0, 14.0], [2.0, 6.0], [6.0, 2.0], [14.0, 2.0], [14.0, 14.0]], 1.4, true),
+        ],
+        Icon::ModSmooth => vec![polyline(&[[1.5, 9.5], [3.6, 6.2], [6.0, 5.4], [8.0, 8.0], [10.0, 10.6], [12.4, 9.8], [14.5, 6.5]], 1.7, false)],
+        Icon::ModDeform => vec![
+            polyline(&arc(8.0, 17.0, 10.0, 235.0, 305.0, 10), 1.4, false),
+            polyline(&arc(8.0, 12.0, 10.0, 235.0, 305.0, 10), 1.4, false).a(0.75),
+            polyline(&arc(8.0, 7.0, 10.0, 235.0, 305.0, 10), 1.4, false).a(0.5),
+        ],
+        Icon::ModTriangulate => vec![
+            polyline(&[[2.0, 2.0], [14.0, 2.0], [14.0, 14.0], [2.0, 14.0]], 1.4, true),
+            line(2.0, 14.0, 14.0, 2.0, 1.3),
+        ],
+        Icon::ModBoolean => vec![ring(5.8, 8.0, 4.6, 1.4), ring(10.2, 8.0, 4.6, 1.4).a(0.75)],
+        Icon::ModWireframe => cube_outline(1.2),
+        Icon::ModDecimate => vec![
+            polyline(&[[8.0, 2.0], [14.0, 13.5], [2.0, 13.5]], 1.4, true),
+            line(8.0, 2.0, 8.0, 13.5, 1.2).a(0.7),
+        ],
+        Icon::ModRemesh => {
+            let mut v = vec![poly(&[[8.0, 1.5], [14.0, 4.75], [8.0, 8.0], [2.0, 4.75]]).a(0.35)];
+            v.extend(cube_outline(1.2));
+            v
+        }
         Icon::ShadingRendered => vec![disc(8.0, 8.0, 6.2).a(0.7), ring(8.0, 8.0, 6.2, 1.3), disc(5.8, 5.8, 2.3)],
     }
 }
