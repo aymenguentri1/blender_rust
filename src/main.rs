@@ -40,6 +40,8 @@ mod keyframe_select;
 #[allow(dead_code)]
 mod keyframe_draw;
 #[allow(dead_code)]
+mod graph_handle_type;
+#[allow(dead_code)]
 mod multires;
 #[allow(dead_code)]
 mod obj_import;
