@@ -44,6 +44,15 @@ pub enum AlignMode {
     PositiveSides,
 }
 
+/// `rna_enum_object_type_items` for the object kinds this port has (`OB_MESH`, `OB_CAMERA`, `OB_LAMP`, `OB_EMPTY`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObjectType {
+    Mesh,
+    Camera,
+    Light,
+    Empty,
+}
+
 /// `OBJECT_OT_select_grouped`, the relationship types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GroupKind {
@@ -138,6 +147,38 @@ fn rand_signed(id: u32, seed: u32, channel: u32) -> f32 {
     h = h.wrapping_mul(0x846C_A68B);
     h ^= h >> 16;
     (h as f32 / 4_294_967_296.0) * 2.0 - 1.0
+}
+
+/// Python `fnmatch.fnmatchcase`: `*`, `?`, `[abc]`, `[a-z]` and `[!abc]` (an unclosed `[` matches itself).
+fn fnmatch_case(name: &[char], pat: &[char]) -> bool {
+    let Some((&p, rest)) = pat.split_first() else { return name.is_empty() };
+    match p {
+        '*' => (0..=name.len()).any(|k| fnmatch_case(&name[k..], rest)),
+        '?' => !name.is_empty() && fnmatch_case(&name[1..], rest),
+        '[' => {
+            /* The set ends at the first `]` after an optional `!` and one leading member (which may itself be `]`). */
+            let neg = rest.first() == Some(&'!');
+            let body = if neg { &rest[1..] } else { rest };
+            let Some(end) = body.iter().skip(1).position(|&c| c == ']').map(|e| e + 1) else {
+                return name.first() == Some(&'[') && fnmatch_case(&name[1..], rest);
+            };
+            let Some(&c) = name.first() else { return false };
+            let set = &body[..end];
+            let mut hit = false;
+            let mut j = 0;
+            while j < set.len() {
+                if j + 2 < set.len() && set[j + 1] == '-' {
+                    hit |= set[j] <= c && c <= set[j + 2];
+                    j += 3;
+                } else {
+                    hit |= set[j] == c;
+                    j += 1;
+                }
+            }
+            hit != neg && fnmatch_case(&name[1..], &body[end + 1..])
+        }
+        _ => name.first() == Some(&p) && fnmatch_case(&name[1..], rest),
+    }
 }
 
 /// The volume centroid of a closed triangulated surface, `None` when it has no volume (flat or open meshes with
@@ -439,6 +480,96 @@ impl Scene {
             o.selected = hit || (extend && o.selected);
         }
         n
+    }
+
+    /// `OBJECT_OT_select_by_type`: without `extend` everything is deselected first, then every visible, selectable
+    /// object of `kind` is selected. Returns how many objects are selected afterwards that were not before.
+    pub fn select_by_type(&mut self, kind: ObjectType, extend: bool) -> usize {
+        let was: Vec<bool> = self.objects.iter().map(|o| o.selected).collect();
+        if !extend {
+            for o in &mut self.objects {
+                o.selected = false;
+            }
+        }
+        for o in &mut self.objects {
+            let ty = match o.data {
+                ObjectData::Mesh(_) => ObjectType::Mesh,
+                ObjectData::Camera => ObjectType::Camera,
+                ObjectData::Light(_) => ObjectType::Light,
+                ObjectData::Empty(_) => ObjectType::Empty,
+            };
+            if ty == kind && !o.hidden && !o.hide_select {
+                o.selected = true;
+            }
+        }
+        self.objects.iter().zip(&was).filter(|(o, w)| o.selected && !**w).count()
+    }
+
+    /// `OBJECT_OT_select_same_collection` with its `collection` name: selects every visible, selectable object that
+    /// is in that collection. The scene has one collection holding every object ("Collection", the outliner's
+    /// `RowKind::ActiveCollection`) and the empty "XGen Guides"; any other name finds no collection and does nothing
+    /// (`OPERATOR_PASS_THROUGH`). Returns how many objects were newly selected.
+    pub fn select_same_collection(&mut self, collection: &str) -> usize {
+        if collection != "Collection" {
+            return 0;
+        }
+        let mut n = 0;
+        for o in self.objects.iter_mut().filter(|o| !o.hidden && !o.hide_select && !o.selected) {
+            o.selected = true;
+            n += 1;
+        }
+        n
+    }
+
+    /// `object.select_pattern` (`SelectPattern` in `bl_operators/object.py`): selects the visible objects whose name
+    /// matches the unix wildcard `pattern` (`*`, `?`, `[abc]`). Without `case_sensitive` both sides are upper-cased;
+    /// without `extend` everything is deselected first. Returns how many objects are selected afterwards that were
+    /// not before. (Blender defaults: pattern `*`, case insensitive, extend on.)
+    pub fn select_pattern(&mut self, pattern: &str, case_sensitive: bool, extend: bool) -> usize {
+        let was: Vec<bool> = self.objects.iter().map(|o| o.selected).collect();
+        if !extend {
+            for o in &mut self.objects {
+                o.selected = false;
+            }
+        }
+        let fold = |t: &str| -> Vec<char> { if case_sensitive { t.chars().collect() } else { t.to_uppercase().chars().collect() } };
+        let pat = fold(pattern);
+        for o in self.objects.iter_mut().filter(|o| !o.hidden && !o.hide_select) {
+            if fnmatch_case(&fold(&o.name), &pat) {
+                o.selected = true;
+            }
+        }
+        self.objects.iter().zip(&was).filter(|(o, w)| o.selected && !**w).count()
+    }
+
+    /// `object_select_more_less` (`OBJECT_OT_select_more` / `OBJECT_OT_select_less`): every selectable object
+    /// whose selected state differs from its parent's, and the parent of such a pair, is selected (`select`) or
+    /// deselected. Returns whether any object changed.
+    pub fn select_more_less(&mut self, select: bool) -> bool {
+        let sel: Vec<(u32, bool)> = self.objects.iter().map(|o| (o.id, o.selected)).collect();
+        let state = |id: u32| sel.iter().find(|(i, _)| *i == id).map(|(_, s)| *s);
+        let mut doit = vec![false; self.objects.len()];
+        for (j, o) in self.objects.iter().enumerate() {
+            if o.hidden || o.hide_select {
+                continue;
+            }
+            let Some(pid) = o.parent else { continue };
+            let Some(ps) = state(pid) else { continue };
+            if o.selected != ps {
+                doit[j] = true;
+                if let Some(pj) = self.index_of(pid) {
+                    doit[pj] = true;
+                }
+            }
+        }
+        let mut changed = false;
+        for (j, o) in self.objects.iter_mut().enumerate() {
+            if doit[j] && !o.hidden && !o.hide_select && o.selected != select {
+                o.selected = select;
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// The world position of the active object's origin (`VIEW3D_OT_snap_cursor_to_active`).
@@ -1226,6 +1357,134 @@ mod tests {
         s.update_eval();
         let st = s.statistics();
         assert!(st.verts > 8 && st.faces > 6);
+    }
+
+    #[test]
+    fn select_by_type_replaces_or_extends_and_skips_hidden() {
+        let mut s = Scene::startup();
+        s.add_primitive(Primitive::Cube, [1.0, 0.0, 0.0]);
+        let m3 = s.add_primitive(Primitive::Cube, [2.0, 0.0, 0.0]);
+        let hi = s.index_of(m3).unwrap();
+        s.objects[hi].hidden = true;
+        let cam = s.objects.iter().position(|o| matches!(o.data, ObjectData::Camera));
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        if let Some(c) = cam {
+            s.objects[c].selected = true;
+        }
+        let meshes = s.objects.iter().filter(|o| matches!(o.data, ObjectData::Mesh(_)) && !o.hidden).count();
+        assert_eq!(s.select_by_type(ObjectType::Mesh, false), meshes);
+        assert!(s.selected().all(|o| matches!(o.data, ObjectData::Mesh(_)) && !o.hidden));
+        if let Some(c) = cam {
+            assert!(!s.objects[c].selected, "no extend: the camera was deselected");
+            assert_eq!(s.select_by_type(ObjectType::Camera, true), 1);
+            assert_eq!(s.selected().count(), meshes + 1, "extend keeps the meshes");
+        }
+    }
+
+    #[test]
+    fn select_by_type_skips_hide_select_and_missing_types() {
+        let mut s = Scene::startup();
+        let i = s.objects.iter().position(|o| matches!(o.data, ObjectData::Mesh(_))).unwrap();
+        s.objects[i].hide_select = true;
+        s.objects[i].selected = false;
+        assert_eq!(s.select_by_type(ObjectType::Mesh, false), 0);
+        assert_eq!(s.select_by_type(ObjectType::Empty, false), 0);
+        assert_eq!(s.selected().count(), 0);
+    }
+
+    #[test]
+    fn select_same_collection_selects_the_visible_selectable_members() {
+        let mut s = Scene::startup();
+        let a = s.add_primitive(Primitive::Cube, [1.0, 0.0, 0.0]);
+        let b = s.add_primitive(Primitive::Cube, [2.0, 0.0, 0.0]);
+        let (ai, bi) = (s.index_of(a).unwrap(), s.index_of(b).unwrap());
+        s.objects[ai].hidden = true;
+        s.objects[bi].hide_select = true;
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        let selectable = s.objects.iter().filter(|o| !o.hidden && !o.hide_select).count();
+        assert_eq!(s.select_same_collection("Collection"), selectable);
+        assert!(!s.objects[ai].selected && !s.objects[bi].selected);
+        assert_eq!(s.select_same_collection("Collection"), 0, "already selected: nothing new");
+    }
+
+    #[test]
+    fn select_same_collection_unknown_or_empty_collection_does_nothing() {
+        let mut s = Scene::startup();
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        assert_eq!(s.select_same_collection("Nope"), 0);
+        assert_eq!(s.select_same_collection("XGen Guides"), 0);
+        assert_eq!(s.selected().count(), 0);
+    }
+
+    #[test]
+    fn fnmatch_wildcards_and_sets() {
+        let m = |n: &str, p: &str| fnmatch_case(&n.chars().collect::<Vec<_>>(), &p.chars().collect::<Vec<_>>());
+        assert!(m("Cube.001", "*") && m("", "*") && m("Cube.001", "Cube*") && m("Cube.001", "*.0?1"));
+        assert!(m("Cube", "C?be") && !m("Cube", "C?b") && !m("Cube", "Cub"));
+        assert!(m("Cube", "[abC]ube") && !m("Cube", "[abc]ube") && !m("Cube", "[!C]ube") && m("Cube", "[!x]ube") && m("Cube", "[A-Z]ube"));
+        assert!(m("a]", "a[]]") && m("a[", "a[") && m("x[b", "x[b"), "unclosed set is literal, `]` first is a member");
+        assert!(!m("Cube", "cube"), "fnmatchcase is case sensitive");
+    }
+
+    #[test]
+    fn select_pattern_case_extend_and_visibility() {
+        let mut s = Scene::startup();
+        let a = s.add_primitive(Primitive::Cube, [1.0, 0.0, 0.0]);
+        let b = s.add_primitive(Primitive::Cube, [2.0, 0.0, 0.0]);
+        let (ai, bi) = (s.index_of(a).unwrap(), s.index_of(b).unwrap());
+        s.objects[bi].hidden = true;
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        s.objects[0].selected = true;
+        /* Case insensitive by default, extend keeps the old selection; hidden Cube.002 is not a visible object. */
+        let first = s.objects[0].name.clone();
+        assert_eq!(s.select_pattern("cube.0*", false, true), 1);
+        assert!(s.objects[0].selected && s.objects[ai].selected && !s.objects[bi].selected);
+        assert_eq!(s.select_pattern("cube.0*", true, false), 0, "case sensitive: no match, and nothing kept");
+        assert_eq!(s.selected().count(), 0);
+        assert_eq!(s.select_pattern(&first, true, false), 1);
+        let rest = s.objects.iter().filter(|o| !o.hidden && !o.selected).count();
+        assert!(rest >= 1 && !s.objects[bi].selected);
+        assert_eq!(s.select_pattern("*", false, true), rest, "extend adds the remaining visible objects only");
+        assert!(!s.objects[bi].selected, "the hidden object stays unselected");
+    }
+
+    #[test]
+    fn select_more_grows_across_parent_links_and_less_shrinks() {
+        let mut s = family();
+        let a = s.objects.iter().find(|o| o.name == "Cube.001").unwrap().id;
+        let ai = s.index_of(a).unwrap();
+        s.objects[ai].selected = true;
+        /* Cube.001 selected: its parent (Cube) and child (Cube.002) join; the sibling Cube.003 does not. */
+        assert!(s.select_more_less(true));
+        assert_eq!(names(&s), ["Cube", "Cube.001", "Cube.002"]);
+        /* Less: only Cube differs from a neighbour (its unselected child Cube.003), so it alone drops out. */
+        assert!(s.select_more_less(false));
+        assert_eq!(names(&s), ["Cube.001", "Cube.002"]);
+    }
+
+    #[test]
+    fn select_more_less_report_no_change_and_skip_unselectable() {
+        let mut s = family();
+        assert!(!s.select_more_less(true), "nothing selected: no boundary");
+        let a = s.objects.iter().find(|o| o.name == "Cube.001").unwrap().id;
+        let ai = s.index_of(a).unwrap();
+        s.objects[ai].selected = true;
+        let b = s.objects.iter().position(|o| o.name == "Cube.002").unwrap();
+        s.objects[b].hide_select = true;
+        assert!(s.select_more_less(true));
+        assert_eq!(names(&s), ["Cube", "Cube.001"]);
+        for o in &mut s.objects {
+            o.selected = true;
+        }
+        assert!(!s.select_more_less(true), "everything selected: nothing to add");
     }
 }
 
