@@ -45,11 +45,14 @@ pub enum Hit {
     Item(usize),
 }
 
+/// The open submenu: its panel and its entries (`catalog index`, label).
+type SubMenu = (Rcti, Vec<(Rcti, usize, &'static str)>);
+
 pub struct Layout {
     pub root: Rcti,
     pub rows: Vec<(Rcti, usize)>,
     /// The open submenu: its panel and its entries (`catalog index`, label).
-    pub sub: Option<(Rcti, Vec<(Rcti, usize, &'static str)>)>,
+    pub sub: Option<SubMenu>,
     pub open: Option<usize>,
 }
 

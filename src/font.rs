@@ -2,7 +2,7 @@
 //!
 //! Ported from Blender:
 //!  - `UI_DEFAULT_TEXT_POINTS` (11) and `BLF_size(font, points * dpi_fac)`
-//!                                      (editors/interface/interface_style.cc:80, 524, 591-595)
+//!    (editors/interface/interface_style.cc:80, 524, 591-595)
 //!  - the UI font is `release/datafiles/fonts/Inter.woff2` (`assets/Inter.ttf` here is the same font
 //!    converted to TrueType, default instance of the variable font)
 //!
@@ -58,6 +58,7 @@ pub fn label_width(user: &UserDef, s: &str) -> i32 {
 }
 
 /// Draws `s` with its pen starting at `x` on the baseline `baseline` (window pixels, y up).
+#[allow(clippy::too_many_arguments)]
 pub fn draw_text(buf: &mut [u32], width: usize, height: usize, user: &UserDef, x: i32, baseline: i32, s: &str, color: Rgba) {
     if width == 0 || height == 0 || buf.len() < width * height {
         return;
@@ -96,6 +97,7 @@ pub fn draw_label(buf: &mut [u32], width: usize, height: usize, user: &UserDef, 
 }
 
 /// Like `draw_label()` with `pad` pixels between the left edge of `rect` and the text.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_label_pad(buf: &mut [u32], width: usize, height: usize, user: &UserDef, rect: Rcti, s: &str, color: Rgba, pad: i32) {
     let Some(f) = font() else { return };
     let Some(lm) = f.horizontal_line_metrics(px_size(user)) else { return };

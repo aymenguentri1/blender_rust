@@ -8,8 +8,8 @@
 //!  - when any input edge also borders a face that is not input (`delorig`), the original input faces and the vertices
 //!    that only touch input faces through edges with two or more faces are deleted; otherwise the originals stay and are
 //!    flipped (`!skip_input_flip`).
-//! Not ported: `use_keep_orig`, edges excluded, ortho-edge dissolve, select history, loop attribute copy, wire edges
-//! (`Mesh` has none). Side quads are ordered by input face, then edge, where Blender uses edge creation order.
+//!    Not ported: `use_keep_orig`, edges excluded, ortho-edge dissolve, select history, loop attribute copy, wire edges
+//!    (`Mesh` has none). Side quads are ordered by input face, then edge, where Blender uses edge creation order.
 
 use crate::mesh::Mesh;
 pub use crate::mesh_extrude::Extruded;
