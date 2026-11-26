@@ -66,6 +66,8 @@ mod taa;
 mod mesh;
 #[allow(dead_code)]
 mod mesh_extrude;
+#[allow(dead_code)]
+mod edit_select;
 mod mesh_ops;
 mod mesh_deform;
 mod mesh_wire;
