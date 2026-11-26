@@ -431,6 +431,8 @@ pub fn evaluate_with(mesh: &Mesh, stack: &[Modifier], ctx: &EvalCtx) -> Mesh {
 pub struct ModFlags {
     /// `eModifierMode_Realtime` cleared: the modifier is skipped in the viewport (Blender's monitor toggle).
     pub hide_viewport: bool,
+    /// `ui_expand_flag` cleared: the panel shows only its header.
+    pub collapsed: bool,
 }
 
 /// Like `evaluate_with`, skipping the modifiers whose flags hide them in the viewport. `flags` may be shorter than
@@ -477,14 +479,14 @@ mod tests {
         assert_eq!(evaluate_flagged(&cube, &stack, &[], &ctx).faces.len(), 24);
         assert_eq!(evaluate_flagged(&cube, &stack, &hide(1), &ctx).faces.len(), 12);
         assert_eq!(evaluate_flagged(&cube, &stack, &hide(0), &ctx).faces.len(), 12);
-        let all = [ModFlags { hide_viewport: true }; 2];
+        let all = [ModFlags { hide_viewport: true, ..Default::default() }; 2];
         assert_eq!(evaluate_flagged(&cube, &stack, &all, &ctx), cube);
     }
 
     #[test]
     fn flags_follow_adds_removals_and_swaps() {
         let (a, b, c) = (Modifier::array(2), Modifier::mirror(0), Modifier::bevel());
-        let off = ModFlags { hide_viewport: true };
+        let off = ModFlags { hide_viewport: true, collapsed: false };
         let mut f = vec![off, ModFlags::default()];
         resync_flags(&[a.clone(), b.clone()], &[b.clone(), a.clone()], &mut f);
         assert_eq!(f, [ModFlags::default(), off], "a swap moves the flags");

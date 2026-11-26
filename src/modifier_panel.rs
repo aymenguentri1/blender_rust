@@ -2,9 +2,9 @@
 //!
 //! Blender's panel (`properties_data_modifier.py`, `MOD_ui_common.cc`) lists the modifiers of the active
 //! object, each with its name, move / remove buttons and its settings, and an `Add Modifier` menu. This one is
-//! reduced to what the software UI can draw: per modifier a header row (select, the Show in Viewport monitor toggle, move up, move down, remove)
+//! reduced to what the software UI can draw: per modifier a header row (the collapse triangle, select, the Show in Viewport monitor toggle, move up, move down, remove)
 //! and a value row (its summary with `-` / `+` buttons that act like Ctrl + Alt + `[` / `]`), and an
-//! `Add Modifier` button that opens a list of every kind. Not modelled: collapsing, per-setting fields,
+//! `Add Modifier` button that opens a list of every kind. Not modelled: per-setting fields,
 //! the render toggle, scrolling (rows that do not fit are left out) and the tabs of the navigation
 //! bar (the panel is always shown).
 //!
@@ -31,6 +31,8 @@ pub enum Action {
     Apply(usize),
     /// Inserts a copy right after it (Blender's Duplicate, Shift + D over the modifier).
     Duplicate(usize),
+    /// The disclosure triangle in the header.
+    ToggleCollapse(usize),
     /// The monitor toggle in the header (`show_viewport`).
     ToggleViewport(usize),
     Decrease(usize),
@@ -45,6 +47,8 @@ pub enum Style {
     Button,
     Selected,
     Field,
+    /// No box, only the icon (the disclosure triangle).
+    Flat,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -65,12 +69,14 @@ pub struct ModRow {
     pub target: Option<String>,
     /// Shown in the viewport (the highlighted monitor toggle).
     pub shown: bool,
+    /// Only the header row is drawn.
+    pub collapsed: bool,
 }
 
 impl ModRow {
     #[cfg(test)]
     fn new(name: &'static str, summary: &str, target: Option<&str>) -> ModRow {
-        ModRow { name, summary: summary.into(), target: target.map(Into::into), shown: true }
+        ModRow { name, summary: summary.into(), target: target.map(Into::into), shown: true, collapsed: false }
     }
 }
 
@@ -96,7 +102,7 @@ impl PanelState {
                     .map(|(i, m)| {
                         let target = matches!(m, Modifier::Shrinkwrap { .. } | Modifier::Boolean { .. })
                             .then(|| format!("Target: {}", scene.target_name(i).unwrap_or_else(|| "(none)".into())));
-                        ModRow { name: m.label(), summary: m.summary(), target, shown: o.modifier_shown(i) }
+                        ModRow { name: m.label(), summary: m.summary(), target, shown: o.modifier_shown(i), collapsed: o.modifier_collapsed(i) }
                     })
                     .collect(),
                 active: o.active_modifier.min(o.modifiers.len().saturating_sub(1)),
@@ -155,22 +161,27 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
         }
     }
     top -= gap;
-    for (i, ModRow { name, summary, target, shown }) in st.modifiers.iter().enumerate() {
+    for (i, ModRow { name, summary, target, shown, collapsed }) in st.modifiers.iter().enumerate() {
         let style = if i == st.active { Style::Selected } else { Style::Button };
         let (r3, r2, r1, r0) = (x1 - small + 1, x1 - 2 * small - gap + 1, x1 - 3 * small - 2 * gap + 1, x1 - 4 * small - 3 * gap + 1);
         let eye_style = if *shown { Style::Selected } else { Style::Button };
         let head = vec![
-            (x0, r0 - gap - 1, name.to_string(), style, Some(Action::Select(i)), false),
+            (x0, x0 + small - 1, if *collapsed { ">" } else { "v" }.into(), Style::Flat, Some(Action::ToggleCollapse(i)), true),
+            (x0 + small + gap, r0 - gap - 1, name.to_string(), style, Some(Action::Select(i)), false),
             (r0, r0 + small - 1, String::new(), eye_style, Some(Action::ToggleViewport(i)), true),
             (r1, r1 + small - 1, "^".into(), Style::Button, Some(Action::MoveUp(i)), true),
             (r2, r2 + small - 1, "v".into(), Style::Button, Some(Action::MoveDown(i)), true),
             (r3, x1, "x".into(), Style::Button, Some(Action::Remove(i)), true),
         ];
-        let rows = if target.is_some() { 4 } else { 3 };
+        let rows = if *collapsed { 1 } else if target.is_some() { 4 } else { 3 };
         if top - rows * (unit + gap) < window.ymin {
             break;
         }
         row(&mut out, &mut top, head);
+        if *collapsed {
+            top -= gap;
+            continue;
+        }
         let (m2, m1) = (x1 - small + 1, x1 - 2 * small - gap + 1);
         let value = vec![
             (x0, m1 - gap - 1, summary.clone(), Style::Field, Some(Action::Select(i)), false),
@@ -210,6 +221,11 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
             Style::Button => (theme::WCOL_TOOL_INNER, theme::WCOL_TOOL_ROUNDNESS),
             Style::Selected => (theme::WCOL_TOGGLE_INNER_SEL, theme::WCOL_TOOL_ROUNDNESS),
             Style::Field => (theme::WCOL_MENU_INNER, theme::WCOL_TOOL_ROUNDNESS),
+            Style::Flat => {
+                let icon = if w.label == ">" { Icon::RightArrow } else { Icon::DownArrow };
+                icons::draw_icon(buf, width, height, user, w.rect, icon, theme::WCOL_PULLDOWN_TEXT);
+                continue;
+            }
         };
         draw_round_box(buf, width, height, user, w.rect, inner, theme::WCOL_TOOL_OUTLINE, round);
         if w.action.is_some_and(|a| matches!(a, Action::ToggleViewport(_))) {
@@ -244,6 +260,10 @@ pub fn apply(scene: &mut Scene, add_open: &mut bool, action: Action) -> bool {
         Action::Remove(i) => scene.panel_remove_modifier(i),
         Action::Apply(i) => scene.panel_apply_modifier(i),
         Action::Duplicate(i) => scene.panel_duplicate_modifier(i),
+        Action::ToggleCollapse(i) => {
+            scene.panel_toggle_collapse(i);
+            false
+        }
         Action::ToggleViewport(i) => scene.panel_toggle_viewport(i),
         Action::Decrease(i) => scene.panel_adjust_modifier(i, -1),
         Action::Increase(i) => scene.panel_adjust_modifier(i, 1),
@@ -286,8 +306,8 @@ mod tests {
             add_open: false,
         };
         let ws = widgets(&user, window(), &st);
-        /* title, add, then 2 x (5 header + 3 value + 2 apply / duplicate) widgets */
-        assert_eq!(ws.len(), 2 + 2 * 10);
+        /* title, add, then 2 x (6 header + 3 value + 2 apply / duplicate) widgets */
+        assert_eq!(ws.len(), 2 + 2 * 11);
         assert!(ws.iter().all(|w| window().isect(&w.rect) == Some(w.rect)));
         assert!(ws[1].rect.ymax < ws[0].rect.ymin);
         /* The active modifier's name is the one highlighted name; the monitor toggles are lit too (shown). */
@@ -314,7 +334,7 @@ mod tests {
             ..Default::default()
         };
         let ws = widgets(&user, window(), &st);
-        assert_eq!(ws.len(), 2 + 5 + 3 + 2 + 1);
+        assert_eq!(ws.len(), 2 + 6 + 3 + 2 + 1);
         let t = ws.iter().find(|w| w.action == Some(Action::CycleTarget(0))).unwrap();
         assert_eq!(t.label, "Target: (none)");
         assert_eq!(t.rect.xmin, ws[0].rect.xmin, "full width");
@@ -418,6 +438,35 @@ mod tests {
         assert_eq!((st.modifiers[1].name, st.modifiers[1].shown), ("Array", false), "the flag moved with the modifier");
         assert!(apply(&mut s, &mut open, Action::Remove(0)));
         assert!(!PanelState::of(&s, false).modifiers[0].shown, "removing another one keeps the flag");
+    }
+
+    #[test]
+    fn a_collapsed_modifier_shows_only_its_header() {
+        let user = UserDef::from_window_scale(1.0);
+        let mut s = Scene::startup();
+        let mut open = false;
+        assert!(apply(&mut s, &mut open, Action::Add(1)), "Array");
+        assert!(apply(&mut s, &mut open, Action::Add(15)), "Weld");
+        let full = widgets(&user, window(), &PanelState::of(&s, false));
+        assert!(!apply(&mut s, &mut open, Action::ToggleCollapse(0)), "UI state: no geometry change");
+        assert!(s.active_object().unwrap().modifier_collapsed(0));
+        let st = PanelState::of(&s, false);
+        assert!(st.modifiers[0].collapsed && !st.modifiers[1].collapsed);
+        let ws = widgets(&user, window(), &st);
+        assert_eq!(ws.len(), full.len() - 5, "the value row and Apply / Duplicate are gone");
+        let weld = |w: &[Widget]| w.iter().find(|w| w.action == Some(Action::Select(1))).unwrap().rect.ymax;
+        assert!(weld(&ws) > weld(&full), "the next modifier moves up");
+        let arrow = ws.iter().find(|w| w.action == Some(Action::ToggleCollapse(0))).unwrap();
+        assert_eq!((arrow.label.as_str(), arrow.style), (">", Style::Flat));
+        assert!(!apply(&mut s, &mut open, Action::ToggleCollapse(9)), "no such modifier");
+        /* The state moves with the modifier and survives removing another one; it is not an undo step. */
+        assert!(apply(&mut s, &mut open, Action::MoveDown(0)));
+        assert!(PanelState::of(&s, false).modifiers[1].collapsed);
+        assert!(apply(&mut s, &mut open, Action::Remove(0)));
+        assert!(PanelState::of(&s, false).modifiers[0].collapsed);
+        assert!(s.undo(), "undoes the remove, not the collapse");
+        assert!(PanelState::of(&s, false).modifiers[1].collapsed);
+        assert!(!apply(&mut s, &mut open, Action::ToggleCollapse(1)) && !PanelState::of(&s, false).modifiers[1].collapsed);
     }
 
     #[test]

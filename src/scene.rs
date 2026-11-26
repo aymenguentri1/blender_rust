@@ -218,6 +218,11 @@ impl Object {
         !self.mod_flags.get(i).is_some_and(|f| f.hide_viewport)
     }
 
+    /// Is the panel of modifier `i` collapsed?
+    pub fn modifier_collapsed(&self, i: usize) -> bool {
+        self.mod_flags.get(i).is_some_and(|f| f.collapsed)
+    }
+
     /// Does the object draw something other than its base mesh (a modifier or a subdivision level)?
     pub fn has_eval(&self) -> bool {
         self.subsurf > 0 || !self.modifiers.is_empty()
@@ -1072,6 +1077,19 @@ impl Scene {
         }
         let i = o.active_modifier.min(o.modifiers.len() - 1);
         self.panel_apply_modifier(i)
+    }
+
+    /// Collapses / expands the panel of modifier `i` of the active object. Not an undo step and no geometry change,
+    /// as in Blender (the expand flag is UI state).
+    pub fn panel_toggle_collapse(&mut self, i: usize) -> bool {
+        let Some(idx) = self.active.and_then(|id| self.index_of(id)) else { return false };
+        let o = &mut self.objects[idx];
+        if i >= o.modifiers.len() {
+            return false;
+        }
+        o.mod_flags.resize(o.modifiers.len(), modifiers::ModFlags::default());
+        o.mod_flags[i].collapsed = !o.mod_flags[i].collapsed;
+        true
     }
 
     /// The monitor toggle of modifier `i` of the active object (`show_viewport`). Undoable.
