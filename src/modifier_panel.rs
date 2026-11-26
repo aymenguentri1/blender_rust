@@ -221,6 +221,17 @@ pub fn window_rect(user: &UserDef, totrct: Rcti) -> Option<Rcti> {
     if rect.is_empty() { None } else { Some(rect) }
 }
 
+impl Action {
+    /// Runs an `Add(index)` (an entry of the Add Modifier menu) on the active object; true when the modifier results
+    /// have to be rebuilt. Other actions do nothing here.
+    pub fn run_add(self, scene: &mut Scene) -> bool {
+        match self {
+            Action::Add(i) => Modifier::catalog().get(i).cloned().is_some_and(|m| scene.panel_add_modifier(m)),
+            _ => false,
+        }
+    }
+}
+
 /// The light blue of Blender's modifier icons.
 const MODIFIER_ICON: Rgba = Rgba::hex(0x8ab4ebff);
 
