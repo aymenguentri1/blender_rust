@@ -46,6 +46,8 @@ mod outliner_select;
 mod scene_units;
 mod outliner_rename;
 mod playhead_draw;
+#[allow(dead_code)]
+mod view2d_grid;
 
 mod status_input;
 mod colorspace_lut;
