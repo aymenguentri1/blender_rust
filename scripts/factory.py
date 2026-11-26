@@ -26,7 +26,7 @@ def call(m, path, data=None):
     if not TOKEN: die("set GH_TOKEN")
     url = path if path.startswith("http") else f"https://api.github.com/repos/{REPO}{path}"
     req = urllib.request.Request(url, method=m, data=json.dumps(data).encode() if data is not None else None,
-        headers={"Authorization": "Bearer " + TOKEN, "Accept": "application/vnd.github+json"})
+        headers={"Authorization": "Bearer " + TOKEN, "Accept": "application/vnd.github+json", "Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req) as r:
             b = r.read(); return r.status, (json.loads(b) if b else None)
