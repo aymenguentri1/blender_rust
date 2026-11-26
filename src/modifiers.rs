@@ -496,6 +496,9 @@ pub fn evaluate_with(mesh: &Mesh, stack: &[Modifier], ctx: &EvalCtx) -> Mesh {
 pub struct ModFlags {
     /// `eModifierMode_Realtime` cleared: the modifier is skipped in the viewport (Blender's monitor toggle).
     pub hide_viewport: bool,
+    /// `eModifierMode_Render` cleared: the modifier is skipped in renders (Blender's camera toggle). Nothing in this
+    /// port renders, so it is panel state only; the viewport ignores it.
+    pub hide_render: bool,
     /// `ui_expand_flag` cleared: the panel shows only its header.
     pub collapsed: bool,
     /// The name typed into the panel header (`ModifierData::name`); `None` shows the kind's name.
