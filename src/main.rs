@@ -21,6 +21,7 @@ mod widget_draw;
 mod font;
 mod frame_range;
 mod buttons_context;
+mod object_tab_layout;
 mod outliner_draw;
 mod face_set;
 #[allow(dead_code)]
