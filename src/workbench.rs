@@ -5,14 +5,14 @@
 //!    of the internal "Default" studio light; the startup 3D viewport has an empty `studio_light`
 //!    name, so `BKE_studiolight_find()` falls back to it
 //!  - `get_light_data_from_studio_solidlight()`, `SceneResources::init()`
-//!                                           (draw/engines/workbench/workbench_resources.cc:67-165): the
+//!    (draw/engines/workbench/workbench_resources.cc:67-165): the
 //!    light directions are used as they are (view space) because `V3D_SHADING_WORLD_ORIENTATION` is not
 //!    set; the ambient colour is black and specular is on (`V3D_SHADING_SPECULAR_HIGHLIGHT`)
 //!  - `get_world_lighting()`                 (workbench/shaders/workbench_world_light.bsl.hh)
 //!  - the composite `frag()`                 (workbench/shaders/workbench_composite.bsl.hh): the incident
 //!    vector comes from the pixel ray, the normal is the (view space) face normal, back faces flip it
 //!  - `Material::pack_data()`, `float_pair_encode()` / `float_pair_decode()`, `material_data_get()`
-//!                                           (workbench_private.hh:143, shaders/workbench_common.bsl.hh,
+//!    (workbench_private.hh:143, shaders/workbench_common.bsl.hh,
 //!    shaders/workbench_material.bsl.hh): the roughness / metallic quantisation
 //!  - `drw_view_incident_vector()`           (draw/intern/shaders/draw_view_lib.glsl:86)
 //!

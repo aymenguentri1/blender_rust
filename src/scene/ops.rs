@@ -432,7 +432,7 @@ impl Scene {
         let wanted: Vec<String> = self.objects.iter().filter(|o| o.selected && !o.hidden).filter_map(|o| flip_side_name(&o.name)).collect();
         let mut n = 0;
         for o in self.objects.iter_mut().filter(|o| !o.hidden) {
-            let hit = wanted.iter().any(|w| *w == o.name);
+            let hit = wanted.contains(&o.name);
             if hit && !o.selected {
                 n += 1;
             }
@@ -571,7 +571,7 @@ impl Scene {
     /// (`grid` metres apart). Objects that move along with a selected ancestor are left to it. Returns how many
     /// objects moved.
     pub fn snap_selected_to_grid(&mut self, grid: f32) -> usize {
-        if !(grid > 0.0) {
+        if grid.is_nan() || grid <= 0.0 {
             return 0;
         }
         let mut moves: Vec<(usize, V3)> = Vec::new();
@@ -633,7 +633,7 @@ impl Scene {
 /// Rounds every coordinate to the nearest multiple of `grid` (`snap_curs_to_grid`); a non-positive or NaN grid
 /// leaves the point alone.
 pub fn snap_to_grid(p: V3, grid: f32) -> V3 {
-    if !(grid > 0.0) {
+    if grid.is_nan() || grid <= 0.0 {
         return p;
     }
     p.map(|c| (c / grid).round() * grid)
@@ -689,7 +689,7 @@ impl Scene {
         let Some(src) = self.active_object().filter(|o| o.mesh().is_some()) else { return 0 };
         let (id, mesh, smooth) = (src.id, src.mesh().unwrap().clone(), src.smooth);
         let wants = |o: &Object| o.selected && !o.hidden && o.id != id && o.mesh().is_some_and(|m| *m != mesh || o.smooth != smooth);
-        if !self.objects.iter().any(|o| wants(o)) {
+        if !self.objects.iter().any(&wants) {
             return 0;
         }
         self.push_undo();

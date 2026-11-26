@@ -10,7 +10,10 @@
 //!  - `invert_visibility_mesh()` (722): toggles `.hide_poly` on every face, then `mesh_hide_face_flush()`
 //!    (blenkernel/intern/mesh_evaluate.cc:553): no hidden face removes `.hide_vert`; else points of hidden faces are
 //!    hidden and points of visible faces shown (points without a face keep their value, `false` when new)
+//!
 //! Edge visibility (`.hide_edge`) is derived from the points and is not stored. Undo and PBVH tagging are not ported.
+
+#![allow(dead_code)] // not wired into the app yet
 
 use crate::mesh::Mesh;
 

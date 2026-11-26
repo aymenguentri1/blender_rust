@@ -10,6 +10,8 @@
 //!
 //! RNA names differ from DNA: RNA `thickness` is DNA `offset`, RNA `offset` is DNA `offset_fac`.
 
+#![allow(dead_code)] // not wired into the app yet
+
 /// `SolidifyModifierMode`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {

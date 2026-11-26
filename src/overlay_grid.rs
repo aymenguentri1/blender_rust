@@ -3,14 +3,14 @@
 //! Ported from Blender:
 //!  - `Grid::init_v3d()`                   (draw/engines/overlay/overlay_grid.hh:228-420)
 //!  - `OVERLAY_GridBits`, `OVERLAY_GridData`, `OVERLAY_GRID_STEPS_LEN`, `OVERLAY_GRID_ITER_LEN`
-//!                                         (draw/engines/overlay/overlay_shader_shared.hh:36-60, 133-156)
+//!    (draw/engines/overlay/overlay_shader_shared.hh:36-60, 133-156)
 //!  - `view3d_grid_steps_ex()`             (editors/space_view3d/view3d_draw.cc:707)
 //!  - `View3D.gridflag` default            (makesdna/DNA_view3d_types.h:775)
 //!  - vertex stage `overlay_grid_vert.glsl` and `overlay_grid_common_lib.glsl`
-//!                                         (draw/engines/overlay/shaders/, `grid_vertex()`)
+//!    (draw/engines/overlay/shaders/, `grid_vertex()`)
 //!  - grid colours                         (draw/engines/overlay/overlay_instance.cc:370-395)
 //!  - `get_color_shade_4fv()`, `get_color_blend_shade_4fv()`
-//!                                         (editors/interface/resources.cc:1375, 1407)
+//!    (editors/interface/resources.cc:1375, 1407)
 //!  - `srgb_to_linearrgb()`                (blenlib/intern/math_color.cc:483)
 //!  - metric length units, `base_unit = 3` (blenkernel/intern/unit.cc:47-50, 296)
 //!  - default scene units: metric, `scale_length = 1` (blenkernel/intern/scene.cc:223)

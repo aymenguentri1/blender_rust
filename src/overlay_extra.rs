@@ -254,7 +254,7 @@ pub fn pick(scene: &Scene, rv3d: &RegionView3D, winx: i32, winy: i32, mval: [i32
         for (a, b) in world_segments(o, rv3d, winx, winy) {
             let Some((s0, s1)) = project_segment(rv3d, a, b, (winx, winy)) else { continue };
             let d = dist_to_segment(p, s0, s1);
-            if d <= PICK_RADIUS_PX && best.map_or(true, |(bd, _)| d < bd) {
+            if d <= PICK_RADIUS_PX && best.is_none_or(|(bd, _)| d < bd) {
                 best = Some((d, o.id));
             }
         }
