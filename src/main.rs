@@ -23,6 +23,8 @@ mod frame_range;
 mod buttons_context;
 mod outliner_draw;
 mod face_set;
+#[allow(dead_code)]
+mod multires;
 mod array_settings;
 mod solidify_settings;
 mod outliner_select;
