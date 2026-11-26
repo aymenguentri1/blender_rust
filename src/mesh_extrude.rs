@@ -22,6 +22,8 @@ pub struct Extruded {
     pub new_edges: Vec<(u32, u32)>,
     /// Faces created between each input edge and its duplicate.
     pub new_faces: Vec<u32>,
+    /// Face extrude only: the copies of the input faces (`geom.out` faces).
+    pub dup_faces: Vec<u32>,
 }
 
 /// Whether the first face that uses edge `(a, b)` runs `b -> a` over it (`e->l->v != e->v1`); `None` for a wire edge.
