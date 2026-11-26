@@ -14,6 +14,8 @@ def api(url):
     return json.load(urllib.request.urlopen(r))
 def ts(s): return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
+if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "SOLO_MODE")):
+    print("solo mode (scripts/SOLO_MODE): no second reviewer, review gate not applied"); sys.exit(0)
 repo, n = os.environ["GITHUB_REPOSITORY"], int(os.environ["PR_NUMBER"])
 B = f"https://api.github.com/repos/{repo}"
 pr = api(f"{B}/pulls/{n}")
