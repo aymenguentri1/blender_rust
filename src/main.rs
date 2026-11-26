@@ -114,6 +114,8 @@ mod edit_select;
 #[allow(dead_code)]
 mod edit_overlay;
 mod mesh_extrude_faces;
+#[allow(dead_code)]
+mod mesh_flip;
 mod sculpt_hide;
 mod mesh_edgering;
 mod mesh_loopcut;
