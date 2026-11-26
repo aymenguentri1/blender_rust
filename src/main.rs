@@ -180,6 +180,8 @@ mod uvedit_udim;
 mod uvedit_align_weld;
 #[allow(dead_code)]
 mod uvedit_line_endpoint;
+#[allow(dead_code)]
+mod uvedit_minmax;
 
 use std::{num::NonZeroU32, sync::Arc};
 
