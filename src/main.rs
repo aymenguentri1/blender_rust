@@ -166,6 +166,7 @@ mod mirror_settings;
 mod bevel_settings;
 mod material;
 mod mesh_query;
+mod mesh_walker_island;
 mod mesh_face_metrics;
 
 use std::{num::NonZeroU32, sync::Arc};
