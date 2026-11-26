@@ -54,6 +54,8 @@ pub enum Icon {
     Monitor,
     /// `ICON_RESTRICT_RENDER_OFF`: the camera of a modifier's "Show in Render" toggle.
     Camera,
+    /// `ICON_HIDE_OFF`: the eye of the outliner's hide column.
+    Eye,
     /// `ICON_GRIP`: the six dots of a modifier panel's drag handle.
     Grip,
     /// `ICON_EDITMODE_HLT`: the square with corner vertices of a modifier's "Show in Edit Mode" toggle.
@@ -220,6 +222,10 @@ fn shapes(icon: Icon) -> Vec<Shape> {
             polyline(&[[1.8, 4.0], [10.2, 4.0], [10.2, 12.0], [1.8, 12.0]], 1.4, true),
             poly(&[[3.4, 5.6], [8.6, 5.6], [8.6, 10.4], [3.4, 10.4]]).a(0.3),
             poly(&[[10.2, 7.0], [14.4, 4.6], [14.4, 11.4], [10.2, 9.0]]),
+        ],
+        Icon::Eye => vec![
+            ellipse(8.0, 8.0, 6.4, 3.6, 1.3),
+            disc(8.0, 8.0, 2.4),
         ],
         Icon::EditMode => vec![
             polyline(&[[3.4, 3.4], [12.6, 3.4], [12.6, 12.6], [3.4, 12.6]], 1.2, true).a(0.8),
