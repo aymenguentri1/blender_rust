@@ -69,6 +69,8 @@ mod transform_constraint_proj;
 #[allow(dead_code)]
 mod playback;
 #[allow(dead_code)]
+mod blend_reader;
+#[allow(dead_code)]
 mod math_base;
 #[allow(dead_code)]
 mod math_base_safe;
