@@ -23,6 +23,7 @@ mod frame_range;
 mod buttons_context;
 mod outliner_draw;
 mod outliner_select;
+mod scene_units;
 mod playhead_draw;
 
 mod status_input;
