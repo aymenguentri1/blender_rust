@@ -55,14 +55,24 @@ pub fn item_activate(scene: &mut Scene, id: u32, click: Click) {
         }
         Click::Range | Click::ExtendRange => {
             let extend = click == Click::ExtendRange;
-            let active_selected = scene.active.and_then(|a| scene.index_of(a)).is_some_and(|k| scene.objects[k].selected);
-            let Some(active) = scene.active.filter(|_| active_selected) else {
-                /* `do_outliner_range_select()`: no active, or an unselected one: select and activate the cursor row. */
+            /* `do_outliner_range_select()`: no active element: select and activate the cursor row. */
+            let Some(active) = scene.active.filter(|&a| scene.index_of(a).is_some()) else {
                 select_only(scene, id);
                 return;
             };
+            let active_selected = scene.index_of(active).is_some_and(|k| scene.objects[k].selected);
             if !extend {
                 scene.select_all(SelectAction::Deselect);
+            }
+            /* The active row under the cursor is only selected, before the "active is selected" test. */
+            if active == id {
+                scene.objects[i].selected = true;
+                return;
+            }
+            /* An unselected active element: select and activate the cursor row (not extending, so it clears). */
+            if !active_selected {
+                select_only(scene, id);
+                return;
             }
             let rows = object_rows(scene);
             let (Some(a), Some(c)) = (rows.iter().position(|&r| r == active), rows.iter().position(|&r| r == id)) else {
@@ -137,6 +147,21 @@ mod tests {
         /* Without extend the old selection is dropped. */
         item_activate(&mut s, r[1], Click::Range);
         assert_eq!(selected(&s), r[..2].to_vec());
+    }
+
+    #[test]
+    fn range_on_the_active_row_only_selects_it() {
+        let mut s = Scene::startup();
+        let r = ids(&s);
+        item_activate(&mut s, r[0], Click::Plain);
+        item_activate(&mut s, r[2], Click::Extend); /* active r[2] */
+        item_activate(&mut s, r[2], Click::Extend); /* deselected, still active */
+        assert_eq!(selected(&s), vec![r[0]]);
+        item_activate(&mut s, r[2], Click::ExtendRange);
+        assert_eq!(selected(&s), vec![r[0], r[2]], "extend keeps the others, no re-activation");
+        assert_eq!(s.active, Some(r[2]));
+        item_activate(&mut s, r[2], Click::Range);
+        assert_eq!(selected(&s), vec![r[2]], "without extend only the cursor row stays");
     }
 
     #[test]
