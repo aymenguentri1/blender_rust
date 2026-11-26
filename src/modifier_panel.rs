@@ -2,10 +2,10 @@
 //!
 //! Blender's panel (`properties_data_modifier.py`, `MOD_ui_common.cc`) lists the modifiers of the active
 //! object, each with its name, move / remove buttons and its settings, and an `Add Modifier` menu. This one is
-//! reduced to what the software UI can draw: per modifier a header row (the collapse triangle, the type icon, select, the Show in Viewport monitor and Show in Render camera toggles, the dropdown menu, move up, move down, remove)
+//! reduced to what the software UI can draw: per modifier a header row (the collapse triangle, the type icon, select, the Show in Edit Mode, Show in Viewport and Show in Render toggles, the dropdown menu, move up, move down, remove)
 //! and a value row (its summary with `-` / `+` buttons that act like Ctrl + Alt + `[` / `]`), and an
 //! `Add Modifier` button that opens a list of every kind. Not modelled: per-setting fields,
-//! the edit-mode toggle, scrolling (rows that do not fit are left out) and the tabs of the navigation
+//! scrolling (rows that do not fit are left out) and the tabs of the navigation
 //! bar (the panel is always shown).
 //!
 //! Layout and hit-testing are plain functions of the window rect, so they are tested without a window.
@@ -41,6 +41,11 @@ pub enum Action {
     OpenMenu(usize),
     /// The monitor toggle in the header (`show_viewport`).
     ToggleViewport(usize),
+    /// The edit-mode toggle in the header (`show_in_editmode`).
+    ToggleEditMode(usize),
+    /// A press on the drag handle at the right of the header: the window starts a drag (`mod_drag`); releasing over
+    /// another modifier's row moves it there (`Scene::panel_move_modifier_index`). Does nothing by itself.
+    DragStart(usize),
     /// The camera toggle in the header (`show_render`).
     ToggleRender(usize),
     Decrease(usize),
@@ -57,6 +62,8 @@ pub enum Style {
     Field,
     /// No box, only the icon (the disclosure triangle).
     Flat,
+    /// The drag handle of a modifier header: six dots, no box.
+    Handle,
     /// The type icon of a modifier header: no box, the label is the kind's name.
     ModIcon,
     /// A value field that is being typed into (blue outline).
@@ -81,6 +88,8 @@ pub struct ModRow {
     pub target: Option<String>,
     /// Shown in the viewport (the highlighted monitor toggle).
     pub shown: bool,
+    /// Enabled in edit mode (the highlighted edit-mode toggle).
+    pub editmode: bool,
     /// Enabled for rendering (the highlighted camera toggle).
     pub render: bool,
     /// The modifier kind's name (`Modifier::label`), which picks the type icon of the header.
@@ -94,7 +103,7 @@ pub struct ModRow {
 impl ModRow {
     #[cfg(test)]
     fn new(name: &'static str, summary: &str, target: Option<&str>) -> ModRow {
-        ModRow { name: name.into(), kind: "Array", summary: summary.into(), target: target.map(Into::into), shown: true, render: true, collapsed: false, field: None }
+        ModRow { name: name.into(), kind: "Array", summary: summary.into(), target: target.map(Into::into), shown: true, editmode: true, render: true, collapsed: false, field: None }
     }
 }
 
@@ -128,7 +137,7 @@ impl PanelState {
                         let target = matches!(m, Modifier::Shrinkwrap { .. } | Modifier::Boolean { .. })
                             .then(|| format!("Target: {}", scene.target_name(i).unwrap_or_else(|| "(none)".into())));
                         ModRow {
-                            name: o.modifier_name(i).unwrap_or_default(), kind: m.label(), summary: m.summary(), target, shown: o.modifier_shown(i), render: o.modifier_render(i), collapsed: o.modifier_collapsed(i),
+                            name: o.modifier_name(i).unwrap_or_default(), kind: m.label(), summary: m.summary(), target, shown: o.modifier_shown(i), editmode: o.modifier_editmode(i), render: o.modifier_render(i), collapsed: o.modifier_collapsed(i),
                             field: m.main_value().map(|(l, v, u)| format!("{l}: {}{u}", number(v))),
                         }
                     })
@@ -241,7 +250,7 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
     let small = unit * 3 / 2;
     let (x0, x1) = (window.xmin + pad, window.xmax - pad);
     let mut out = Vec::new();
-    if x1 - x0 < small * 9 {
+    if x1 - x0 < unit * 12 {
         return out;
     }
     let mut top = window.ymax - pad + 1;
@@ -274,21 +283,24 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
         }
     }
     top -= gap;
-    for (i, ModRow { name, kind, summary, target, shown, render, collapsed, field }) in st.modifiers.iter().enumerate() {
+    for (i, ModRow { name, kind, summary, target, shown, editmode, render, collapsed, field }) in st.modifiers.iter().enumerate() {
         let style = if i == st.active { Style::Selected } else { Style::Button };
-        /* Right to left: remove, move down, move up, dropdown, camera, monitor; the name takes the rest. */
-        let slot = |k: i32| x1 - (k + 1) * small - k * gap + 1;
+        /* Right to left: remove, drag handle, dropdown, camera, monitor, edit mode; the name takes the rest. Blender's
+        header buttons are one unit wide, which leaves the name field room in the narrow properties editor. */
+        let hb = unit;
+        let slot = |k: i32| x1 - (k + 1) * hb - k * gap + 1;
         let eye_style = if *shown { Style::Selected } else { Style::Button };
+        let edit_style = if *editmode { Style::Selected } else { Style::Button };
         let cam_style = if *render { Style::Selected } else { Style::Button };
         let head = vec![
-            (x0, x0 + small - 1, if *collapsed { ">" } else { "v" }.into(), Style::Flat, Some(Action::ToggleCollapse(i)), true),
-            (x0 + small + gap, x0 + 2 * small + gap - 1, kind.to_string(), Style::ModIcon, Some(Action::Select(i)), true),
-            (x0 + 2 * small + 2 * gap, slot(5) - gap - 1, name.clone(), style, Some(Action::Select(i)), false),
-            (slot(5), slot(5) + small - 1, String::new(), eye_style, Some(Action::ToggleViewport(i)), true),
-            (slot(4), slot(4) + small - 1, String::new(), cam_style, Some(Action::ToggleRender(i)), true),
-            (slot(3), slot(3) + small - 1, String::new(), Style::Button, Some(Action::OpenMenu(i)), true),
-            (slot(2), slot(2) + small - 1, "^".into(), Style::Button, Some(Action::MoveUp(i)), true),
-            (slot(1), slot(1) + small - 1, "v".into(), Style::Button, Some(Action::MoveDown(i)), true),
+            (x0, x0 + hb - 1, if *collapsed { ">" } else { "v" }.into(), Style::Flat, Some(Action::ToggleCollapse(i)), true),
+            (x0 + hb + gap, x0 + 2 * hb + gap - 1, kind.to_string(), Style::ModIcon, Some(Action::Select(i)), true),
+            (x0 + 2 * hb + 2 * gap, slot(5) - gap - 1, name.clone(), style, Some(Action::Select(i)), false),
+            (slot(5), slot(5) + hb - 1, String::new(), edit_style, Some(Action::ToggleEditMode(i)), true),
+            (slot(4), slot(4) + hb - 1, String::new(), eye_style, Some(Action::ToggleViewport(i)), true),
+            (slot(3), slot(3) + hb - 1, String::new(), cam_style, Some(Action::ToggleRender(i)), true),
+            (slot(2), slot(2) + hb - 1, String::new(), Style::Button, Some(Action::OpenMenu(i)), true),
+            (slot(1), slot(1) + hb - 1, String::new(), Style::Handle, Some(Action::DragStart(i)), true),
             (slot(0), x1, "x".into(), Style::Button, Some(Action::Remove(i)), true),
         ];
         row(&mut out, &mut top, head);
@@ -314,6 +326,17 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
         top -= gap;
     }
     out
+}
+
+/// The top edge of each visible modifier's header, top to bottom (`(index, ymax)`), for `drop_index`.
+pub fn header_tops(widgets: &[Widget]) -> Vec<(usize, i32)> {
+    widgets.iter().filter_map(|w| if let Some(Action::ToggleCollapse(i)) = w.action { Some((i, w.rect.ymax)) } else { None }).collect()
+}
+
+/// The modifier a drag released at height `y` lands on: the last one whose header starts at or above `y`, the first
+/// one when `y` is above them all. `None` when there are no rows.
+pub fn drop_index(tops: &[(usize, i32)], y: i32) -> Option<usize> {
+    tops.iter().rev().find(|(_, top)| *top >= y).or(tops.first()).map(|(i, _)| *i)
 }
 
 /// The action with Ctrl held: the triangle collapses the other panels instead of itself.
@@ -344,6 +367,10 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
                 font::draw_label(buf, width, height, user, w.rect, &w.label, theme::WCOL_PULLDOWN_TEXT);
                 continue;
             }
+            Style::Handle => {
+                icons::draw_icon(buf, width, height, user, w.rect, Icon::Grip, theme::WCOL_PULLDOWN_TEXT);
+                continue;
+            }
             Style::ModIcon => {
                 icons::draw_icon(buf, width, height, user, w.rect, type_icon(&w.label), MODIFIER_ICON);
                 continue;
@@ -359,6 +386,8 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
             icons::draw_icon(buf, width, height, user, w.rect, Icon::DownArrow, theme::WCOL_PULLDOWN_TEXT);
         } else if w.action.is_some_and(|a| matches!(a, Action::ToggleViewport(_))) {
             icons::draw_icon(buf, width, height, user, w.rect, Icon::Monitor, theme::WCOL_PULLDOWN_TEXT);
+        } else if w.action.is_some_and(|a| matches!(a, Action::ToggleEditMode(_))) {
+            icons::draw_icon(buf, width, height, user, w.rect, Icon::EditMode, theme::WCOL_PULLDOWN_TEXT);
         } else if w.action.is_some_and(|a| matches!(a, Action::ToggleRender(_))) {
             icons::draw_icon(buf, width, height, user, w.rect, Icon::Camera, theme::WCOL_PULLDOWN_TEXT);
         } else if w.centered {
@@ -386,6 +415,8 @@ pub fn apply(scene: &mut Scene, add_open: &mut bool, action: Action) -> bool {
             scene.panel_select_modifier(i);
             false
         }
+        /* The window runs the drag, it has to know where the button was released. */
+        Action::DragStart(_) => false,
         Action::MoveUp(i) => scene.panel_move_modifier(i, -1),
         Action::MoveDown(i) => scene.panel_move_modifier(i, 1),
         Action::Remove(i) => scene.panel_remove_modifier(i),
@@ -402,6 +433,7 @@ pub fn apply(scene: &mut Scene, add_open: &mut bool, action: Action) -> bool {
             false
         }
         Action::ToggleViewport(i) => scene.panel_toggle_viewport(i),
+        Action::ToggleEditMode(i) => scene.panel_toggle_editmode(i),
         Action::ToggleRender(i) => scene.panel_toggle_render(i),
         Action::Decrease(i) => scene.panel_adjust_modifier(i, -1),
         Action::Increase(i) => scene.panel_adjust_modifier(i, 1),
@@ -547,6 +579,65 @@ mod tests {
         s.panel_select_modifier(1);
         assert!(s.apply_active_modifier(), "the chord applies the active one");
         assert_eq!(s.active_object().unwrap().modifiers.len(), 1);
+    }
+
+    #[test]
+    fn the_edit_mode_toggle_is_panel_state_left_of_the_monitor() {
+        let mut s = Scene::startup();
+        let mut open = false;
+        assert!(apply(&mut s, &mut open, Action::Add(1)), "Array x2");
+        s.update_eval();
+        let faces = |s: &Scene| s.active_object().unwrap().evaluated().unwrap().faces.len();
+        assert!(PanelState::of(&s, false).modifiers[0].editmode, "on by default");
+        assert!(apply(&mut s, &mut open, Action::ToggleEditMode(0)));
+        s.update_eval();
+        assert_eq!(faces(&s), 12, "object mode still evaluates it");
+        let st = PanelState::of(&s, false);
+        assert!(!st.modifiers[0].editmode && st.modifiers[0].shown && st.modifiers[0].render);
+        let ws = widgets(&UserDef::from_window_scale(1.0), window(), &st);
+        let find = |a| ws.iter().find(|w| w.action == Some(a)).unwrap();
+        let (edit, eye) = (find(Action::ToggleEditMode(0)), find(Action::ToggleViewport(0)));
+        assert_eq!(edit.style, Style::Button, "off: not highlighted");
+        assert!(edit.rect.xmax < eye.rect.xmin, "edit mode, monitor, camera: Blender's order");
+        let name = ws.iter().find(|w| w.action == Some(Action::Select(0)) && w.style != Style::ModIcon).unwrap();
+        assert!(name.rect.xmax < edit.rect.xmin && name.rect.size_x() > 20, "the name field keeps some width");
+        assert!(!apply(&mut s, &mut open, Action::ToggleEditMode(7)), "no such modifier");
+        assert!(apply(&mut s, &mut open, Action::Add(15)), "Weld");
+        assert!(apply(&mut s, &mut open, Action::MoveDown(0)));
+        assert!(!PanelState::of(&s, false).modifiers[1].editmode, "the flag moved with the modifier");
+        assert!(s.undo() && s.undo() && s.undo());
+        assert!(PanelState::of(&s, false).modifiers[0].editmode, "undo restores it");
+    }
+
+    #[test]
+    fn dragging_the_handle_moves_a_modifier_to_the_row_it_is_dropped_on() {
+        let mut s = Scene::startup();
+        let mut open = false;
+        for k in [1, 15, 2] {
+            assert!(apply(&mut s, &mut open, Action::Add(k)));
+        }
+        let names = |s: &Scene| PanelState::of(s, false).modifiers.iter().map(|m| m.name.clone()).collect::<Vec<_>>();
+        assert_eq!(names(&s), ["Array", "Weld", "Solidify"]);
+        let st = PanelState::of(&s, false);
+        let ws = widgets(&UserDef::from_window_scale(1.0), window(), &st);
+        let handle = ws.iter().find(|w| w.action == Some(Action::DragStart(0))).unwrap();
+        let x = handle.rect.xmax + 1;
+        let remove = ws.iter().find(|w| w.action == Some(Action::Remove(0))).unwrap();
+        assert!(handle.rect.xmax < remove.rect.xmin && handle.style == Style::Handle, "handle sits left of the X");
+        assert!(!apply(&mut s, &mut open, Action::DragStart(0)), "pressing the handle changes nothing");
+        assert!(x > 0);
+        let tops = header_tops(&ws);
+        assert_eq!(tops.iter().map(|t| t.0).collect::<Vec<_>>(), [0, 1, 2]);
+        assert_eq!(drop_index(&tops, tops[0].1 + 50), Some(0), "above everything: the first");
+        assert_eq!(drop_index(&tops, tops[1].1 - 2), Some(1));
+        assert_eq!(drop_index(&tops, tops[2].1 - 200), Some(2), "below everything: the last");
+        assert_eq!(drop_index(&[], 5), None);
+        assert!(s.panel_move_modifier_index(0, 2));
+        assert_eq!(names(&s), ["Weld", "Solidify", "Array"]);
+        assert_eq!(PanelState::of(&s, false).active, 2, "the moved one is active");
+        assert!(!s.panel_move_modifier_index(2, 2) && !s.panel_move_modifier_index(9, 0), "no move, no step");
+        assert!(s.undo());
+        assert_eq!(names(&s), ["Array", "Weld", "Solidify"], "one undo step");
     }
 
     #[test]

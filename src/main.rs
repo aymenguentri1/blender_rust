@@ -211,6 +211,8 @@ struct App {
     mod_edit: Option<modifier_panel::ValueEdit>,
     /// The open modifier dropdown menu: the modifier and the window position it opened at.
     mod_menu: Option<(usize, [i32; 2])>,
+    /// A modifier being dragged by its handle: its index and the header tops of the panel when the press happened.
+    mod_drag: Option<(usize, Vec<(usize, i32)>)>,
     /// The last click on a modifier panel button, for the double-click on a name (rename).
     last_panel_click: Option<(std::time::Instant, modifier_panel::Action)>,
     /// The Ctrl + C buffer of `view3d.copybuffer`.
@@ -839,6 +841,11 @@ impl ApplicationHandler for App {
                         if self.mod_edit.take().is_some_and(|e| e.commit(&mut self.scene)) {
                             scene_changed(&mut self.scene, &mut self.taa);
                         }
+                        if let modifier_panel::Action::DragStart(i) = action {
+                            self.mod_drag = Some((i, modifier_panel::header_tops(&widgets)));
+                            gfx.window.request_redraw();
+                            return;
+                        }
                         if let modifier_panel::Action::OpenMenu(i) = action {
                             self.mod_menu = Some((i, [self.cursor[0], self.cursor[1]]));
                             gfx.window.request_redraw();
@@ -876,6 +883,13 @@ impl ApplicationHandler for App {
             /* `WM_gesture_box_modal()`: releasing LEFTMOUSE confirms the border and runs `view3d.zoom_border`. */
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
                 self.scrub_drag = false;
+                if let Some((i, tops)) = self.mod_drag.take() {
+                    if modifier_panel::drop_index(&tops, self.cursor[1]).is_some_and(|to| self.scene.panel_move_modifier_index(i, to)) {
+                        scene_changed(&mut self.scene, &mut self.taa);
+                    }
+                    gfx.window.request_redraw();
+                    return;
+                }
                 if let Some(bs) = self.box_select.take() {
                     if let (Some(start), Some(layout)) = (bs.start, self.layout.as_ref()) {
                         let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
