@@ -132,6 +132,8 @@ pub struct Object {
     pub modifiers: Vec<Modifier>,
     /// The modifier the editing keys act on (clamped to the stack when used).
     pub active_modifier: usize,
+    /// Panel state per modifier (see `modifiers::ModFlags`); may be shorter than the stack, the rest is default.
+    pub mod_flags: Vec<modifiers::ModFlags>,
     /// The parent object (by id). `world = parent_world * parent_inv * local` like `BKE_object_get_world_matrix`.
     pub parent: Option<u32>,
     /// `Object::parentinv`: the inverse of the parent's world matrix when the parent was set, so that parenting
@@ -211,6 +213,11 @@ impl Object {
         self.mesh()
     }
 
+    /// Is modifier `i` shown in the viewport?
+    pub fn modifier_shown(&self, i: usize) -> bool {
+        !self.mod_flags.get(i).is_some_and(|f| f.hide_viewport)
+    }
+
     /// Does the object draw something other than its base mesh (a modifier or a subdivision level)?
     pub fn has_eval(&self) -> bool {
         self.subsurf > 0 || !self.modifiers.is_empty()
@@ -219,7 +226,7 @@ impl Object {
     fn rebuild_eval(&mut self, ctx: &modifiers::EvalCtx) {
         self.eval = match &self.data {
             ObjectData::Mesh(m) if self.has_eval() => {
-                let stacked = modifiers::evaluate_with(m, &self.modifiers, ctx);
+                let stacked = modifiers::evaluate_flagged(m, &self.modifiers, &self.mod_flags, ctx);
                 Some(if self.subsurf > 0 { stacked.subdivided(self.subsurf) } else { stacked })
             }
             _ => None,
@@ -321,6 +328,7 @@ impl Scene {
             subsurf: 0,
             modifiers: Vec::new(),
             active_modifier: 0,
+            mod_flags: Vec::new(),
             parent: None,
             parent_inv: IDENTITY4,
             parent_world: IDENTITY4,
@@ -648,6 +656,7 @@ impl Scene {
             copy.smooth = src.smooth;
             copy.subsurf = src.subsurf;
             copy.modifiers = src.modifiers.clone();
+            copy.mod_flags = src.mod_flags.clone();
             copy.selected = true;
             copy.parent = src.parent;
             copy.parent_inv = src.parent_inv;
@@ -816,7 +825,9 @@ impl Scene {
         let mut changed = 0;
         for o in self.objects.iter_mut().filter(|o| o.selected && !o.hidden && o.mesh().is_some()) {
             let before = o.modifiers.len();
+            let old = o.modifiers.clone();
             if f(&mut o.modifiers) {
+                modifiers::resync_flags(&old, &o.modifiers, &mut o.mod_flags);
                 o.eval = None;
                 changed += 1;
                 /* A modifier that was just added becomes the active one. */
@@ -843,7 +854,9 @@ impl Scene {
         let mut changed = 0;
         for o in self.objects.iter_mut().filter(|o| has(o)) {
             let mut active = o.active_modifier.min(o.modifiers.len() - 1);
+            let old = o.modifiers.clone();
             if f(&mut o.modifiers, &mut active) {
+                modifiers::resync_flags(&old, &o.modifiers, &mut o.mod_flags);
                 o.eval = None;
                 changed += 1;
             }
@@ -904,8 +917,10 @@ impl Scene {
         }
         self.push_undo();
         let o = &mut self.objects[i];
+        let old = o.modifiers.clone();
         let changed = f(o);
         if changed {
+            modifiers::resync_flags(&old, &o.modifiers, &mut o.mod_flags);
             o.eval = None;
         } else {
             self.pop_undo();
@@ -990,6 +1005,10 @@ impl Scene {
         let Some(idx) = self.active.and_then(|id| self.index_of(id)) else { return false };
         let o = &self.objects[idx];
         let (Some(mesh), Some(m)) = (o.mesh(), o.modifiers.get(i)) else { return false };
+        /* Blender skips a modifier that is disabled in the viewport ("Modifier is disabled, skipping apply"). */
+        if !o.modifier_shown(i) {
+            return false;
+        }
         let (ctx, _) = self.eval_ctx(idx);
         let baked = m.apply_with(mesh, &ctx);
         self.edit_active_object(|o| {
@@ -1005,8 +1024,8 @@ impl Scene {
     /// one undo step.
     pub fn copy_modifiers_to_selected(&mut self) -> usize {
         let Some(src) = self.active_object().filter(|o| o.mesh().is_some()) else { return 0 };
-        let (id, stack, subsurf) = (src.id, src.modifiers.clone(), src.subsurf);
-        let differs = |o: &Object| o.modifiers != stack || o.subsurf != subsurf;
+        let (id, stack, subsurf, flags) = (src.id, src.modifiers.clone(), src.subsurf, src.mod_flags.clone());
+        let differs = |o: &Object| o.modifiers != stack || o.subsurf != subsurf || o.mod_flags != flags;
         let wants = |o: &Object| o.selected && !o.hidden && o.id != id && o.mesh().is_some() && differs(o);
         if !self.objects.iter().any(|o| wants(o)) {
             return 0;
@@ -1015,6 +1034,7 @@ impl Scene {
         let mut n = 0;
         for o in self.objects.iter_mut().filter(|o| wants(o)) {
             o.modifiers = stack.clone();
+            o.mod_flags = flags.clone();
             o.subsurf = subsurf;
             o.active_modifier = o.active_modifier.min(o.modifiers.len().saturating_sub(1));
             o.eval = None;
@@ -1052,6 +1072,18 @@ impl Scene {
         }
         let i = o.active_modifier.min(o.modifiers.len() - 1);
         self.panel_apply_modifier(i)
+    }
+
+    /// The monitor toggle of modifier `i` of the active object (`show_viewport`). Undoable.
+    pub fn panel_toggle_viewport(&mut self, i: usize) -> bool {
+        self.edit_active_object(|o| {
+            if i >= o.modifiers.len() {
+                return false;
+            }
+            o.mod_flags.resize(o.modifiers.len(), modifiers::ModFlags::default());
+            o.mod_flags[i].hide_viewport = !o.mod_flags[i].hide_viewport;
+            true
+        })
     }
 
     /// Removes modifier `i` of the active object.
@@ -1450,6 +1482,7 @@ impl Scene {
                 o.data = ObjectData::Mesh(baked);
             }
             o.modifiers.clear();
+            o.mod_flags.clear();
             o.subsurf = 0;
         }
         n
@@ -1663,6 +1696,7 @@ impl Scene {
                 o.smooth = src.smooth;
                 o.subsurf = src.subsurf;
                 o.modifiers = src.modifiers.clone();
+                o.mod_flags = src.mod_flags.clone();
                 o.selected = true;
                 created += 1;
             }
