@@ -25,6 +25,8 @@ mod object_tab_layout;
 mod outliner_draw;
 mod face_set;
 #[allow(dead_code)]
+mod keyframe_select;
+#[allow(dead_code)]
 mod multires;
 mod array_settings;
 mod solidify_settings;
