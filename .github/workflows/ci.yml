@@ -1,0 +1,31 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build-test:
+    name: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: System libraries for winit/softbuffer
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev
+      - name: Build
+        run: cargo build --all-targets
+      - name: Test
+        run: cargo test
+      - name: Format (warning only for now)
+        run: cargo fmt --check
+        continue-on-error: true
+      - name: Clippy (warning only for now)
+        run: cargo clippy --all-targets -- -D warnings
+        continue-on-error: true
