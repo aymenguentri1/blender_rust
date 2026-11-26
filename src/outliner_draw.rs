@@ -171,6 +171,41 @@ pub fn restrict_col_at(user: &UserDef, region: Rcti, shown: &[RestrictCol], x: i
         .find(|&c| restrict_col_x(user, region, shown, c).is_some_and(|x0| x >= x0 && x < x0 + user.widget_unit))
 }
 
+/// The buttons of `outliner_draw_restrictbuts()` for the object rows of `scene`: the eye of the hide column
+/// (`Object::hidden`, `ICON_HIDE_OFF`) and the camera of the render column (`Object::hide_render`,
+/// `ICON_RESTRICT_RENDER_OFF`), one `UI_UNIT_X` square per row at `restrict_col_x()`. A restricted object's icon
+/// is drawn dimmed (Blender swaps to the `_ON` icon variants, which are not in `icons`).
+pub fn draw_restrict_buttons(buf: &mut [u32], width: usize, height: usize, user: &UserDef, region: Rcti, scene: &crate::scene::Scene) {
+    use crate::icons::{draw_icon, Icon};
+    use crate::scene::RowKind;
+    let rh = region.size_y() + 1;
+    let unit = user.widget_unit;
+    let dim = |c: theme::Rgba, off: bool| theme::Rgba { a: if off { 70 } else { c.a }, ..c };
+    for (i, row) in scene.outliner_rows().iter().enumerate() {
+        let starty = -OL_Y_OFFSET - unit * (i as i32 + 1);
+        if starty < -rh {
+            break;
+        }
+        let RowKind::Object(id) = row.kind else { continue };
+        let Some(o) = scene.index_of(id).map(|k| &scene.objects[k]) else { continue };
+        let ymin = region.ymin + rh + starty;
+        for (col, icon, off) in [(RestrictCol::Hide, Icon::Eye, o.hidden), (RestrictCol::Render, Icon::Camera, o.hide_render)] {
+            let Some(x0) = restrict_col_x(user, region, &DEFAULT_RESTRICT, col) else { continue };
+            let rect = Rcti { xmin: x0, xmax: x0 + unit - 1, ymin, ymax: ymin + unit - 1 };
+            draw_icon(buf, width, height, user, rect, icon, dim(theme::SPACE_OUTLINER_TEXT, off));
+        }
+    }
+}
+
+/// What a click at window `(x, y)` on the restriction columns toggles: the object id and the column.
+pub fn restrict_click(user: &UserDef, region: Rcti, scene: &crate::scene::Scene, x: i32, y: i32) -> Option<(u32, RestrictCol)> {
+    let col = restrict_col_at(user, region, &DEFAULT_RESTRICT, x)?;
+    match scene.outliner_rows().get(row_at(user, region, y)?)?.kind {
+        crate::scene::RowKind::Object(id) => Some((id, col)),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod restrict_tests {
     use super::*;
@@ -185,6 +220,21 @@ mod restrict_tests {
         assert_eq!(restrict_col_x(&user, region, &DEFAULT_RESTRICT, RestrictCol::Select), None);
         let all = [RestrictCol::Select, RestrictCol::Hide, RestrictCol::Viewport, RestrictCol::Render];
         assert_eq!(restrict_col_x(&user, region, &all, RestrictCol::Select), Some(200 - 91));
+    }
+
+    #[test]
+    fn click_finds_object_and_column() {
+        use crate::scene::Scene;
+        let user = UserDef::from_window_scale(1.0);
+        let region = Rcti { xmin: 0, xmax: 199, ymin: 0, ymax: 162 };
+        let s = Scene::startup();
+        /* Row 3 (Cube) spans region y 81..=100 (row i: 161 - 20 * (i + 1) ..); the render column is x 169..=188, the hide column x 149..=168. */
+        let cube = s.outliner_rows()[3].kind.clone();
+        let crate::scene::RowKind::Object(id) = cube else { panic!() };
+        assert_eq!(restrict_click(&user, region, &s, 175, 90), Some((id, RestrictCol::Render)));
+        assert_eq!(restrict_click(&user, region, &s, 155, 90), Some((id, RestrictCol::Hide)));
+        assert_eq!(restrict_click(&user, region, &s, 100, 90), None);
+        assert_eq!(restrict_click(&user, region, &s, 175, 130), None); /* the Collection row, y 121..=140 */
     }
 
     #[test]
