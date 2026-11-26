@@ -168,6 +168,7 @@ mod material;
 mod mesh_query;
 mod keymap;
 mod keymap_frames;
+mod keymap_window;
 mod mesh_undo;
 mod undo_stack;
 mod mesh_walker_island;
