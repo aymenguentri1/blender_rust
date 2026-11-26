@@ -24,6 +24,7 @@ mod buttons_context;
 mod outliner_draw;
 mod face_set;
 mod array_settings;
+mod solidify_settings;
 mod outliner_select;
 mod scene_units;
 mod playhead_draw;
