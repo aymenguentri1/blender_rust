@@ -19,6 +19,7 @@ mod ui_layout;
 mod widget_draw;
 mod font;
 mod outliner_draw;
+mod outliner_select;
 mod playhead_draw;
 
 mod status_input;
@@ -1024,11 +1025,9 @@ impl ApplicationHandler for App {
                     } else if let Some(row) = outliner_draw::row_at(user, window, self.cursor[1]) {
                         let rows = self.scene.outliner_rows();
                         if let Some(scene::RowKind::Object(id)) = rows.get(row).map(|r| r.kind.clone()) {
-                            let visible = self.scene.index_of(id).is_some_and(|i| !self.scene.objects[i].hidden);
-                            if visible {
-                                self.scene.select_pick(Some(id), extend);
-                                gfx.window.request_redraw();
-                            }
+                            let click = outliner_select::Click::from_keys(self.modifiers.control_key(), extend);
+                            outliner_select::item_activate(&mut self.scene, id, click);
+                            gfx.window.request_redraw();
                         }
                     }
                 }
