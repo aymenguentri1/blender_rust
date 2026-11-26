@@ -326,6 +326,138 @@ pub fn select_all(mesh: &Mesh, mesh_edges: &[MeshEdge], sel: &mut Selection, mod
     }
 }
 
+/// One of the three select-mode bits (`SCE_SELECT_VERTEX`, `_EDGE`, `_FACE`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModeBit {
+    Vert,
+    Edge,
+    Face,
+}
+
+/// `MESH_OT_select_mode` `action` (0 disable, 1 enable, 2 toggle; -1, "already set", is `None`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModeAction {
+    Disable,
+    Enable,
+    Toggle,
+}
+
+impl SelectMode {
+    fn has(self, b: ModeBit) -> bool {
+        match b {
+            ModeBit::Vert => self.vert,
+            ModeBit::Edge => self.edge,
+            ModeBit::Face => self.face,
+        }
+    }
+
+    fn with(mut self, b: ModeBit, on: bool) -> SelectMode {
+        match b {
+            ModeBit::Vert => self.vert = on,
+            ModeBit::Edge => self.edge = on,
+            ModeBit::Face => self.face = on,
+        }
+        self
+    }
+
+    fn only(b: ModeBit) -> SelectMode {
+        SelectMode { vert: false, edge: false, face: false }.with(b, true)
+    }
+
+    fn is_empty(self) -> bool {
+        !(self.vert || self.edge || self.face)
+    }
+}
+
+/// `EDBM_selectmode_toggle_multi()` (without the UV sync and `use_expand` parts): the mode that results from pressing
+/// `toggle`, and whether the selection must be converted with [`selectmode_set`]. When it is `false` only the mode value
+/// changes ("only update": the bit is already as asked, or it is the only one set and cannot be disabled). Without
+/// `extend` the result is just `toggle`.
+pub fn selectmode_toggle(old: SelectMode, toggle: ModeBit, action: Option<ModeAction>, extend: bool) -> (SelectMode, bool) {
+    let mut new = old;
+    let mut only_update = false;
+    match action {
+        None => {}
+        Some(ModeAction::Disable) => {
+            if !old.has(toggle) || old == SelectMode::only(toggle) {
+                only_update = true;
+            } else {
+                new = new.with(toggle, false);
+            }
+        }
+        Some(ModeAction::Enable) => {
+            if old.has(toggle) {
+                only_update = true;
+            } else {
+                new = new.with(toggle, true);
+            }
+        }
+        Some(ModeAction::Toggle) => {
+            if old == SelectMode::only(toggle) {
+                only_update = true;
+            } else {
+                new = new.with(toggle, !old.has(toggle));
+            }
+        }
+    }
+    if only_update {
+        return (new, false);
+    }
+    if !extend || new.is_empty() {
+        new = SelectMode::only(toggle);
+    }
+    (new, true)
+}
+
+/// `EDBM_selectmode_set()`: converts the selection to the new mode `mode`. Vertex mode flushes up (edges and faces whose
+/// vertices are all selected become selected, nothing is deselected); edge mode keeps the selected edges (and their
+/// vertices and faces); face mode keeps only the selected faces. Does nothing when nothing is selected.
+/// `mesh_edges` must be `mesh.edges()`. Select history and UV sync are not ported.
+pub fn selectmode_set(mesh: &Mesh, mesh_edges: &[MeshEdge], sel: &mut Selection, mode: SelectMode) {
+    sel.verts.resize(mesh.verts.len(), false);
+    sel.edges.resize(mesh_edges.len(), false);
+    sel.faces.resize(mesh.faces.len(), false);
+    let any = |v: &[bool]| v.iter().any(|&b| b);
+    if !(any(&sel.verts) || any(&sel.edges) || any(&sel.faces)) {
+        return;
+    }
+    let topo = Topo { edges: mesh_edges, faces: face_edges(mesh, mesh_edges), mode };
+    if mode.vert {
+        if any(&sel.verts) {
+            /* `BM_mesh_select_flush_from_verts(bm, true)` */
+            for e in 0..mesh_edges.len() {
+                if topo.edge_verts(e).iter().all(|&v| sel.verts[v]) {
+                    sel.edges[e] = true;
+                }
+            }
+            for (f, face) in mesh.faces.iter().enumerate() {
+                if face.iter().all(|&v| sel.verts[v as usize]) {
+                    sel.faces[f] = true;
+                }
+            }
+        }
+    } else if mode.edge {
+        sel.verts.fill(false);
+        if any(&sel.edges) {
+            for e in 0..mesh_edges.len() {
+                if sel.edges[e] {
+                    topo.edge_select_set(sel, e, true);
+                }
+            }
+            topo.flush(sel);
+        }
+    } else if mode.face {
+        for e in 0..mesh_edges.len() {
+            topo.edge_select_set(sel, e, false);
+        }
+        for f in 0..mesh.faces.len() {
+            if sel.faces[f] {
+                topo.face_select_set(mesh, sel, f, true);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -462,5 +594,62 @@ mod tests {
         assert_eq!((count(&sel.faces), count(&sel.edges), count(&sel.verts)), (1, 4, 4));
         select_all(&m, &e, &mut sel, FACE, SelAction::Invert);
         assert_eq!((count(&sel.faces), count(&sel.edges), count(&sel.verts)), (0, 0, 0));
+    }
+
+    /// Two quads sharing the edge 1-2: verts 0..5 in a 2x3 grid.
+    fn two_quads() -> (Mesh, Vec<MeshEdge>) {
+        let m = Mesh { verts: vec![[0.0; 3]; 6], faces: vec![vec![0, 1, 4, 3], vec![1, 2, 5, 4]] };
+        let e = m.edges();
+        (m, e)
+    }
+
+    #[test]
+    fn toggle_keeps_one_mode_unless_extending() {
+        let all = ALL;
+        assert_eq!(selectmode_toggle(VERT, ModeBit::Edge, None, false), (EDGE, true));
+        assert_eq!(selectmode_toggle(VERT, ModeBit::Edge, None, true), (VERT, true));
+        assert_eq!(selectmode_toggle(VERT, ModeBit::Edge, Some(ModeAction::Toggle), true), (SelectMode { vert: true, edge: true, face: false }, true));
+        assert_eq!(selectmode_toggle(VERT, ModeBit::Vert, Some(ModeAction::Toggle), true), (VERT, false), "last bit stays");
+        assert_eq!(selectmode_toggle(all, ModeBit::Face, Some(ModeAction::Disable), true).0, SelectMode { vert: true, edge: true, face: false });
+        assert_eq!(selectmode_toggle(EDGE, ModeBit::Edge, Some(ModeAction::Enable), true), (EDGE, false));
+    }
+
+    #[test]
+    fn vert_to_edge_to_face_flushes() {
+        let (m, e) = two_quads();
+        let mut sel = Selection::default();
+        sel.verts = vec![true, true, false, true, true, false];
+        selectmode_set(&m, &e, &mut sel, VERT);
+        assert_eq!((count(&sel.edges), count(&sel.faces)), (4, 1), "first quad flushed up");
+        selectmode_set(&m, &e, &mut sel, EDGE);
+        assert_eq!((count(&sel.verts), count(&sel.edges), count(&sel.faces)), (4, 4, 1));
+        selectmode_set(&m, &e, &mut sel, FACE);
+        assert_eq!((count(&sel.verts), count(&sel.edges), count(&sel.faces)), (4, 4, 1));
+    }
+
+    #[test]
+    fn edge_mode_drops_loose_verts_and_face_mode_drops_loose_edges() {
+        let (m, e) = two_quads();
+        let mut sel = Selection::default();
+        sel.verts = vec![true, false, false, false, false, true];
+        selectmode_set(&m, &e, &mut sel, EDGE);
+        assert_eq!(count(&sel.verts), 0, "no selected edge: vertices are deselected");
+        let mut sel = Selection::default();
+        sel.verts = vec![false, true, true, false, false, false];
+        sel.edges = vec![false; e.len()];
+        let shared = e.iter().position(|x| (x.a.min(x.b), x.a.max(x.b)) == (1, 2)).unwrap();
+        sel.edges[shared] = true;
+        selectmode_set(&m, &e, &mut sel, EDGE);
+        assert_eq!((count(&sel.verts), count(&sel.edges), count(&sel.faces)), (2, 1, 0));
+        selectmode_set(&m, &e, &mut sel, FACE);
+        assert_eq!((count(&sel.verts), count(&sel.edges), count(&sel.faces)), (0, 0, 0));
+    }
+
+    #[test]
+    fn nothing_selected_changes_nothing() {
+        let (m, e) = two_quads();
+        let mut sel = Selection::default();
+        selectmode_set(&m, &e, &mut sel, FACE);
+        assert_eq!(count(&sel.verts) + count(&sel.edges) + count(&sel.faces), 0);
     }
 }
