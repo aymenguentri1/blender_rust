@@ -159,7 +159,8 @@ def cmd_checkpoint(a):
 
 def cmd_check(a):
     for cmd in (["cargo", "build", "--all-targets", "-q"], ["cargo", "test", "-q"]):
-        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+        try: r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+        except FileNotFoundError: die("cargo not found: install the Rust toolchain (rustup) or rely on CI; do not skip `check` silently", 4)
         if r.returncode: die("FAILED " + " ".join(cmd) + "\n" + "\n".join((r.stdout + r.stderr).splitlines()[-40:]), 4)
     print("OK build + test")
 
