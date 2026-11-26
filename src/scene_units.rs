@@ -143,6 +143,32 @@ pub fn panel_rows(unit: &UnitSettings) -> [Row; 8] {
     ]
 }
 
+/// `PhysicsSettings` (DNA_scene_types.h:2573-2576): `gravity` {0, 0, -9.81} and `PHYS_GLOBAL_GRAVITY` set.
+/// The panel is `SCENE_PT_physics` ("Gravity", properties_scene.py:302-317): the header checkbox is `use_gravity`,
+/// and `layout.active = scene.use_gravity` greys the `gravity` field out (still editable) when it is off.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Physics {
+    pub gravity: [f32; 3],
+    pub use_gravity: bool,
+}
+
+impl Default for Physics {
+    fn default() -> Self {
+        Physics { gravity: [0.0, 0.0, -9.81], use_gravity: true }
+    }
+}
+
+impl Physics {
+    /// UI range of the `gravity` property (`RNA_def_property_ui_range(-200, 200)`), a soft limit for sliders and
+    /// drags; typed values are not clamped.
+    pub const UI_RANGE: (f32, f32) = (-200.0, 200.0);
+
+    /// `layout.active`: whether the gravity field is drawn active.
+    pub fn field_active(&self) -> bool {
+        self.use_gravity
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,5 +223,15 @@ mod tests {
         assert_eq!(s, ["None", "Metric", "Imperial"]);
         let r: Vec<_> = RotationUnit::ALL.iter().map(|x| x.label()).collect();
         assert_eq!(r, ["Degrees", "Radians"]);
+    }
+
+    #[test]
+    fn gravity_defaults_and_active_state() {
+        let mut g = Physics::default();
+        assert_eq!(g.gravity, [0.0, 0.0, -9.81]);
+        assert!(g.use_gravity && g.field_active());
+        g.use_gravity = false;
+        assert!(!g.field_active());
+        assert_eq!(Physics::UI_RANGE, (-200.0, 200.0));
     }
 }
