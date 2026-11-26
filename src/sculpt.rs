@@ -48,6 +48,27 @@ impl Brush {
     #[allow(dead_code)]
     pub const ALL: [Brush; 15] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask, Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob];
 
+    /// The key of the brush in Sculpt Mode, as the brush popup lists it (`Shift X` for `Shift + X`).
+    pub fn key_label(self) -> &'static str {
+        match self {
+            Brush::Draw => "X",
+            Brush::Smooth => "S",
+            Brush::Grab => "G",
+            Brush::Inflate => "I",
+            Brush::Flatten => "Shift T",
+            Brush::Pinch => "P",
+            Brush::Crease => "Shift C",
+            Brush::Clay => "C",
+            Brush::Fill => "Shift X",
+            Brush::Scrape => "Shift S",
+            Brush::Mask => "M",
+            Brush::Layer => "L",
+            Brush::SnakeHook => "K",
+            Brush::Nudge => "N",
+            Brush::Blob => "Shift B",
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Brush::Draw => "Draw",

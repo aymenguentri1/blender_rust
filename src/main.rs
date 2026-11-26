@@ -70,6 +70,7 @@ mod transform;
 mod overlay_outline;
 mod overlay_extra;
 mod add_menu;
+mod brush_menu;
 mod add_modifier_menu;
 mod icons;
 mod view3d_header;
@@ -259,6 +260,8 @@ struct App {
     xform: Option<transform::Transform>,
     /// The open Shift + A popup menu: the window position (y up) it was opened at.
     add_menu: Option<[i32; 2]>,
+    /// The brush popup of the sculpt tool header, opened at this window position.
+    brush_menu: Option<[i32; 2]>,
     /// The Add Modifier list of the properties editor is open.
     mod_add_open: bool,
     /// The field of the Transform panel that is being typed into.
@@ -443,7 +446,7 @@ impl ApplicationHandler for App {
                     }
                 }
                 /* The popup menu highlights the entry under the cursor. */
-                if self.add_menu.is_some() || self.mod_menu.is_some() {
+                if self.add_menu.is_some() || self.mod_menu.is_some() || self.brush_menu.is_some() {
                     gfx.window.request_redraw();
                 }
                 if let (Some((pos, open)), Some(user)) = (self.add_mod_menu, self.user.as_ref()) {
@@ -654,7 +657,7 @@ impl ApplicationHandler for App {
              * `ED_view3d_cursor3d_position()` is done, and the cursor orientation is not modelled. */
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => {
                 /* A popup menu closes on RIGHTMOUSE. */
-                if self.add_menu.take().is_some() || self.mod_menu.take().is_some() || self.add_mod_menu.take().is_some() {
+                if self.add_menu.take().is_some() || self.brush_menu.take().is_some() || self.mod_menu.take().is_some() || self.add_mod_menu.take().is_some() {
                     gfx.window.request_redraw();
                     return;
                 }
@@ -771,6 +774,17 @@ impl ApplicationHandler for App {
                     gfx.window.request_redraw();
                     return;
                 }
+                if let Some(pos) = self.brush_menu.take() {
+                    if let (Some(user), Some(sc)) = (self.user.as_ref(), self.sculpt.as_mut()) {
+                        let size = gfx.window.inner_size();
+                        let menu = brush_menu::layout(user, pos, size.width as i32, size.height as i32);
+                        if let Some(brush) = brush_menu::item_at(&menu, self.cursor) {
+                            sc.settings.brush = brush;
+                        }
+                    }
+                    gfx.window.request_redraw();
+                    return;
+                }
                 if let Some(pos) = self.add_menu.take() {
                     if let Some(user) = self.user.as_ref() {
                         let size = gfx.window.inner_size();
@@ -803,6 +817,8 @@ impl ApplicationHandler for App {
                                         sculpt_header::set_slider(action, rect, x, &mut sc.settings);
                                         self.sculpt_drag = Some(action);
                                     }
+                                    /* The brush dropdown opens the brush popup under it. */
+                                    Some(rect) if action == sculpt_header::Action::Brush => self.brush_menu = Some([rect.xmin, rect.ymin]),
                                     _ => {
                                         sculpt_header::press(action, shift, &mut sc.settings);
                                     }
@@ -1289,9 +1305,10 @@ impl ApplicationHandler for App {
                 }
 
                 /* An open popup menu takes the keyboard: ESC closes it, other keys do nothing. */
-                if self.add_menu.is_some() || self.mod_menu.is_some() || self.add_mod_menu.is_some() {
+                if self.add_menu.is_some() || self.brush_menu.is_some() || self.mod_menu.is_some() || self.add_mod_menu.is_some() {
                     if code == KeyCode::Escape {
                         self.add_menu = None;
+                        self.brush_menu = None;
                         self.mod_menu = None;
                         self.add_mod_menu = None;
                         gfx.window.request_redraw();
@@ -2354,6 +2371,10 @@ impl ApplicationHandler for App {
                     if let (Some((i, pos)), Some(user)) = (self.mod_menu, self.user.as_ref()) {
                         let menu = modifier_menu::layout(user, &self.scene, i, pos, w as i32, h as i32);
                         modifier_menu::draw(&mut buf, w, h, user, &menu, self.cursor);
+                    }
+                    if let (Some(pos), Some(user), Some(sc)) = (self.brush_menu, self.user.as_ref(), self.sculpt.as_ref()) {
+                        let menu = brush_menu::layout(user, pos, w as i32, h as i32);
+                        brush_menu::draw(&mut buf, w, h, user, &menu, sc.settings.brush, self.cursor);
                     }
                     if let (Some(pos), Some(user)) = (self.add_menu, self.user.as_ref()) {
                         let menu = add_menu::layout(user, pos, w as i32, h as i32);

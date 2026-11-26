@@ -4,8 +4,8 @@
 //!
 //! Layout, drawing and hit testing live here; `main.rs` routes the mouse. A press on a slider sets its value from
 //! the position inside it and the drag goes on setting it (Blender's number slider drags relative to the press,
-//! this one is absolute). The brush dropdown has no popup of brushes: a press selects the next brush, Shift the
-//! previous one.
+//! this one is absolute). The brush dropdown opens the brush popup (`brush_menu.rs`); `main.rs` does that, `press()`
+//! on it only cycles to the next brush (Shift: the previous one).
 
 use crate::area::{global_header_layout_start, Rcti};
 use crate::font;
@@ -110,6 +110,7 @@ pub fn set_slider(action: Action, rect: Rcti, x: i32, s: &mut Settings) -> bool 
 }
 
 /// The brush after (or, `back`, before) `current` in `Brush::ALL`.
+#[allow(dead_code)]
 pub fn cycle_brush(current: Brush, back: bool) -> Brush {
     let n = Brush::ALL.len();
     let i = Brush::ALL.iter().position(|&b| b == current).unwrap_or(0);
