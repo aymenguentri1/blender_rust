@@ -46,6 +46,8 @@ pub enum Icon {
     ShadingRendered,
     /// `ICON_DISCLOSURE_TRI_RIGHT`: the arrow of a collapsed panel (`DownArrow` is the expanded one).
     RightArrow,
+    /// `ICON_DISCLOSURE_TRI_RIGHT` mirrored: the left end of a number field.
+    LeftArrow,
     /// `ICON_RESTRICT_VIEW_OFF`: the monitor of a modifier's "Show in Viewport" toggle.
     Monitor,
     /// `ICON_RESTRICT_RENDER_OFF`: the camera of a modifier's "Show in Render" toggle.
@@ -200,6 +202,7 @@ fn shapes(icon: Icon) -> Vec<Shape> {
             disc(5.6, 5.6, 2.1),
             disc(10.4, 10.4, 2.1),
         ],
+        Icon::LeftArrow => vec![poly(&[[10.0, 3.8], [10.0, 12.2], [5.2, 8.0]])],
         Icon::RightArrow => vec![poly(&[[6.0, 3.8], [6.0, 12.2], [10.8, 8.0]])],
         Icon::Monitor => vec![
             polyline(&[[2.0, 3.0], [14.0, 3.0], [14.0, 10.5], [2.0, 10.5]], 1.4, true),
