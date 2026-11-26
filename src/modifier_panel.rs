@@ -43,6 +43,8 @@ pub enum Action {
     ToggleViewport(usize),
     /// The edit-mode toggle in the header (`show_in_editmode`).
     ToggleEditMode(usize),
+    /// One of the X / Y / Z buttons of a Mirror modifier (`use_axis`): the modifier and the axis 0..2.
+    ToggleAxis(usize, usize),
     /// A press on the drag handle at the right of the header: the window starts a drag (`mod_drag`); releasing over
     /// another modifier's row moves it there (`Scene::panel_move_modifier_index`). Does nothing by itself.
     DragStart(usize),
@@ -102,6 +104,8 @@ pub struct ModRow {
     pub kind: &'static str,
     /// Only the header row is drawn.
     pub collapsed: bool,
+    /// The X / Y / Z axis buttons of a Mirror modifier (`use_axis`); `None` for the other kinds.
+    pub axes: Option<[bool; 3]>,
     /// The editable value as `Label: 0.1 m`; `None` for modifiers without one (the summary is shown instead).
     pub field: Option<String>,
 }
@@ -109,7 +113,7 @@ pub struct ModRow {
 impl ModRow {
     #[cfg(test)]
     fn new(name: &'static str, summary: &str, target: Option<&str>) -> ModRow {
-        ModRow { name: name.into(), kind: "Array", summary: summary.into(), target: target.map(Into::into), shown: true, editmode: true, render: true, collapsed: false, field: None }
+        ModRow { name: name.into(), kind: "Array", summary: summary.into(), target: target.map(Into::into), shown: true, editmode: true, render: true, collapsed: false, axes: None, field: None }
     }
 }
 
@@ -144,6 +148,7 @@ impl PanelState {
                             .then(|| format!("Target: {}", scene.target_name(i).unwrap_or_else(|| "(none)".into())));
                         ModRow {
                             name: o.modifier_name(i).unwrap_or_default(), kind: m.label(), summary: m.summary(), target, shown: o.modifier_shown(i), editmode: o.modifier_editmode(i), render: o.modifier_render(i), collapsed: o.modifier_collapsed(i),
+                            axes: if let Modifier::Mirror { axes, .. } = m { Some(*axes) } else { None },
                             field: m.main_value().map(|(l, v, u)| format!("{l}: {}{u}", number(v))),
                         }
                     })
@@ -300,7 +305,7 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
         }
     }
     top -= gap;
-    for (i, ModRow { name, kind, summary, target, shown, editmode, render, collapsed, field }) in st.modifiers.iter().enumerate() {
+    for (i, ModRow { name, kind, summary, target, shown, editmode, render, collapsed, axes, field }) in st.modifiers.iter().enumerate() {
         let style = if i == st.active { Style::Selected } else { Style::Button };
         /* Right to left: remove, drag handle, dropdown, camera, monitor, edit mode; the name takes the rest. Blender's
         header buttons are one unit wide, which leaves the name field room in the narrow properties editor. */
@@ -331,7 +336,18 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
             (_, Some(f)) => (f.clone(), Style::Field, Action::EditValue(i)),
             _ => (summary.clone(), Style::Field, Action::Select(i)),
         };
-        let value = if field.is_some() && field_style == Style::Field {
+        let value = if let Some(axes) = axes {
+            /* Mirror: one toggle per axis across the row, lit while the axis is on. */
+            let w = (x1 - x0 + 1 - 2 * gap) / 3;
+            (0..3)
+                .map(|k| {
+                    let xa = x0 + k as i32 * (w + gap);
+                    let xb = if k == 2 { x1 } else { xa + w - 1 };
+                    let style = if axes[k] { Style::Selected } else { Style::Button };
+                    (xa, xb, ["X", "Y", "Z"][k].to_string(), style, Some(Action::ToggleAxis(i, k)), true)
+                })
+                .collect()
+        } else if field.is_some() && field_style == Style::Field {
             /* Blender's number field: one box with `<` and `>` at its ends and the text centred between them. While
              * typing, the arrows go and the whole row is the text field. */
             let ab = unit;
@@ -476,6 +492,7 @@ pub fn apply(scene: &mut Scene, add_open: &mut bool, action: Action) -> bool {
             false
         }
         Action::ToggleViewport(i) => scene.panel_toggle_viewport(i),
+        Action::ToggleAxis(i, axis) => scene.panel_toggle_mirror_axis(i, axis),
         Action::ToggleEditMode(i) => scene.panel_toggle_editmode(i),
         Action::ToggleRender(i) => scene.panel_toggle_render(i),
         Action::Decrease(i) => scene.panel_adjust_modifier(i, -1),
@@ -688,7 +705,7 @@ mod tests {
         let mut s = Scene::startup();
         let mut open = false;
         assert!(apply(&mut s, &mut open, Action::Add(1)), "Array x2");
-        assert!(apply(&mut s, &mut open, Action::Add(0)), "Mirror has no number");
+        assert!(apply(&mut s, &mut open, Action::Add(11)), "Triangulate has no number");
         let user = UserDef::from_window_scale(1.0);
         let ws = widgets(&user, window(), &PanelState::of(&s, false));
         let find = |a| ws.iter().find(|w| w.action == Some(a)).unwrap();
@@ -710,6 +727,33 @@ mod tests {
         assert_eq!(f.style, Style::Editing);
         assert!(ws.iter().all(|w| w.action != Some(Action::Decrease(0))), "no arrows while typing");
         assert!(f.rect.size_x() > field.rect.size_x());
+    }
+
+    #[test]
+    fn a_mirror_row_has_one_toggle_per_axis() {
+        let mut s = Scene::startup();
+        let mut open = false;
+        assert!(apply(&mut s, &mut open, Action::Add(0)), "Mirror X");
+        s.update_eval();
+        let faces = |s: &Scene| s.active_object().unwrap().evaluated().unwrap().faces.len();
+        assert_eq!(faces(&s), 12);
+        let user = UserDef::from_window_scale(1.0);
+        let ws = widgets(&user, window(), &PanelState::of(&s, false));
+        let btn = |k| ws.iter().find(|w| w.action == Some(Action::ToggleAxis(0, k))).unwrap();
+        assert_eq!([btn(0).label.as_str(), btn(1).label.as_str(), btn(2).label.as_str()], ["X", "Y", "Z"]);
+        assert_eq!((btn(0).style, btn(1).style, btn(2).style), (Style::Selected, Style::Button, Style::Button));
+        assert!(btn(0).rect.xmax < btn(1).rect.xmin && btn(1).rect.xmax < btn(2).rect.xmin);
+        assert_eq!(btn(2).rect.xmax, window().xmax - user.widget_unit / 2, "the row ends at the panel margin");
+        assert!(apply(&mut s, &mut open, Action::ToggleAxis(0, 1)), "Y on");
+        s.update_eval();
+        assert_eq!(faces(&s), 24, "X and Y");
+        assert!(apply(&mut s, &mut open, Action::ToggleAxis(0, 1)) && apply(&mut s, &mut open, Action::ToggleAxis(0, 0)), "all off");
+        s.update_eval();
+        assert_eq!(s.active_object().unwrap().modifiers.len(), 1, "the modifier stays, unlike the chord");
+        assert_eq!(faces(&s), 6, "and changes nothing");
+        assert!(!apply(&mut s, &mut open, Action::ToggleAxis(0, 3)) && !apply(&mut s, &mut open, Action::ToggleAxis(4, 0)));
+        assert!(s.undo());
+        assert_eq!(PanelState::of(&s, false).modifiers[0].axes, Some([true, false, false]));
     }
 
     #[test]
@@ -792,7 +836,7 @@ mod tests {
         assert_eq!(st.modifiers[1].field, None, "a Mirror has no number");
         let ws = widgets(&user, window(), &st);
         assert!(ws.iter().any(|w| w.action == Some(Action::EditValue(0)) && w.label == "Count: 2"));
-        assert!(ws.iter().any(|w| w.action == Some(Action::Select(1)) && w.label.starts_with("Mirror")), "no field: select");
+        assert!(ws.iter().any(|w| w.action == Some(Action::ToggleAxis(1, 0)) && w.label == "X"), "Mirror: axis buttons");
         assert!(ValueEdit::start(&s, 1).is_none() && ValueEdit::start(&s, 9).is_none());
         /* The first character replaces the selected text. */
         let mut e = ValueEdit::start(&s, 0).unwrap();

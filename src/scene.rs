@@ -1271,6 +1271,18 @@ impl Scene {
         })
     }
 
+    /// The X / Y / Z buttons of a Mirror modifier `i` of the active object. Unlike the Ctrl + Alt chords, switching off
+    /// the last axis keeps the modifier (it then changes nothing), as in Blender. Undoable.
+    pub fn panel_toggle_mirror_axis(&mut self, i: usize, axis: usize) -> bool {
+        self.edit_active_object(|o| {
+            let Some(Modifier::Mirror { axes, .. }) = o.modifiers.get_mut(i) else { return false };
+            let Some(on) = axes.get_mut(axis) else { return false };
+            *on = !*on;
+            o.active_modifier = i;
+            true
+        })
+    }
+
     /// The edit-mode toggle of modifier `i` of the active object (`show_in_editmode`). Undoable; nothing else changes.
     pub fn panel_toggle_editmode(&mut self, i: usize) -> bool {
         self.edit_active_object(|o| {
