@@ -276,6 +276,56 @@ pub fn apply_pick(
     true
 }
 
+/// `MESH_OT_select_all` `action` (`eSelectAction`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelAction {
+    Toggle,
+    Select,
+    Deselect,
+    Invert,
+}
+
+/// `edbm_select_all_exec()`: `Toggle` deselects when anything is selected, else selects all. `Select` and `Deselect` are
+/// `EDBM_flag_enable_all`/`EDBM_flag_disable_all` (every vert, edge and face; the active face is left alone). `Invert` is
+/// `EDBM_select_swap()` on the elements of the select mode (vert, else edge, else face) followed by the mode flush.
+/// `mesh_edges` must be `mesh.edges()`. Hidden elements are not ported.
+pub fn select_all(mesh: &Mesh, mesh_edges: &[MeshEdge], sel: &mut Selection, mode: SelectMode, action: SelAction) {
+    sel.verts.resize(mesh.verts.len(), false);
+    sel.edges.resize(mesh_edges.len(), false);
+    sel.faces.resize(mesh.faces.len(), false);
+    let action = match action {
+        SelAction::Toggle => {
+            if sel.verts.iter().chain(&sel.edges).chain(&sel.faces).any(|&b| b) { SelAction::Deselect } else { SelAction::Select }
+        }
+        a => a,
+    };
+    match action {
+        SelAction::Select | SelAction::Deselect => {
+            let on = action == SelAction::Select;
+            sel.verts.fill(on);
+            sel.edges.fill(on);
+            sel.faces.fill(on);
+        }
+        _ => {
+            let topo = Topo { edges: mesh_edges, faces: face_edges(mesh, mesh_edges), mode };
+            if mode.vert {
+                for v in sel.verts.iter_mut() {
+                    *v = !*v;
+                }
+            } else if mode.edge {
+                for e in 0..mesh_edges.len() {
+                    topo.edge_select_set(sel, e, !sel.edges[e]);
+                }
+            } else {
+                for f in 0..mesh.faces.len() {
+                    topo.face_select_set(mesh, sel, f, !sel.faces[f]);
+                }
+            }
+            topo.flush(sel);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -375,5 +425,42 @@ mod tests {
         apply_pick(&m, &e, &mut s, EDGE, Some(Elem::Edge(1)), SelOp::Add, false);
         apply_pick(&m, &e, &mut s, EDGE, Some(Elem::Edge(1)), SelOp::Sub, false);
         assert_eq!((count(&s.verts), count(&s.edges)), (2, 1), "the shared vertex stays with edge 0");
+    }
+
+    #[test]
+    fn select_all_deselect_and_toggle() {
+        let (m, e) = quad();
+        let mut sel = Selection::default();
+        select_all(&m, &e, &mut sel, VERT, SelAction::Select);
+        assert!(sel.verts.iter().chain(&sel.edges).chain(&sel.faces).all(|&b| b));
+        select_all(&m, &e, &mut sel, VERT, SelAction::Toggle);
+        assert!(!sel.verts.iter().chain(&sel.edges).chain(&sel.faces).any(|&b| b));
+        select_all(&m, &e, &mut sel, VERT, SelAction::Toggle);
+        assert_eq!(count(&sel.verts), 4);
+    }
+
+    #[test]
+    fn invert_in_vertex_mode_flushes() {
+        let (m, e) = quad();
+        let mut sel = Selection::default();
+        sel.verts = vec![true, true, false, false];
+        select_all(&m, &e, &mut sel, VERT, SelAction::Invert);
+        assert_eq!(sel.verts, vec![false, false, true, true]);
+        assert_eq!(count(&sel.edges), 1);
+        assert_eq!(count(&sel.faces), 0);
+        select_all(&m, &e, &mut sel, VERT, SelAction::Invert);
+        select_all(&m, &e, &mut sel, VERT, SelAction::Select);
+        select_all(&m, &e, &mut sel, VERT, SelAction::Invert);
+        assert_eq!((count(&sel.verts), count(&sel.edges), count(&sel.faces)), (0, 0, 0));
+    }
+
+    #[test]
+    fn invert_in_face_mode_swaps_faces() {
+        let (m, e) = quad();
+        let mut sel = Selection::default();
+        select_all(&m, &e, &mut sel, FACE, SelAction::Invert);
+        assert_eq!((count(&sel.faces), count(&sel.edges), count(&sel.verts)), (1, 4, 4));
+        select_all(&m, &e, &mut sel, FACE, SelAction::Invert);
+        assert_eq!((count(&sel.faces), count(&sel.edges), count(&sel.verts)), (0, 0, 0));
     }
 }
