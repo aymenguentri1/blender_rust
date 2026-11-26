@@ -50,6 +50,10 @@ pub enum Icon {
     Monitor,
     /// `ICON_RESTRICT_RENDER_OFF`: the camera of a modifier's "Show in Render" toggle.
     Camera,
+    /// `ICON_GRIP`: the six dots of a modifier panel's drag handle.
+    Grip,
+    /// `ICON_EDITMODE_HLT`: the square with corner vertices of a modifier's "Show in Edit Mode" toggle.
+    EditMode,
     /// The modifier type icons of the panel header (`ICON_MOD_*`); `ModWrench` is the generic `ICON_MODIFIER`.
     ModWrench,
     ModArray,
@@ -207,6 +211,22 @@ fn shapes(icon: Icon) -> Vec<Shape> {
             polyline(&[[1.8, 4.0], [10.2, 4.0], [10.2, 12.0], [1.8, 12.0]], 1.4, true),
             poly(&[[3.4, 5.6], [8.6, 5.6], [8.6, 10.4], [3.4, 10.4]]).a(0.3),
             poly(&[[10.2, 7.0], [14.4, 4.6], [14.4, 11.4], [10.2, 9.0]]),
+        ],
+        Icon::EditMode => vec![
+            polyline(&[[3.4, 3.4], [12.6, 3.4], [12.6, 12.6], [3.4, 12.6]], 1.2, true).a(0.8),
+            poly(&[[4.6, 4.6], [11.4, 4.6], [11.4, 11.4], [4.6, 11.4]]).a(0.25),
+            disc(3.4, 3.4, 1.9),
+            disc(12.6, 3.4, 1.9),
+            disc(12.6, 12.6, 1.9),
+            disc(3.4, 12.6, 1.9),
+        ],
+        Icon::Grip => vec![
+            disc(6.0, 3.8, 1.25),
+            disc(10.0, 3.8, 1.25),
+            disc(6.0, 8.0, 1.25),
+            disc(10.0, 8.0, 1.25),
+            disc(6.0, 12.2, 1.25),
+            disc(10.0, 12.2, 1.25),
         ],
         Icon::ModWrench => vec![
             line(3.6, 12.4, 9.0, 7.0, 2.4),

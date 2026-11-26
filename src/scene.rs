@@ -224,6 +224,11 @@ impl Object {
         !self.mod_flags.get(i).is_some_and(|f| f.hide_viewport)
     }
 
+    /// Is modifier `i` enabled in edit mode (`show_in_editmode`)?
+    pub fn modifier_editmode(&self, i: usize) -> bool {
+        !self.mod_flags.get(i).is_some_and(|f| f.hide_editmode)
+    }
+
     /// Is modifier `i` enabled for rendering (`show_render`)?
     pub fn modifier_render(&self, i: usize) -> bool {
         !self.mod_flags.get(i).is_some_and(|f| f.hide_render)
@@ -1168,6 +1173,27 @@ impl Scene {
         })
     }
 
+    /// Drags modifier `i` of the active object to index `to` (`OBJECT_OT_modifier_move_to_index`), the others shift
+    /// along; it becomes the active modifier. One undo step; false when it stays where it is.
+    pub fn panel_move_modifier_index(&mut self, i: usize, to: usize) -> bool {
+        self.edit_active_object_impl(
+            |o| {
+                if i >= o.modifiers.len() || to >= o.modifiers.len() || i == to {
+                    return false;
+                }
+                let m = o.modifiers.remove(i);
+                o.modifiers.insert(to, m);
+                o.mod_flags.resize(o.modifiers.len() + 1, modifiers::ModFlags::default());
+                let f = o.mod_flags.remove(i);
+                o.mod_flags.insert(to, f);
+                o.mod_flags.truncate(o.modifiers.len());
+                o.active_modifier = to;
+                true
+            },
+            false,
+        )
+    }
+
     /// `OBJECT_OT_modifier_move_to_index` (Move to First / Move to Last): moves modifier `i` of the active object to
     /// the start or the end of the stack and keeps it the active one.
     pub fn panel_move_modifier_to(&mut self, i: usize, first: bool) -> bool {
@@ -1241,6 +1267,18 @@ impl Scene {
             }
             o.mod_flags.resize(o.modifiers.len(), modifiers::ModFlags::default());
             o.mod_flags[i].hide_viewport = !o.mod_flags[i].hide_viewport;
+            true
+        })
+    }
+
+    /// The edit-mode toggle of modifier `i` of the active object (`show_in_editmode`). Undoable; nothing else changes.
+    pub fn panel_toggle_editmode(&mut self, i: usize) -> bool {
+        self.edit_active_object(|o| {
+            if i >= o.modifiers.len() {
+                return false;
+            }
+            o.mod_flags.resize(o.modifiers.len(), modifiers::ModFlags::default());
+            o.mod_flags[i].hide_editmode = !o.mod_flags[i].hide_editmode;
             true
         })
     }
