@@ -19,6 +19,7 @@ mod screen_draw;
 mod ui_layout;
 mod widget_draw;
 mod font;
+mod frame_range;
 mod buttons_context;
 mod outliner_draw;
 mod outliner_select;
@@ -1852,10 +1853,11 @@ impl ApplicationHandler for App {
                     let right = code == KeyCode::ArrowRight;
                     if shift_k {
                         if !key_event.repeat {
-                            self.frame = Some(if right { playhead_draw::EFRA as i32 } else { playhead_draw::SFRA as i32 });
+                            let range = frame_range::FrameRange::default();
+                            self.frame = Some(range.jump(right));
                         }
                     } else {
-                        self.frame = Some((self.frame.unwrap_or(1) + if right { 1 } else { -1 }).max(0));
+                        self.frame = Some(frame_range::offset(self.frame.unwrap_or(1), if right { 1 } else { -1 }));
                     }
                     gfx.window.request_redraw();
                     return;
