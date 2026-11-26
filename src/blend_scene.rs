@@ -110,9 +110,9 @@ mod tests {
     /// ID *data; Object *parent }; the Mesh part follows blend_mesh_read's layout.
     fn sdna() -> Sdna {
         let members = [
-            "name[258]", "id", "type", "rotmode", "loc[3]", "rot[3]", "scale[3]", "*data", "*parent", "type",
-            "name[68]", "*data", "*layers", "totlayer", "verts_num", "faces_num", "corners_num",
-            "*face_offset_indices", "vert_data", "corner_data", "_pad[4]",
+            "name[258]", "id", "type", "rotmode", "loc[3]", "rot[3]", "size[3]", "*data", "*parent", "type",
+            "name[68]", "*data", "*layers", "totlayer", "totvert", "totpoly", "totloop",
+            "*poly_offset_indices", "vdata", "ldata", "_pad[4]",
         ];
         let types =
             ["char", "short", "float", "int", "void", "ID", "Object", "CustomDataLayer", "CustomData", "Mesh"];
