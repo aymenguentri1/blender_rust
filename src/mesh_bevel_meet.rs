@@ -63,8 +63,8 @@ pub fn offset_meet(e1: MeetEdge, e2: MeetEdge, v: V3, v_no: V3, f_no: Option<V3>
         return if len <= d { e2.other } else { add(v, scale(to, d / len)) };
     }
     let (norm_v1, norm_v2);
-    if f_no.is_some() && ang < SMALL_ANG {
-        norm_v1 = f_no.unwrap();
+    if let (Some(n), true) = (f_no, ang < SMALL_ANG) {
+        norm_v1 = n;
         norm_v2 = norm_v1;
     } else {
         let mut n = normalized(cross(dir2, dir1));

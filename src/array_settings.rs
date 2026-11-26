@@ -155,18 +155,19 @@ mod tests {
 
     #[test]
     fn fit_type_picks_the_second_row() {
-        let mut a = ArraySettings::default();
-        a.fit_type = FitType::FitLength;
+        let a = ArraySettings { fit_type: FitType::FitLength, ..Default::default() };
         assert_eq!(a.sections()[0].rows[1].label, "Length");
-        a.fit_type = FitType::FitCurve;
+        let a = ArraySettings { fit_type: FitType::FitCurve, ..Default::default() };
         assert_eq!(a.sections()[0].rows[1].label, "Curve");
     }
 
     #[test]
     fn toggles_drive_the_active_state() {
-        let mut a = ArraySettings::default();
-        a.offset_type = OffsetFlags { constant: true, relative: false, object: true };
-        a.merge = true;
+        let a = ArraySettings {
+            offset_type: OffsetFlags { constant: true, relative: false, object: true },
+            merge: true,
+            ..Default::default()
+        };
         let s = a.sections();
         assert!(!s[1].rows[0].active && s[2].rows[0].active && s[3].rows[0].active);
         assert!(s[4].rows.iter().all(|r| r.active));

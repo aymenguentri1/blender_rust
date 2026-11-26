@@ -82,7 +82,7 @@ impl Plane {
     fn from_points(a: P3, b: P3, c: P3) -> Option<Plane> {
         let n = cross(sub(b, a), sub(c, a));
         let l = dot(n, n).sqrt();
-        if !(l > 1e-14) {
+        if l.is_nan() || l <= 1e-14 {
             return None;
         }
         let n = [n[0] / l, n[1] / l, n[2] / l];
