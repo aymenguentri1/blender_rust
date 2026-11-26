@@ -11,6 +11,7 @@
 #[allow(dead_code)]
 mod area;
 mod screen;
+mod object_mode;
 mod sculpt;
 mod sculpt_header;
 mod screen_draw;
@@ -268,6 +269,8 @@ struct App {
     field_edit: Option<transform_panel::Edit>,
     /// Sculpt Mode of the active object (`Some` while the mode is on).
     sculpt: Option<sculpt::Session>,
+    /// Edit Mode (Tab); only the mode flag exists so far.
+    edit_mode: bool,
 }
 
 /// After a change of geometry, visibility or transforms: builds the modifier results and restarts the TAA
@@ -1367,6 +1370,17 @@ impl ApplicationHandler for App {
                     return;
                 }
 
+                /* `object.mode_set`: Tab toggles Edit Mode on the active mesh object. */
+                if code == KeyCode::Tab && !ctrl_k && !shift_k && !alt_k && !key_event.repeat {
+                    let cur = if self.edit_mode { object_mode::ObjectMode::Edit } else if self.sculpt.is_some() { object_mode::ObjectMode::Sculpt } else { object_mode::ObjectMode::Object };
+                    let is_mesh = self.scene.active_object().is_some_and(|o| o.mesh().is_some());
+                    self.edit_mode = object_mode::toggle_edit(cur, is_mesh) == object_mode::ObjectMode::Edit;
+                    if self.edit_mode {
+                        self.sculpt = None;
+                    }
+                    gfx.window.request_redraw();
+                    return;
+                }
                 /* `object.mode_set`: Ctrl + Tab toggles Sculpt Mode on the active mesh object. */
                 if code == KeyCode::Tab && ctrl_k && !shift_k && !alt_k && !key_event.repeat {
                     toggle_sculpt(&mut self.sculpt, &self.scene);
