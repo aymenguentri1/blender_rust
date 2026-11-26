@@ -7,7 +7,7 @@
 //!    winds against its neighbour; a wire edge (no face) takes the reversed branch. The new edges stay selected.
 //!  - `bmo_extrude_vert_indiv_exec()` (234): each vertex is duplicated and joined to its copy by a new edge; `Mesh`
 //!    has no loose edges, so that edge is returned as a pair next to the mesh (the wire is not drawn).
-//! Not ported: select history, skin-root flags, loop attribute copy (no custom data in `Mesh`).
+//!    Not ported: select history, skin-root flags, loop attribute copy (no custom data in `Mesh`).
 
 use crate::mesh::Mesh;
 use std::collections::HashMap;

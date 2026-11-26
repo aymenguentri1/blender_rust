@@ -2,7 +2,7 @@
 //!
 //! Ported from Blender:
 //!  - `UI_DEFAULT_TEXT_POINTS` (11) and `BLF_size(font, points * dpi_fac)`
-//!                                      (editors/interface/interface_style.cc:80, 524, 591-595)
+//!    (editors/interface/interface_style.cc:80, 524, 591-595)
 //!  - the UI font is `release/datafiles/fonts/Inter.woff2` (`assets/Inter.ttf` here is the same font
 //!    converted to TrueType, default instance of the variable font)
 //!
