@@ -1014,7 +1014,17 @@ impl ApplicationHandler for App {
                         gfx.window.request_redraw();
                     }
                 } else if let Some(window) = outliner_draw::window_rect(user, layout.outliner).filter(|w| w.isect_pt_v(self.cursor)) {
-                    if let Some(row) = outliner_draw::row_at(user, window, self.cursor[1]) {
+                    if let Some((id, col)) = outliner_draw::restrict_click(user, window, &self.scene, self.cursor[0], self.cursor[1]) {
+                        let which = match col {
+                            outliner_draw::RestrictCol::Hide | outliner_draw::RestrictCol::Viewport => scene::Restrict::Viewport,
+                            outliner_draw::RestrictCol::Select => scene::Restrict::Select,
+                            outliner_draw::RestrictCol::Render => scene::Restrict::Render,
+                        };
+                        if self.scene.toggle_restrict(id, which) {
+                            scene_changed(&mut self.scene, &mut self.taa);
+                        }
+                        gfx.window.request_redraw();
+                    } else if let Some(row) = outliner_draw::row_at(user, window, self.cursor[1]) {
                         let rows = self.scene.outliner_rows();
                         if let Some(scene::RowKind::Object(id)) = rows.get(row).map(|r| r.kind.clone()) {
                             let visible = self.scene.index_of(id).is_some_and(|i| !self.scene.objects[i].hidden);
@@ -2180,6 +2190,7 @@ impl ApplicationHandler for App {
                         if let Some(window) = outliner_draw::window_rect(user, layout.outliner) {
                             outliner_draw::draw_row_stripes(&mut buf, w, h, user, window);
                             outliner_draw::draw_tree_rows(&mut buf, w, h, user, window, &outliner_draw::scene_rows(&self.scene));
+                            outliner_draw::draw_restrict_buttons(&mut buf, w, h, user, window, &self.scene);
                         }
                     }
                     /* Modifiers panel of the properties editor. */

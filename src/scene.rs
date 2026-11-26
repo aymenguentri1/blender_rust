@@ -112,6 +112,14 @@ pub struct Clipboard {
     pub active: Option<u32>,
 }
 
+/// The outliner restriction columns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Restrict {
+    Viewport,
+    Select,
+    Render,
+}
+
 #[derive(Clone, Debug)]
 pub struct Object {
     /// Stable identifier (never reused), written to the object id buffer as `id + 1`.
@@ -124,6 +132,10 @@ pub struct Object {
     pub scale: V3,
     pub selected: bool,
     pub hidden: bool,
+    /// `OB_HIDE_SELECT` (outliner arrow column): the object cannot be selected in the viewport.
+    pub hide_select: bool,
+    /// `OB_HIDE_RENDER` (outliner camera column): the object is left out of renders.
+    pub hide_render: bool,
     /// `Mesh::polys` smooth flag: shade with vertex normals instead of face normals.
     pub smooth: bool,
     /// Subdivision Surface modifier levels (0 is no modifier).
@@ -348,6 +360,8 @@ impl Scene {
             scale: [1.0; 3],
             selected: false,
             hidden: false,
+            hide_select: false,
+            hide_render: false,
             smooth: false,
             subsurf: 0,
             modifiers: Vec::new(),
@@ -855,6 +869,23 @@ impl Scene {
             o.selected = false;
         }
         n
+    }
+
+    /// Outliner restriction toggles (`outliner_draw.cc` restrict columns): flips `OB_HIDE_VIEWPORT` (eye),
+    /// `OB_HIDE_SELECT` or `OB_HIDE_RENDER` of object `id`. A hidden or unselectable object is deselected.
+    pub fn toggle_restrict(&mut self, id: u32, which: Restrict) -> bool {
+        let Some(i) = self.index_of(id) else { return false };
+        self.push_undo();
+        let o = &mut self.objects[i];
+        match which {
+            Restrict::Viewport => o.hidden = !o.hidden,
+            Restrict::Select => o.hide_select = !o.hide_select,
+            Restrict::Render => o.hide_render = !o.hide_render,
+        }
+        if o.hidden || o.hide_select {
+            o.selected = false;
+        }
+        true
     }
 
     /// `OBJECT_OT_hide_view_set` with `unselected` (Shift + H): hides every visible object that is not selected.
@@ -2697,6 +2728,22 @@ mod tests {
         let copy = s.active_object().unwrap();
         assert_eq!((copy.name.as_str(), copy.loc, copy.selected), ("Cube.001", [1.0, 0.0, 0.0], true));
         assert!(!s.objects.iter().find(|o| o.name == "Cube").unwrap().selected);
+    }
+
+    #[test]
+    fn restrict_toggles() {
+        let mut s = Scene::startup();
+        let id = s.objects.iter().find(|o| o.selected).unwrap().id;
+        assert!(s.toggle_restrict(id, Restrict::Render));
+        assert!(s.objects[s.index_of(id).unwrap()].hide_render);
+        assert!(s.objects[s.index_of(id).unwrap()].selected);
+        assert!(s.toggle_restrict(id, Restrict::Select));
+        assert!(!s.objects[s.index_of(id).unwrap()].selected);
+        assert!(s.toggle_restrict(id, Restrict::Viewport));
+        assert!(s.objects[s.index_of(id).unwrap()].hidden);
+        assert!(s.toggle_restrict(id, Restrict::Viewport));
+        assert!(!s.objects[s.index_of(id).unwrap()].hidden);
+        assert!(!s.toggle_restrict(9999, Restrict::Render));
     }
 
     #[test]
