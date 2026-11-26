@@ -167,9 +167,8 @@ def cmd_check(a):
 def cmd_ready(a):
     pr = api("GET", f"/pulls/{a.pr}")
     if not pr["draft"]: print("already ready"); return
-    q = "mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{number}}}"
-    c, b = call("POST", "https://api.github.com/graphql", {"query": q, "variables": {"id": pr["node_id"]}})
-    if c != 200 or (b or {}).get("errors"): die(f"ready failed: {b}")
+    c, b = call("POST", f"/pulls/{a.pr}/ccr/ready_for_review", {})
+    if c >= 300: die(f"ready failed: {b}")
     print("ready for review")
 
 def cmd_diff(a):
