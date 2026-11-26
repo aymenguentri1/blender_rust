@@ -124,9 +124,12 @@ mod rcti_tests {
     fn in_view3d_main_excludes_header() {
         let user = UserDef::from_window_scale(1.0);
         let main = Rcti { xmin: 0, xmax: 1919, ymin: 21, ymax: 1054 };
-        assert!(in_view3d_main(&user, main, [100, 500]));
-        assert!(!in_view3d_main(&user, main, [100, 1050]));
-        assert!(!in_view3d_main(&user, main, [100, 5]));
+        assert!(in_view3d_main(&user, main, [100, 500], false));
+        assert!(!in_view3d_main(&user, main, [100, 1050], false));
+        /* The tool header (sculpt) is under the header and also keeps the strokes out. */
+        assert!(in_view3d_main(&user, main, [100, 1030], false) && !in_view3d_main(&user, main, [100, 1030], true));
+        assert!(tool_header_rect(&user, main).unwrap().ymax < view3d_header_rect(&user, main).unwrap().ymin);
+        assert!(!in_view3d_main(&user, main, [100, 5], false));
     }
 
     #[test]
@@ -304,8 +307,22 @@ mod time_scrub_tests {
 
 /// True when `xy` is inside the 3D viewport area `main` but not over its header region
 /// (the `ED_region_contains_xy()` test of the window region, area_query.cc:146).
-pub fn in_view3d_main(user: &UserDef, main: Rcti, xy: [i32; 2]) -> bool {
-    main.isect_pt_v(xy) && !view3d_header_rect(user, main).is_some_and(|h| h.isect_pt_v(xy))
+///
+/// `tool_header` is true while the tool settings header (Sculpt Mode) is shown under the header.
+pub fn in_view3d_main(user: &UserDef, main: Rcti, xy: [i32; 2], tool_header: bool) -> bool {
+    main.isect_pt_v(xy)
+        && !view3d_header_rect(user, main).is_some_and(|h| h.isect_pt_v(xy))
+        && !(tool_header && tool_header_rect(user, main).is_some_and(|h| h.isect_pt_v(xy)))
+}
+
+/// `region_rect_recursive()` for the tool header (`RGN_TYPE_TOOL_HEADER`, `RGN_ALIGN_TOP`) of the 3D viewport: an
+/// overlap region of the height of the header, right under it. It shows the settings of the active tool (the
+/// brush settings in Sculpt Mode).
+pub fn tool_header_rect(user: &UserDef, totrct: Rcti) -> Option<Rcti> {
+    let header = view3d_header_rect(user, totrct)?;
+    let h = header.size_y() + 1;
+    let r = Rcti { ymax: header.ymin - 1, ymin: header.ymin - h, ..header };
+    (r.ymin >= totrct.ymin).then_some(r)
 }
 
 /// Composites an overlap region over the buffer: `ED_region_clear()` clears it to the
