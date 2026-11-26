@@ -68,9 +68,9 @@ pub fn insert_bezt_fcurve(fcu: &mut FCurve, bezt: &BezTriple, flag: u32) -> Opti
 }
 
 /// `insert_vert_fcurve` (no cycle-aware / needed-only modes): new key at (frame, value);
-/// handles start on the key (as `initialize_bezt`), interpolation is inherited from a neighbour.
+/// handles sit at x-1 / x+1 (as `initialize_bezt`), interpolation is inherited from a neighbour.
 pub fn insert_vert_fcurve(fcu: &mut FCurve, frame: f32, value: f32, ipo: Ipo, flag: u32) -> Option<usize> {
-    let bezt = BezTriple { vec: [[frame, value]; 3], ipo };
+    let bezt = BezTriple { vec: [[frame - 1.0, value], [frame, value], [frame + 1.0, value]], ipo };
     let old_tot = fcu.bezt.len();
     let a = insert_bezt_fcurve(fcu, &bezt, flag)?;
     if fcu.bezt.len() > 2 && flag & INSERTKEY_REPLACE == 0 && fcu.bezt.len() > old_tot {
@@ -143,6 +143,13 @@ mod tests {
         insert_vert_fcurve(&mut f, 5.0, 1.0, Ipo::Lin, 0);
         insert_vert_fcurve(&mut f, 3.0, 2.0, Ipo::Bez, 0);
         assert_eq!(f.bezt[1].ipo, Ipo::Lin);
+    }
+
+    #[test]
+    fn new_key_handles_are_one_frame_either_side() {
+        let mut f = FCurve::new("location", 0);
+        insert_vert_fcurve(&mut f, 5.0, 2.0, Ipo::Bez, 0);
+        assert_eq!(f.bezt[0].vec, [[4.0, 2.0], [5.0, 2.0], [6.0, 2.0]]);
     }
 
     #[test]
