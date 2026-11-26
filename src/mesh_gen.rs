@@ -135,7 +135,7 @@ impl Mesh {
                     }
                 }
                 hits.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                for pair in hits.chunks_exact(2) {
+                for pair in hits.as_chunks::<2>().0.iter() {
                     for z in 0..dim[2] {
                         let zc = origin[2] + (z as f32 + 0.5) * h;
                         if zc > pair[0] && zc < pair[1] {

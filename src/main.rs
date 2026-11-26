@@ -188,6 +188,9 @@ struct PlayState {
 }
 
 
+/// `ViewOpsData::init` of a running view drag: (`viewquat`, `dist`, `ofs`, ..).
+type NavInit = ([f32; 4], f32, [f32; 3], bool, view3d::View, usize);
+
 #[derive(Default)]
 struct App {
     gfx: Option<Gfx>,
@@ -213,7 +216,7 @@ struct App {
     /// Cursor y and view offset at the start of a running `view3d.dolly` drag.
     dolly_init: Option<(i32, [f32; 3])>,
     /// `ViewOpsData::init` (`viewquat`, `dist`, `ofs`) of the running view drag, for `state_restore()`.
-    nav_init: Option<([f32; 4], f32, [f32; 3], bool, view3d::View, usize)>,
+    nav_init: Option<NavInit>,
     /// `ViewOpsData::curr.viewquat` of the running `view3d.rotate` drag: the unsnapped rotation.
     orbit_curr: [f32; 4],
     /// `ViewOpsData::axis_snap` (Alt held during the drag).
@@ -1493,6 +1496,7 @@ impl ApplicationHandler for App {
                 /* The "Sculpt" keymap over the viewport: X Draw, S Smooth, G Grab, I Inflate, Shift + T Flatten,
                  * P Pinch, Shift + C Crease; F / Shift + F radius / strength; Alt + X / Y / Z symmetry. The object
                  * operators that would act on the object instead (R, A, H, Delete, Shift + D) do nothing. */
+                #[allow(clippy::unnecessary_unwrap)] /* `sc` borrows `self.sculpt` across the `self.*` reads below */
                 if self.sculpt.is_some() {
                     let cursor = self.cursor;
                     let in_main = match (self.layout.as_ref(), self.user.as_ref()) {
@@ -2366,7 +2370,8 @@ impl ApplicationHandler for App {
                         if let Some(user) = self.user.as_ref().filter(|_| !self.overlays_hidden) {
                             overlay_extra::draw_extras(&mut buf, w, h, layout.main, user, &self.rv3d, &self.scene);
                             overlay_cursor::draw_cursor(&mut buf, w, h, layout.main, user, &self.rv3d, self.cursor3d, self.cursor3d_quat);
-                            overlay_text::draw(&mut buf, w, h, layout.main, user, &self.v3d, &self.rv3d, self.frame.unwrap_or(1), &{ let mut info = overlay_text::ObjectInfo::of(&self.scene); if self.pivot_point != transform::PivotPoint::Median { info.pivot = Some(self.pivot_point.label().to_string()); } if self.show_stats { info.with_stats(&self.scene) } else { info } });
+                            overlay_text::draw(&mut buf, w, h, layout.main, user, &self.v3d, &self.rv3d, self.frame.unwrap_or(1), &{ let mut info = overlay_text::ObjectInfo::of(&self.scene); if self.pivot_point != transform::PivotPoint::Median { info.pivot = Some(self.pivot_point.label().to_string()); }
+                            if self.show_stats { info.with_stats(&self.scene) } else { info } });
                         }
                     }
                     /* Sculpt Mode: the brush ring at the cursor and the brush line at the bottom left. */

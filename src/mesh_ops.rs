@@ -80,7 +80,7 @@ impl Mesh {
     /// Fit Length: how many copies of the Array fit in `fit` metres, `None` when the length is off (0) or the offset
     /// has no length. As in Blender it is the length over the offset length rounded down, at least 1 and at most 1000.
     pub fn array_fit_count(&self, relative: V3, constant: V3, fit: f32) -> Option<u32> {
-        if !(fit > 0.0) {
+        if fit.is_nan() || fit <= 0.0 {
             return None;
         }
         let size = self.bounds().map_or([0.0; 3], |(mn, mx)| sub(mx, mn));
@@ -240,7 +240,7 @@ impl Mesh {
             dot(d, d).sqrt()
         }).fold(f32::INFINITY, f32::min);
         let w = width.min(0.49 * shortest);
-        if !(w > 1e-9) || !shortest.is_finite() {
+        if w.is_nan() || w <= 1e-9 || !shortest.is_finite() {
             return self.clone();
         }
         /* One new vertex per face corner. */
