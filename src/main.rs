@@ -11,6 +11,7 @@
 #[allow(dead_code)]
 mod area;
 mod screen;
+mod object_mode;
 mod sculpt;
 mod sculpt_header;
 mod screen_draw;
@@ -20,6 +21,7 @@ mod widget_draw;
 mod font;
 mod buttons_context;
 mod outliner_draw;
+mod outliner_select;
 mod playhead_draw;
 
 mod status_input;
@@ -269,6 +271,8 @@ struct App {
     field_edit: Option<transform_panel::Edit>,
     /// Sculpt Mode of the active object (`Some` while the mode is on).
     sculpt: Option<sculpt::Session>,
+    /// Edit Mode (Tab); only the mode flag exists so far.
+    edit_mode: bool,
 }
 
 /// After a change of geometry, visibility or transforms: builds the modifier results and restarts the TAA
@@ -1025,11 +1029,9 @@ impl ApplicationHandler for App {
                     } else if let Some(row) = outliner_draw::row_at(user, window, self.cursor[1]) {
                         let rows = self.scene.outliner_rows();
                         if let Some(scene::RowKind::Object(id)) = rows.get(row).map(|r| r.kind.clone()) {
-                            let visible = self.scene.index_of(id).is_some_and(|i| !self.scene.objects[i].hidden);
-                            if visible {
-                                self.scene.select_pick(Some(id), extend);
-                                gfx.window.request_redraw();
-                            }
+                            let click = outliner_select::Click::from_keys(self.modifiers.control_key(), extend);
+                            outliner_select::item_activate(&mut self.scene, id, click);
+                            gfx.window.request_redraw();
                         }
                     }
                 }
@@ -1378,6 +1380,17 @@ impl ApplicationHandler for App {
                     return;
                 }
 
+                /* `object.mode_set`: Tab toggles Edit Mode on the active mesh object. */
+                if code == KeyCode::Tab && !ctrl_k && !shift_k && !alt_k && !key_event.repeat {
+                    let cur = if self.edit_mode { object_mode::ObjectMode::Edit } else if self.sculpt.is_some() { object_mode::ObjectMode::Sculpt } else { object_mode::ObjectMode::Object };
+                    let is_mesh = self.scene.active_object().is_some_and(|o| o.mesh().is_some());
+                    self.edit_mode = object_mode::toggle_edit(cur, is_mesh) == object_mode::ObjectMode::Edit;
+                    if self.edit_mode {
+                        self.sculpt = None;
+                    }
+                    gfx.window.request_redraw();
+                    return;
+                }
                 /* `object.mode_set`: Ctrl + Tab toggles Sculpt Mode on the active mesh object. */
                 if code == KeyCode::Tab && ctrl_k && !shift_k && !alt_k && !key_event.repeat {
                     toggle_sculpt(&mut self.sculpt, &self.scene);
