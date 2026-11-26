@@ -64,6 +64,7 @@ mod workbench;
 #[allow(dead_code)]
 mod taa;
 #[allow(dead_code)]
+mod material_tab_layout;
 mod mesh;
 #[allow(dead_code)]
 mod mesh_bevel_edge;
