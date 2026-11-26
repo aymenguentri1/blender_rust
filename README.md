@@ -85,8 +85,7 @@ are required:
 | Monitor icon | Show in Viewport (`show_viewport`): lit blue while the modifier is evaluated, grey when it is skipped. A skipped modifier keeps its settings and its place; the stack line in the viewport shows it as `Array x2 (off)`, and `Apply` leaves it alone as Blender does. The flag moves with the modifier when it is reordered and is copied with Duplicate Object / Copy Modifiers; the render (camera) toggle is not modelled |
 | `^` / `v` | Move it up / down in the stack |
 | `x` | Remove it |
-| `Apply` | Bakes it into the mesh (Blender's Apply, Ctrl + A over the modifier), same as Ctrl + Shift + Alt + A |
-| `Duplicate` | Inserts a copy right after it (Blender's Duplicate, Shift + D over the modifier), same as Ctrl + Shift + Alt + D |
+| Dropdown arrow (right of the monitor) | Opens the modifier menu (`src/modifier_menu.rs`, same look as the Add menu): `Apply` (bakes it into the mesh like Ctrl + A over the modifier, same as Ctrl + Shift + Alt + A; dimmed while the modifier is off in the viewport), `Duplicate` (a copy right after it, same as Ctrl + Shift + Alt + D), `Copy to Selected` (appends a copy with its name and viewport flag to every other selected mesh, `OBJECT_OT_modifier_copy_to_selected`; dimmed when there is none), `Move to First` / `Move to Last` (`OBJECT_OT_modifier_move_to_index`; dimmed when it already is there). Entries that cannot run are dimmed and ignore clicks; Esc, a right click or a click outside closes the menu. Not modelled: the shape key entries, separators and shortcut hints |
 | `Target:` (Shrinkwrap and Boolean) | Cycles the target through the other mesh objects, then no target |
 | `-` / `+` (value row) | Lower / raise its main value, like Ctrl + Alt + `[` / `]` |
 
