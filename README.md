@@ -30,11 +30,17 @@ enough vertices (Add > UV Sphere, or Alt + C to bake a subdivision level into th
 | Alt + X / Y / Z | Toggle mirror symmetry on that axis (X is on, as in Blender) |
 | Ctrl + Z | Undo, one step per stroke |
 
+The tool header (`src/sculpt_header.rs`, `VIEW3D_HT_tool_header`) sits under the viewport header while Sculpt Mode is on:
+the brush dropdown (a press selects the next brush, Shift + press the previous one, there is no brush popup), the Radius
+and Strength sliders (press or drag to set the value, absolute instead of Blender's relative drag), the Add / Subtract
+direction (Subtract works the brush inverted, like holding Ctrl) and the X / Y / Z symmetry toggles. A press in the
+header never reaches the viewport.
+
 The brush ring shows the radius (outer circle) and the strength (inner circle); the line at the bottom left of the
 viewport names the brush, radius (default 50 px), strength (default 0.5) and symmetry. The falloff is Blender's
 Smooth curve preset. Deviations: the displacement factors are tuned by eye, there is no pressure, face sets,
-dynamic topology or multires, the brush curve cannot be changed, and the viewport tool header and brush asset
-shelf are not drawn.
+dynamic topology or multires, the brush curve cannot be changed, and the brush asset shelf is not drawn (the tool header has no Falloff,
+Stabilize or other brush settings).
 
 ## Performance
 

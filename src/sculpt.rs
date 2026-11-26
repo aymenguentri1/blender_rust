@@ -84,8 +84,8 @@ const NUDGE_FACTOR: f32 = 0.15;
 const BLOB_FACTOR: f32 = 1.5;
 /// `Brush::spacing` (percent of the brush diameter) of the dotted brushes.
 const SPACING: f32 = 0.10;
-const MIN_RADIUS_PX: f32 = 5.0;
-const MAX_RADIUS_PX: f32 = 500.0;
+pub const MIN_RADIUS_PX: f32 = 5.0;
+pub const MAX_RADIUS_PX: f32 = 500.0;
 const MAX_DABS_PER_EVENT: usize = 48;
 
 /// `Brush::curve` with the Smooth preset.
@@ -105,11 +105,14 @@ pub struct Settings {
     pub radius_px: f32,
     pub strength: f32,
     pub symmetry: [bool; 3],
+    /// `Brush::direction` = SUBTRACT (the Subtract button of the tool header): the brush works inverted, as if
+    /// Ctrl were held.
+    pub subtract: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { brush: Brush::Draw, radius_px: 50.0, strength: 0.5, symmetry: [true, false, false] }
+        Settings { brush: Brush::Draw, radius_px: 50.0, strength: 0.5, symmetry: [true, false, false], subtract: false }
     }
 }
 
@@ -576,6 +579,7 @@ impl Session {
         let brush = if smooth_held { Brush::Smooth } else { self.settings.brush };
         scene.push_undo();
         let depth = window_depth(rv3d, hit.world);
+        let invert = invert != self.settings.subtract;
         let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, layer: None, hook: None, dir: [0.0; 3], depth, inv };
         let changed = if brush == Brush::Grab {
             let radius = self.local_radius(rv3d, &active, hit.world);
@@ -725,6 +729,7 @@ impl Session {
     /// times the strength; the inverted brush is light blue (`cursor_color_subtract`), the add colour is white.
     /// `cursor` is the window position; `region` the viewport rect.
     pub fn draw_cursor(&self, buf: &mut [u32], width: usize, height: usize, region: Rcti, user: &UserDef, cursor: [i32; 2], invert: bool) {
+        let invert = invert != self.settings.subtract;
         let size = (region.size_x() + 1, region.size_y() + 1);
         let center = match self.adjust {
             Some(a) if !a.strength => a.center(),
@@ -763,6 +768,7 @@ impl Session {
         format!("Sculpt Mode | {} | Radius {:.0} px | Strength {:.2} | Symmetry {}", s.brush.label(), s.radius_px, s.strength, sym)
     }
 
+    #[allow(dead_code)]
     pub fn draw_status(&self, buf: &mut [u32], width: usize, height: usize, region: Rcti, user: &UserDef) {
         let text = self.status_text();
         let w = font::label_width(user, &text);
