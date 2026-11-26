@@ -65,6 +65,8 @@ mod taa;
 #[allow(dead_code)]
 mod mesh;
 #[allow(dead_code)]
+mod mesh_bevel_edge;
+mod mesh_bevel_meet;
 mod mesh_extrude;
 #[allow(dead_code)]
 mod edit_select;
