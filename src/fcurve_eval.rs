@@ -17,7 +17,7 @@ pub enum Extend {
 }
 
 /// Bezier triple: vec[0]=left handle, vec[1]=key, vec[2]=right handle, each (x, y).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BezTriple {
     pub vec: [[f32; 2]; 3],
     pub ipo: Ipo,

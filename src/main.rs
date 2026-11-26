@@ -68,6 +68,7 @@ mod math_half;
 mod math_solvers;
 #[allow(dead_code)]
 mod fcurve_eval;
+mod action;
 #[allow(dead_code)]
 mod math_time;
 #[allow(dead_code)]
