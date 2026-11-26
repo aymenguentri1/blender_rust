@@ -1415,6 +1415,19 @@ impl ApplicationHandler for App {
                                     scene_changed(&mut self.scene, &mut self.taa);
                                 }
                             }
+                            /* `sculpt.mask_filter`: Ctrl + Shift + G / H grow / shrink the mask, S smooths it, X sharpens
+                             * it (Blender has these in the Mask menu, no keys). */
+                            KeyCode::KeyG | KeyCode::KeyH | KeyCode::KeyS | KeyCode::KeyX if ctrl_k && shift_k && !alt_k => {
+                                let filter = match code {
+                                    KeyCode::KeyG => sculpt::MaskFilter::Grow,
+                                    KeyCode::KeyH => sculpt::MaskFilter::Shrink,
+                                    KeyCode::KeyS => sculpt::MaskFilter::Smooth,
+                                    _ => sculpt::MaskFilter::Sharpen,
+                                };
+                                if self.scene.mask_filter_active(filter) {
+                                    scene_changed(&mut self.scene, &mut self.taa);
+                                }
+                            }
                             KeyCode::KeyI if ctrl_k && !shift_k && !alt_k => {
                                 if self.scene.invert_mask_active() {
                                     scene_changed(&mut self.scene, &mut self.taa);
