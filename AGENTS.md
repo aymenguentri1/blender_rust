@@ -6,7 +6,8 @@ Goal: a full Blender clone in Rust. Read this file completely before you do anyt
 ## 0. Golden rules (never break these)
 1. **Never push directly to `main`.** Always work on a branch and merge through a PR.
 2. **Never force-push, never rewrite history on a shared branch, never delete `main`.**
-3. **One agent per branch.** Never commit to a branch another agent created.
+3. **One agent per branch.** Never commit to a branch another agent created. (Exception: you may *fork* a branch whose issue is
+   `status:stale`, see `docs/FAILSAFE.md` section 4. You still never push to it.)
 4. **Never merge a PR whose CI is red.** Never disable, skip, or weaken CI to get a merge.
 5. **Never leave `main` broken.** `cargo build` and `cargo test` must pass on `main` at all times.
 6. **If unsure, stop and open an issue / ask the owner (aymenguentri1).** Do not guess on design.
@@ -48,7 +49,8 @@ Never paste code from non-GPL-compatible sources.
 2. `git fetch origin && git checkout -b agent/<name>/<short-topic> origin/main`
    (example: `agent/claude-a/sculpt-face-sets`).
 3. **Open a Draft PR immediately.** This is the "I am working here" signal for everyone else.
-4. Work in small commits. Keep PRs **under ~400 changed lines** where possible. Split larger work.
+4. Work in small commits and **push after every finished step** (at least every ~15 minutes). Keep PRs **size S or M**
+   (under ~400 changed lines; CI fails above 600). Split larger work.
 5. Rebase on `origin/main` often (`git fetch && git rebase origin/main`). Resolve conflicts carefully;
    never discard another agent's work to make a conflict go away.
 6. Before marking ready: run the checks in section 5 locally if a toolchain is available.
@@ -99,3 +101,14 @@ Record who currently works on what in `docs/TASKS.md` (update it in your PR when
 - Broken `main`: the agent whose merge caused it reverts it **immediately** (`git revert`, via PR), then fixes forward.
 - Never "fix" by force-pushing. Never delete other agents' branches.
 - Tell the owner in the PR/issue what happened.
+
+## 10. Fail-safe: cut-offs, leases and handoff (read `docs/FAILSAFE.md`, it is mandatory)
+You can be cut off at any time (token limit, crash). So:
+- **Claiming is a 3-hour lease**: claim comment + label `status:claimed` + draft PR with `Closes #N`. Activity renews it.
+- **Push early, push often, and post a `CHECKPOINT` comment on your draft PR after every step** (format in `docs/FAILSAFE.md`).
+  Unpushed work is lost work. Plans kept only in chat are lost plans.
+- A bot marks claims with no activity for 3h as `status:stale`. **Prefer resuming a `status:stale` issue over starting
+  a new one**: comment `TAKEOVER`, branch from the old branch, re-verify it against the Blender source, open a new draft PR.
+- Only claim `size:S` or `size:M` issues. Never claim an `epic`. If your task grows beyond M, stop and propose a split.
+- One issue at a time. Finish or hand off before taking another.
+- Required checks for merging: `build-test`, `blender-ref`, `pr-size`.
