@@ -46,9 +46,11 @@ pub fn item_activate(scene: &mut Scene, id: u32, click: Click) {
     match click {
         /* Not extending: select and activate; everything else is deselected. */
         Click::Plain => select_only(scene, id),
-        /* `tree_element_object_activate()` with `OL_SETSEL_EXTEND` swaps the selection and still activates. */
+        /* `select = !extend || !TSE_ACTIVE || !TSE_SELECTED` (outliner_select.cc:1941): only an object that is both
+         * active and selected is deselected; any other becomes selected, and it is activated either way. */
         Click::Extend => {
-            scene.objects[i].selected = !scene.objects[i].selected;
+            let deselect = scene.active == Some(id) && scene.objects[i].selected;
+            scene.objects[i].selected = !deselect;
             scene.active = Some(id);
         }
         Click::Range | Click::ExtendRange => {
@@ -106,16 +108,21 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_click_swaps_and_always_activates() {
+    fn ctrl_click_deselects_only_the_active_selected_object() {
         let mut s = Scene::startup();
         let r = ids(&s);
         item_activate(&mut s, r[0], Click::Plain);
         item_activate(&mut s, r[1], Click::Extend);
         assert_eq!(selected(&s), vec![r[0], r[1]]);
         assert_eq!(s.active, Some(r[1]));
-        item_activate(&mut s, r[1], Click::Extend);
-        assert_eq!(selected(&s), vec![r[0]]);
-        assert_eq!(s.active, Some(r[1]), "the deselected object stays active");
+        /* A selected but non-active row stays selected and becomes active. */
+        item_activate(&mut s, r[0], Click::Extend);
+        assert_eq!(selected(&s), vec![r[0], r[1]]);
+        assert_eq!(s.active, Some(r[0]));
+        /* The active, selected row is deselected and stays active. */
+        item_activate(&mut s, r[0], Click::Extend);
+        assert_eq!(selected(&s), vec![r[1]]);
+        assert_eq!(s.active, Some(r[0]));
     }
 
     #[test]
