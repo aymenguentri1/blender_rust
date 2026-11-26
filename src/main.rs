@@ -70,6 +70,7 @@ mod transform_trackball;
 mod transform_constraint_proj;
 #[allow(dead_code)]
 mod playback;
+mod transform_snap;
 #[allow(dead_code)]
 mod blend_reader;
 #[allow(dead_code)]

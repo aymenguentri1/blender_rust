@@ -18,6 +18,7 @@
 //!  - the pivot is the median point of the selected objects' origins (`V3D_AROUND_CENTER_MEDIAN`)
 //!  - confirm with Enter, Space or the left mouse button, cancel with Escape or the right mouse button
 
+use crate::transform_snap::{snap_increment_apply, Increment};
 use crate::mesh::V3;
 use std::cell::Cell;
 use crate::scene::{axis_angle_to_mat3, euler_to_mat3, mat3_mul, mat3_mul_v3, mat3_to_euler, Mat3, Scene};
@@ -319,7 +320,7 @@ impl Transform {
                 _ => [v, 0.0, 0.0],
             };
         } else if self.snap {
-            vec = vec.map(|c| c.round());
+            vec = vec.map(|c| snap_increment_apply(c, Increment::TRANSLATE, self.precision));
         }
         self.set_items(scene, |it| (moved(it, vec), it.rot, it.scale));
         format!("D: {:.4}  {:.4}  {:.4} m", vec[0], vec[1], vec[2])
@@ -352,8 +353,7 @@ impl Transform {
                         a = -a;
                     }
                     if self.snap {
-                        let step = 5.0f32.to_radians();
-                        a = (a / step).round() * step;
+                        a = snap_increment_apply(a, Increment::rotate_default(), self.precision);
                     }
                     a
                 }
@@ -386,7 +386,7 @@ impl Transform {
                 Some(c) => {
                     let f = spring_flip_ratio(c, self.start, mval);
                     if self.snap {
-                        (f * 10.0).round() / 10.0
+                        snap_increment_apply(f, Increment::RESIZE, self.precision)
                     } else {
                         f
                     }
