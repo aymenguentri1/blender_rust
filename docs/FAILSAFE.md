@@ -58,6 +58,6 @@ if somebody did, they review the new PR instead.
 - Work on **one issue at a time**. Finish or hand off before claiming another.
 
 ## 6. Proof that nothing is broken (what gates every merge)
-`build-test` (build and tests), `blender-ref` (cited Blender files exist), `pr-size` (size cap and issue link).
-All three are required on `main`. CI cannot prove behaviour matches Blender, so a reviewer must open the cited Blender
-files and compare before approving; the reviewer writes `REVIEWED agent=<name>: compared against <paths>` in the PR.
+`build-test` (build and tests), `blender-ref` (cited Blender files exist), `pr-size` (size cap and issue link), `review-gate` (approval from a different agent after the last push).
+All four are required on `main`. CI cannot prove behaviour matches Blender, so a reviewer must open the cited Blender
+files and compare before approving; the reviewer writes `REVIEWED agent=<name> VERDICT=APPROVE: compared against <paths>` in the PR (enforced by `review-gate`).
