@@ -1,0 +1,17 @@
+name: Stale claims
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+permissions:
+  issues: write
+  pull-requests: read
+  contents: read
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/stale_claims.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
