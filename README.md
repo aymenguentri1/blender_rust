@@ -87,9 +87,10 @@ are required:
 | `x` | Remove it |
 | Dropdown arrow (right of the monitor) | Opens the modifier menu (`src/modifier_menu.rs`, same look as the Add menu): `Apply` (bakes it into the mesh like Ctrl + A over the modifier, same as Ctrl + Shift + Alt + A; dimmed while the modifier is off in the viewport), `Duplicate` (a copy right after it, same as Ctrl + Shift + Alt + D), `Copy to Selected` (appends a copy with its name and viewport flag to every other selected mesh, `OBJECT_OT_modifier_copy_to_selected`; dimmed when there is none), `Move to First` / `Move to Last` (`OBJECT_OT_modifier_move_to_index`; dimmed when it already is there). Entries that cannot run are dimmed and ignore clicks; Esc, a right click or a click outside closes the menu. Not modelled: the shape key entries, separators and shortcut hints |
 | `Target:` (Shrinkwrap and Boolean) | Cycles the target through the other mesh objects, then no target |
+| Value field (value row) | Click to type the modifier's main number (`Count: 2`, `Width: 0.1 m`, `Angle: 45 deg`, `Factor: 0.5`, ...; the value the `-` / `+` buttons step): the whole text is selected, so the first character replaces it; digits, `.` / `,` and a leading `-` or `+` are accepted, Backspace deletes, Enter applies, Esc cancels, and a click anywhere else applies it too. The same limits as the buttons apply (a Count is a whole number from 1 to 1000, a Decimate ratio 0.01 to 1, a Screw angle at most 360 deg, ...). An unparsable or empty field changes nothing; one undo step. Mirror, Triangulate and Boolean have no number, so their row only selects them and shows the summary |
 | `-` / `+` (value row) | Lower / raise its main value, like Ctrl + Alt + `[` / `]` |
 
-Every panel edit is one undo step (Ctrl + Z). Not modelled: per-setting fields, the render
+Every panel edit is one undo step (Ctrl + Z). Not modelled: the other per-setting fields, the render
 toggle and scrolling (rows that do not fit are left out).
 
 ### Object and mesh operators
