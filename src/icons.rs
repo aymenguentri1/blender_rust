@@ -44,6 +44,8 @@ pub enum Icon {
     ShadingSolid,
     ShadingMaterial,
     ShadingRendered,
+    /// `ICON_DISCLOSURE_TRI_RIGHT`: the arrow of a collapsed panel (`DownArrow` is the expanded one).
+    RightArrow,
     /// `ICON_RESTRICT_VIEW_OFF`: the monitor of a modifier's "Show in Viewport" toggle.
     Monitor,
 }
@@ -179,6 +181,7 @@ fn shapes(icon: Icon) -> Vec<Shape> {
             disc(5.6, 5.6, 2.1),
             disc(10.4, 10.4, 2.1),
         ],
+        Icon::RightArrow => vec![poly(&[[6.0, 3.8], [6.0, 12.2], [10.8, 8.0]])],
         Icon::Monitor => vec![
             polyline(&[[2.0, 3.0], [14.0, 3.0], [14.0, 10.5], [2.0, 10.5]], 1.4, true),
             poly(&[[3.6, 4.6], [12.4, 4.6], [12.4, 8.9], [3.6, 8.9]]).a(0.3),
