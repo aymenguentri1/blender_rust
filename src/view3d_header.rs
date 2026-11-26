@@ -50,8 +50,8 @@ pub struct HeaderState {
     pub xray: bool,
     pub overlays: bool,
     pub pivot: PivotPoint,
-    /// Sculpt Mode is on: the mode dropdown reads `Sculpt Mode`.
-    pub sculpt: bool,
+    /// The mode dropdown reads `Object Mode`, `Edit Mode` or `Sculpt Mode` (`rna_enum_object_mode_items`, rna_object.cc:39).
+    pub mode: crate::object_mode::ObjectMode,
 }
 
 /// How an item is drawn.
@@ -123,7 +123,11 @@ pub fn layout(user: &UserDef, header: Rcti, state: &HeaderState) -> Vec<Item> {
     let mut c = Cursor { x: header.xmin + offset, y0, y1, space };
     let w = dropdown_width(user, None);
     items.push(Item { action: Action::EditorType, rect: c.place(w, true), look: Look::Dropdown { icon: Icon::View3D, label: None } });
-    let (label, mode_icon) = if state.sculpt { ("Sculpt Mode".to_string(), Icon::SculptMode) } else { ("Object Mode".to_string(), Icon::ObjectMode) };
+    let (label, mode_icon) = match state.mode {
+        crate::object_mode::ObjectMode::Sculpt => ("Sculpt Mode".to_string(), Icon::SculptMode),
+        crate::object_mode::ObjectMode::Edit => ("Edit Mode".to_string(), Icon::EditMode),
+        crate::object_mode::ObjectMode::Object => ("Object Mode".to_string(), Icon::ObjectMode),
+    };
     let w = dropdown_width(user, Some(&label));
     items.push(Item { action: Action::Mode, rect: c.place(w, true), look: Look::Dropdown { icon: mode_icon, label: Some(label) } });
     for (action, name) in [
@@ -260,7 +264,7 @@ mod tests {
     use super::*;
 
     fn state() -> HeaderState {
-        HeaderState { wire: false, xray: false, overlays: true, pivot: PivotPoint::Median, sculpt: false }
+        HeaderState { wire: false, xray: false, overlays: true, pivot: PivotPoint::Median, mode: crate::object_mode::ObjectMode::Object }
     }
 
     fn header() -> Rcti {
@@ -341,5 +345,22 @@ mod tests {
         s.wire = true;
         assert_eq!(on(&s, Action::ShadeSolid), Some(false));
         assert_eq!(on(&s, Action::ShadeWire), Some(true));
+    }
+
+    #[test]
+    fn mode_dropdown_names_the_current_mode() {
+        use crate::object_mode::ObjectMode;
+        let user = UserDef::from_window_scale(1.0);
+        let label = |m: ObjectMode| {
+            let mut s = state();
+            s.mode = m;
+            layout(&user, header(), &s).into_iter().find(|i| i.action == Action::Mode).map(|i| match i.look {
+                Look::Dropdown { label, icon } => (label, icon),
+                _ => (None, Icon::ObjectMode),
+            })
+        };
+        assert_eq!(label(ObjectMode::Edit), Some((Some("Edit Mode".to_string()), Icon::EditMode)));
+        assert_eq!(label(ObjectMode::Sculpt), Some((Some("Sculpt Mode".to_string()), Icon::SculptMode)));
+        assert_eq!(label(ObjectMode::Object), Some((Some("Object Mode".to_string()), Icon::ObjectMode)));
     }
 }
