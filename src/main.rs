@@ -36,6 +36,8 @@ mod multires;
 #[allow(dead_code)]
 mod obj_import;
 mod gltf_mesh;
+#[allow(dead_code)]
+mod multires_reshape;
 mod array_settings;
 mod solidify_settings;
 mod outliner_select;
