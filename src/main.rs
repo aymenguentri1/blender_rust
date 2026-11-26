@@ -1334,6 +1334,8 @@ impl ApplicationHandler for App {
                             KeyCode::KeyP if plain => sc.settings.brush = sculpt::Brush::Pinch,
                             KeyCode::KeyC if shift_only => sc.settings.brush = sculpt::Brush::Crease,
                             KeyCode::KeyC if plain => sc.settings.brush = sculpt::Brush::Clay,
+                            KeyCode::KeyX if shift_only => sc.settings.brush = sculpt::Brush::Fill,
+                            KeyCode::KeyS if shift_only => sc.settings.brush = sculpt::Brush::Scrape,
                             /* Subdivides the base mesh once (Catmull-Clark), for meshes too coarse to sculpt. */
                             KeyCode::KeyD if ctrl_k && shift_k && !alt_k => {
                                 if self.scene.subdivide_active_base() {

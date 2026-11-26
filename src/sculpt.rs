@@ -33,10 +33,12 @@ pub enum Brush {
     Pinch,
     Crease,
     Clay,
+    Fill,
+    Scrape,
 }
 
 impl Brush {
-    pub const ALL: [Brush; 8] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay];
+    pub const ALL: [Brush; 10] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -48,6 +50,8 @@ impl Brush {
             Brush::Pinch => "Pinch",
             Brush::Crease => "Crease",
             Brush::Clay => "Clay Strips",
+            Brush::Fill => "Fill",
+            Brush::Scrape => "Scrape",
         }
     }
 }
@@ -228,6 +232,23 @@ fn dab_one(mesh: &mut Mesh, adj: &[Vec<u32>], brush: Brush, center: V3, radius: 
                 let dist = dot(sub(mesh.verts[i], plane), area) * dir;
                 if dist < 0.0 {
                     mesh.verts[i] = sub(mesh.verts[i], scale(area, dist * dir * (f * strength * BLEND_FACTOR).min(1.0)));
+                }
+            }
+        }
+        Brush::Fill | Brush::Scrape => {
+            /* `do_fill_brush()` / `do_scrape_brush()`: Flatten that only raises what lies below the plane (Fill)
+             * or only lowers what lies above it (Scrape); the inverted brush swaps the two. */
+            let (mut sum, mut wsum) = ([0.0f32; 3], 0.0f32);
+            for &(i, f) in &hit {
+                sum = add(sum, scale(mesh.verts[i], f));
+                wsum += f;
+            }
+            let plane = scale(sum, 1.0 / wsum.max(1e-12));
+            let fill = (brush == Brush::Fill) != invert;
+            for &(i, f) in &hit {
+                let dist = dot(sub(mesh.verts[i], plane), area);
+                if (fill && dist < 0.0) || (!fill && dist > 0.0) {
+                    mesh.verts[i] = sub(mesh.verts[i], scale(area, dist * (f * strength * BLEND_FACTOR).min(1.0)));
                 }
             }
         }
@@ -627,6 +648,25 @@ mod tests {
         b.verts[i][2] = 0.2 * up;
         dab(&mut b, &adj, Brush::Clay, [0.0, 0.0, 0.0], 0.5, 1.0, false, [false; 3]);
         assert_eq!(b.verts[i][2], 0.2 * up, "a bump above the plane is left alone");
+    }
+
+    #[test]
+    fn fill_raises_and_scrape_lowers() {
+        let mut m = grid();
+        let adj = adjacency(&m);
+        let i = m.verts.iter().position(|v| v[0].abs() < 1e-3 && v[1].abs() < 1e-3).unwrap();
+        let up = m.vertex_normals()[i][2].signum();
+        let mut dent = m.clone();
+        dent.verts[i][2] = -0.2 * up;
+        dab(&mut dent, &adj, Brush::Fill, [0.0; 3], 0.5, 1.0, false, [false; 3]);
+        assert!((dent.verts[i][2] * up).abs() < 0.2);
+        let mut bump = m.clone();
+        bump.verts[i][2] = 0.2 * up;
+        dab(&mut bump, &adj, Brush::Fill, [0.0; 3], 0.5, 1.0, false, [false; 3]);
+        assert_eq!(bump.verts[i][2], 0.2 * up);
+        dab(&mut bump, &adj, Brush::Scrape, [0.0; 3], 0.5, 1.0, false, [false; 3]);
+        assert!(bump.verts[i][2] * up < 0.2);
+        m.verts[i][2] = 0.0;
     }
 
     #[test]
