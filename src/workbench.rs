@@ -108,49 +108,100 @@ fn material_roughness_metallic() -> (f32, f32) {
     (iv1 as f32 / 31.0, iv2 as f32 / 7.0)
 }
 
-/// `get_world_lighting()` with specular on and a black ambient colour; `n` and `i` are in view space.
-fn world_lighting(roughness: f32, metallic: f32, n: V3, i: V3) -> V3 {
-    let diffuse_color = BASE_COLOR.map(|c| c * (1.0 - metallic));
-    let specular_base = BASE_COLOR.map(|c| 0.05 * (1.0 - metallic) + c * metallic);
+/// The part of `get_world_lighting()` that depends only on the material and the lights, computed once per frame
+/// instead of per pixel (`exp2`, the wrap factors, the base colours).
+struct LightPre {
+    direction: V3,
+    diffuse: V3,
+    specular: V3,
+    wrap: f32,
+    shininess: f32,
+    /// `shininess * 0.125 + 1`.
+    shininess_scale: f32,
+    /// `wrap + (1 - wrap) * roughness`.
+    w: f32,
+    /// `wrap * wrap`.
+    k: f32,
+}
 
-    /* `R = -reflect(I, N)`. */
-    let n_dot_i = dot(n, i);
-    let r = [2.0 * n_dot_i * n[0] - i[0], 2.0 * n_dot_i * n[1] - i[1], 2.0 * n_dot_i * n[2] - i[2]];
+struct Lighting {
+    roughness: f32,
+    lights: Vec<LightPre>,
+    diffuse_color: V3,
+    specular_base: V3,
+}
 
-    let mut specular_light = [0.0f32; 3];
-    let mut diffuse_light = [0.0f32; 3];
-    for l in &LIGHTS {
-        let half_dir = normalize([l.direction[0] + i[0], l.direction[1] + i[1], l.direction[2] + i[2]]);
-        let wrapped_nl = dot(l.direction, r);
-        let spec_angle = saturate(dot(half_dir, n));
-        let spec_nl = saturate(dot(l.direction, n));
-
-        /* Reduce gloss for smooth light. */
-        let gloss = (1.0 - roughness) * (1.0 - l.wrap);
-        let shininess = (10.0 * gloss + 1.0).exp2();
-        let spec_light = spec_angle.powf(shininess) * spec_nl * (shininess * 0.125 + 1.0);
-
-        /* Simulate env. light. */
-        let w = l.wrap + (1.0 - l.wrap) * roughness;
-        let spec_env = wrapped_lighting(wrapped_nl, w);
-        let k = l.wrap * l.wrap;
-        let spec_light = spec_light * (1.0 - k) + spec_env * k;
-
-        let diff_light = wrapped_lighting(dot(l.direction, n), l.wrap);
-        for c in 0..3 {
-            specular_light[c] += spec_light * l.specular[c];
-            diffuse_light[c] += diff_light * l.diffuse[c];
+impl Lighting {
+    fn new(roughness: f32, metallic: f32) -> Lighting {
+        let lights = LIGHTS
+            .iter()
+            .map(|l| {
+                /* Reduce gloss for smooth light. */
+                let gloss = (1.0 - roughness) * (1.0 - l.wrap);
+                let shininess = (10.0 * gloss + 1.0).exp2();
+                LightPre {
+                    direction: l.direction,
+                    diffuse: l.diffuse,
+                    specular: l.specular,
+                    wrap: l.wrap,
+                    shininess,
+                    shininess_scale: shininess * 0.125 + 1.0,
+                    w: l.wrap + (1.0 - l.wrap) * roughness,
+                    k: l.wrap * l.wrap,
+                }
+            })
+            .collect();
+        Lighting {
+            roughness,
+            lights,
+            diffuse_color: BASE_COLOR.map(|c| c * (1.0 - metallic)),
+            specular_base: BASE_COLOR.map(|c| 0.05 * (1.0 - metallic) + c * metallic),
         }
     }
 
-    /* `brdf_approx()`. */
-    let fresnel = (-8.35 * saturate(n_dot_i)).exp2() * (1.0 - roughness);
-    let specular_color = specular_base.map(|c| c * (1.0 - fresnel) + fresnel);
-    let spec_energy = dot(specular_color, [0.33333; 3]);
+    /// `get_world_lighting()` with specular on and a black ambient colour; `n` and `i` are in view space.
+    fn shade(&self, n: V3, i: V3) -> V3 {
+        /* `R = -reflect(I, N)`. */
+        let n_dot_i = dot(n, i);
+        let r = [2.0 * n_dot_i * n[0] - i[0], 2.0 * n_dot_i * n[1] - i[1], 2.0 * n_dot_i * n[2] - i[2]];
 
-    std::array::from_fn(|c| {
-        diffuse_light[c] * diffuse_color[c] * (1.0 - spec_energy) + specular_light[c] * specular_color[c]
-    })
+        let mut specular_light = [0.0f32; 3];
+        let mut diffuse_light = [0.0f32; 3];
+        for l in &self.lights {
+            let half_dir = normalize([l.direction[0] + i[0], l.direction[1] + i[1], l.direction[2] + i[2]]);
+            let wrapped_nl = dot(l.direction, r);
+            let spec_angle = saturate(dot(half_dir, n));
+            let spec_nl = saturate(dot(l.direction, n));
+
+            /* `0 ^ shininess` is 0 (shininess is positive): skips the `powf` of the unlit pixels. */
+            let pow = if spec_angle > 0.0 { spec_angle.powf(l.shininess) } else { 0.0 };
+            let spec_light = pow * spec_nl * l.shininess_scale;
+
+            /* Simulate env. light. */
+            let spec_env = wrapped_lighting(wrapped_nl, l.w);
+            let spec_light = spec_light * (1.0 - l.k) + spec_env * l.k;
+
+            let diff_light = wrapped_lighting(dot(l.direction, n), l.wrap);
+            for c in 0..3 {
+                specular_light[c] += spec_light * l.specular[c];
+                diffuse_light[c] += diff_light * l.diffuse[c];
+            }
+        }
+
+        /* `brdf_approx()`. */
+        let fresnel = (-8.35 * saturate(n_dot_i)).exp2() * (1.0 - self.roughness);
+        let specular_color = self.specular_base.map(|c| c * (1.0 - fresnel) + fresnel);
+        let spec_energy = dot(specular_color, [0.33333; 3]);
+
+        std::array::from_fn(|c| {
+            diffuse_light[c] * self.diffuse_color[c] * (1.0 - spec_energy) + specular_light[c] * specular_color[c]
+        })
+    }
+}
+
+#[cfg(test)]
+fn world_lighting(roughness: f32, metallic: f32, n: V3, i: V3) -> V3 {
+    Lighting::new(roughness, metallic).shade(n, i)
 }
 
 /// `drw_view_incident_vector()` for the pixel ray through `ndc` (the composite pass uses a point at
@@ -251,8 +302,9 @@ struct Target<'a> {
     ids: Vec<u32>,
     /// The id written by the triangles being drawn.
     cur_id: u32,
-    roughness: f32,
-    metallic: f32,
+    lighting: Lighting,
+    /// The opaque triangles of the frame, rasterised by `flush()` in horizontal bands on several threads.
+    jobs: Vec<Job>,
     /// `Some` in X-ray mode (`SceneState::xray_mode`): every face goes to the transparent pass.
     xray: Option<Xray>,
 }
@@ -307,7 +359,17 @@ impl Target<'_> {
                 ns = ns.map(|n| [-n[0], -n[1], -n[2]]);
             }
         }
+        if self.xray.is_none() {
+            self.jobs.push(Job { t, ns, area, id: self.cur_id });
+            return;
+        }
         let flat = ns[0] == ns[1] && ns[1] == ns[2];
+        /* The edge functions with their per-triangle terms hoisted (the same arithmetic as `edge()`). */
+        let (e0x, e0y, o0x, o0y) = (t[2][0] - t[1][0], t[2][1] - t[1][1], t[1][0], t[1][1]);
+        let (e1x, e1y, o1x, o1y) = (t[0][0] - t[2][0], t[0][1] - t[2][1], t[2][0], t[2][1]);
+        let (e2x, e2y, o2x, o2y) = (t[1][0] - t[0][0], t[1][1] - t[0][1], t[0][0], t[0][1]);
+        /* A flat face seen in an orthographic view has one colour for all its pixels. */
+        let flat_color = (flat && rv3d.ortho).then(|| self.lighting.shade(ns[0], [0.0, 0.0, 1.0]));
 
         let min_x = t[0][0].min(t[1][0]).min(t[2][0]);
         let max_x = t[0][0].max(t[1][0]).max(t[2][0]);
@@ -319,9 +381,9 @@ impl Target<'_> {
         for py in y0..=y1 {
             for px in x0..=x1 {
                 let p = [px as f32 + 0.5, py as f32 + 0.5];
-                let w0 = edge(&t[1], &t[2], &p);
-                let w1 = edge(&t[2], &t[0], &p);
-                let w2 = edge(&t[0], &t[1], &p);
+                let w0 = e0x * (p[1] - o0y) - e0y * (p[0] - o0x);
+                let w1 = e1x * (p[1] - o1y) - e1y * (p[0] - o1x);
+                let w2 = e2x * (p[1] - o2y) - e2y * (p[0] - o2x);
                 if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
                     continue;
                 }
@@ -346,9 +408,13 @@ impl Target<'_> {
                 } else {
                     normalize(std::array::from_fn(|k| (w0 * ns[0][k] + w1 * ns[1][k] + w2 * ns[2][k]) / area))
                 };
-                let ndc = [p[0] / self.rw as f32 * 2.0 - 1.0, p[1] / self.rh as f32 * 2.0 - 1.0];
-                let i = incident_vector(rv3d, ndc);
-                let c = world_lighting(self.roughness, self.metallic, n, i);
+                let c = match flat_color {
+                    Some(c) => c,
+                    None => {
+                        let ndc = [p[0] / self.rw as f32 * 2.0 - 1.0, p[1] / self.rh as f32 * 2.0 - 1.0];
+                        self.lighting.shade(n, incident_vector(rv3d, ndc))
+                    }
+                };
 
                 /* `frag_transparent()`: `alpha = material alpha * xray_alpha`, weighted accumulation. */
                 if let Some(x) = self.xray.as_mut() {
@@ -370,6 +436,158 @@ impl Target<'_> {
                 self.buf[idx] = (linear_to_srgb8(c[0]) << 16) | (linear_to_srgb8(c[1]) << 8) | linear_to_srgb8(c[2]);
             }
         }
+    }
+}
+
+/// One opaque triangle waiting for `Target::flush()`: screen space corners (counter clockwise), view space normals
+/// (already flipped for back faces), twice its area and the object id.
+struct Job {
+    t: [[f32; 3]; 3],
+    ns: [V3; 3],
+    area: f32,
+    id: u32,
+}
+
+/// A raw pointer to the window buffer that the band threads write through. Every band owns a distinct range of
+/// region rows, and a region row maps to exactly one window row, so no two threads write the same element.
+#[derive(Clone, Copy)]
+struct OutPtr(*mut u32, usize);
+unsafe impl Send for OutPtr {}
+unsafe impl Sync for OutPtr {}
+
+/// The rows `y0..y1` of the region: their depth and id rows, and the shared window buffer.
+struct Band<'a> {
+    y0: i32,
+    y1: i32,
+    depth: &'a mut [f32],
+    ids: &'a mut [u32],
+}
+
+/// Everything a band needs that is the same for all bands.
+struct BandCtx<'a> {
+    rv3d: &'a RegionView3D,
+    lighting: &'a Lighting,
+    out: OutPtr,
+    width: usize,
+    height: usize,
+    region: Rcti,
+    rw: i32,
+    rh: i32,
+}
+
+/// Rasterises `jobs`, in order, into the rows of `band`: the same per pixel work and the same arithmetic as the X-ray
+/// less path of `Target::triangle()`, so any band split gives the same image.
+fn raster_band(ctx: &BandCtx, band: &mut Band, jobs: &[Job]) {
+    let (rw, rh) = (ctx.rw, ctx.rh);
+    for job in jobs {
+        let (t, ns, area) = (&job.t, &job.ns, job.area);
+        let min_y = t[0][1].min(t[1][1]).min(t[2][1]);
+        let max_y = t[0][1].max(t[1][1]).max(t[2][1]);
+        let y0 = (min_y.floor() as i32).max(band.y0);
+        let y1 = (max_y.ceil() as i32).min(rh - 1).min(band.y1 - 1);
+        if y0 > y1 {
+            continue;
+        }
+        let min_x = t[0][0].min(t[1][0]).min(t[2][0]);
+        let max_x = t[0][0].max(t[1][0]).max(t[2][0]);
+        let (x0, x1) = ((min_x.floor() as i32).max(0), (max_x.ceil() as i32).min(rw - 1));
+        let flat = ns[0] == ns[1] && ns[1] == ns[2];
+        let (e0x, e0y, o0x, o0y) = (t[2][0] - t[1][0], t[2][1] - t[1][1], t[1][0], t[1][1]);
+        let (e1x, e1y, o1x, o1y) = (t[0][0] - t[2][0], t[0][1] - t[2][1], t[2][0], t[2][1]);
+        let (e2x, e2y, o2x, o2y) = (t[1][0] - t[0][0], t[1][1] - t[0][1], t[0][0], t[0][1]);
+        let flat_color = (flat && ctx.rv3d.ortho).then(|| ctx.lighting.shade(ns[0], [0.0, 0.0, 1.0]));
+        for py in y0..=y1 {
+            for px in x0..=x1 {
+                let p = [px as f32 + 0.5, py as f32 + 0.5];
+                let w0 = e0x * (p[1] - o0y) - e0y * (p[0] - o0x);
+                let w1 = e1x * (p[1] - o1y) - e1y * (p[0] - o1x);
+                let w2 = e2x * (p[1] - o2y) - e2y * (p[0] - o2x);
+                if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+                    continue;
+                }
+                let z = (w0 * t[0][2] + w1 * t[1][2] + w2 * t[2][2]) / area;
+                if !(0.0..=1.0).contains(&z) {
+                    continue;
+                }
+                let di = ((py - band.y0) * rw + px) as usize;
+                if z > band.depth[di] {
+                    continue;
+                }
+                band.ids[di] = job.id;
+                band.depth[di] = band.depth[di].min(z);
+                let c = match flat_color {
+                    Some(c) => c,
+                    None => {
+                        let n = if flat {
+                            ns[0]
+                        } else {
+                            normalize(std::array::from_fn(|k| (w0 * ns[0][k] + w1 * ns[1][k] + w2 * ns[2][k]) / area))
+                        };
+                        let ndc = [p[0] / rw as f32 * 2.0 - 1.0, p[1] / rh as f32 * 2.0 - 1.0];
+                        ctx.lighting.shade(n, incident_vector(ctx.rv3d, ndc))
+                    }
+                };
+                let (x, y) = (ctx.region.xmin + px, ctx.region.ymin + py);
+                if x < 0 || y < 0 || x as usize >= ctx.width || y as usize >= ctx.height {
+                    continue;
+                }
+                let idx = (ctx.height - 1 - y as usize) * ctx.width + x as usize;
+                debug_assert!(idx < ctx.out.1);
+                let v = (linear_to_srgb8(c[0]) << 16) | (linear_to_srgb8(c[1]) << 8) | linear_to_srgb8(c[2]);
+                /* SAFETY: `idx < width * height` (checked above) and only the band that owns row `py` writes it. */
+                unsafe { *ctx.out.0.add(idx) = v };
+            }
+        }
+    }
+}
+
+/// How many threads the bands are spread over.
+fn default_threads() -> usize {
+    std::thread::available_parallelism().map_or(1, |n| n.get()).min(8)
+}
+
+impl Target<'_> {
+    /// Rasterises the deferred opaque triangles: the region is cut into bands of rows (more bands than threads, so
+    /// that the threads share an uneven load), each thread takes the next free band and replays every triangle in
+    /// submission order into it.
+    fn flush(&mut self, rv3d: &RegionView3D, threads: usize) {
+        if self.jobs.is_empty() {
+            return;
+        }
+        let jobs = std::mem::take(&mut self.jobs);
+        let (rw, rh) = (self.rw, self.rh);
+        let threads = if jobs.len() < 64 || rh < 32 { 1 } else { threads.clamp(1, (rh / 16).max(1) as usize) };
+        let band_rows = if threads == 1 { rh } else { ((rh + threads as i32 * 4 - 1) / (threads as i32 * 4)).max(8) };
+        let out = OutPtr(self.buf.as_mut_ptr(), self.buf.len());
+        let ctx = BandCtx { rv3d, lighting: &self.lighting, out, width: self.width, height: self.height, region: self.region, rw, rh };
+        let rows = (band_rows * rw) as usize;
+        let mut bands: Vec<Band> = self
+            .depth
+            .chunks_mut(rows)
+            .zip(self.ids.chunks_mut(rows))
+            .enumerate()
+            .map(|(k, (depth, ids))| {
+                let y0 = k as i32 * band_rows;
+                Band { y0, y1: (y0 + band_rows).min(rh), depth, ids }
+            })
+            .collect();
+        if threads == 1 {
+            for band in &mut bands {
+                raster_band(&ctx, band, &jobs);
+            }
+            return;
+        }
+        bands.reverse();
+        let queue = std::sync::Mutex::new(bands);
+        std::thread::scope(|scope| {
+            for _ in 0..threads {
+                scope.spawn(|| loop {
+                    let next = queue.lock().ok().and_then(|mut q| q.pop());
+                    let Some(mut band) = next else { break };
+                    raster_band(&ctx, &mut band, &jobs);
+                });
+            }
+        });
     }
 }
 
@@ -453,6 +671,12 @@ fn draw_mesh(target: &mut Target, rv3d: &RegionView3D, m: &Mat4, mesh: &Mesh, sm
 /// buffer, and returns the region's depth and object id buffers for the overlays. `rv3d` must have been updated
 /// for the size of the region.
 pub fn draw_scene(buf: &mut [u32], width: usize, height: usize, region: Rcti, rv3d: &RegionView3D, xray: bool, scene: &Scene) -> SceneRender {
+    draw_scene_threads(buf, width, height, region, rv3d, xray, scene, default_threads())
+}
+
+/// `draw_scene()` with an explicit thread count (the image does not depend on it).
+#[allow(clippy::too_many_arguments)]
+pub fn draw_scene_threads(buf: &mut [u32], width: usize, height: usize, region: Rcti, rv3d: &RegionView3D, xray: bool, scene: &Scene, threads: usize) -> SceneRender {
     let (rw, rh) = (region.size_x() + 1, region.size_y() + 1);
     if rw <= 0 || rh <= 0 {
         return SceneRender { depth: Vec::new(), ids: Vec::new() };
@@ -475,8 +699,8 @@ pub fn draw_scene(buf: &mut [u32], width: usize, height: usize, region: Rcti, rv
             weight: vec![0.0; n],
             reveal: vec![1.0; n],
         }),
-        roughness,
-        metallic,
+        lighting: Lighting::new(roughness, metallic),
+        jobs: Vec::new(),
     };
 
     for o in scene.objects.iter().filter(|o| !o.hidden) {
@@ -484,6 +708,7 @@ pub fn draw_scene(buf: &mut [u32], width: usize, height: usize, region: Rcti, rv
         target.cur_id = o.id + 1;
         draw_mesh(&mut target, rv3d, &o.world_matrix(), mesh, o.smooth);
     }
+    target.flush(rv3d, threads);
     target.resolve_xray();
     SceneRender { depth: target.depth, ids: target.ids }
 }
@@ -608,5 +833,54 @@ mod tests {
         assert_ne!(xray[centre], opaque[centre]);
         assert_eq!(depth_xray, depth_opaque);
         assert_eq!(xray[(h - 1) * w], bg);
+    }
+
+    /// `cargo test --release bench_draw_scene -- --ignored --nocapture`: milliseconds per frame of a smooth sphere
+    /// (about 4000 triangles) and a flat cube at 1280 x 720.
+    #[test]
+    #[ignore]
+    fn bench_draw_scene() {
+        let mut scene = Scene::startup();
+        let id = scene.add_primitive(crate::mesh::Primitive::UvSphere, [0.0, 0.0, 0.0]);
+        for o in scene.objects.iter_mut().filter(|o| o.id == id) {
+            o.smooth = true;
+            o.scale = [2.0; 3];
+        }
+        let (w, h) = (1280usize, 720usize);
+        let mut rv3d = RegionView3D::default();
+        rv3d.update(&View3D::default(), w as i32, h as i32);
+        let region = Rcti { xmin: 0, xmax: w as i32 - 1, ymin: 0, ymax: h as i32 - 1 };
+        let mut buf = vec![0u32; w * h];
+        let t = std::time::Instant::now();
+        for _ in 0..30 {
+            draw_scene(&mut buf, w, h, region, &rv3d, false, &scene);
+        }
+        println!("draw_scene: {:.2} ms/frame", t.elapsed().as_secs_f64() * 1000.0 / 30.0);
+    }
+
+    /// The band split and the thread count do not change the image, the depth or the id buffer.
+    #[test]
+    fn threaded_rendering_matches_single_threaded() {
+        let mut scene = Scene::startup();
+        let id = scene.add_primitive(crate::mesh::Primitive::UvSphere, [0.5, 0.0, 0.3]);
+        for o in scene.objects.iter_mut().filter(|o| o.id == id) {
+            o.smooth = true;
+            o.scale = [1.5; 3];
+        }
+        let (w, h) = (640usize, 480usize);
+        let mut rv3d = RegionView3D::default();
+        rv3d.update(&View3D::default(), w as i32, h as i32);
+        let region = Rcti { xmin: 0, xmax: w as i32 - 1, ymin: 0, ymax: h as i32 - 1 };
+        let bg = crate::theme::SPACE_VIEW3D_BACK.to_xrgb();
+        let run = |threads: usize| {
+            let mut buf = vec![bg; w * h];
+            let r = draw_scene_threads(&mut buf, w, h, region, &rv3d, false, &scene, threads);
+            (buf, r.depth, r.ids)
+        };
+        let one = run(1);
+        assert!(one.0.iter().any(|&p| p != bg), "something is drawn");
+        for threads in [2, 4, 7] {
+            assert!(run(threads) == one, "{threads} threads");
+        }
     }
 }
