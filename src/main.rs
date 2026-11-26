@@ -19,6 +19,7 @@ mod ui_layout;
 mod widget_draw;
 mod font;
 mod outliner_draw;
+mod outliner_rename;
 mod playhead_draw;
 
 mod status_input;
