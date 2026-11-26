@@ -66,7 +66,7 @@ pub struct Widget {
 /// One modifier of the panel. The target row is only there for modifiers that have a target (Shrinkwrap, Boolean).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModRow {
-    pub name: &'static str,
+    pub name: String,
     pub summary: String,
     pub target: Option<String>,
     /// Shown in the viewport (the highlighted monitor toggle).
@@ -78,7 +78,7 @@ pub struct ModRow {
 impl ModRow {
     #[cfg(test)]
     fn new(name: &'static str, summary: &str, target: Option<&str>) -> ModRow {
-        ModRow { name, summary: summary.into(), target: target.map(Into::into), shown: true, collapsed: false }
+        ModRow { name: name.into(), summary: summary.into(), target: target.map(Into::into), shown: true, collapsed: false }
     }
 }
 
@@ -104,7 +104,7 @@ impl PanelState {
                     .map(|(i, m)| {
                         let target = matches!(m, Modifier::Shrinkwrap { .. } | Modifier::Boolean { .. })
                             .then(|| format!("Target: {}", scene.target_name(i).unwrap_or_else(|| "(none)".into())));
-                        ModRow { name: m.label(), summary: m.summary(), target, shown: o.modifier_shown(i), collapsed: o.modifier_collapsed(i) }
+                        ModRow { name: o.modifier_name(i).unwrap_or_default(), summary: m.summary(), target, shown: o.modifier_shown(i), collapsed: o.modifier_collapsed(i) }
                     })
                     .collect(),
                 active: o.active_modifier.min(o.modifiers.len().saturating_sub(1)),
@@ -448,8 +448,8 @@ mod tests {
         assert!(apply(&mut s, &mut open, Action::Add(15)), "Weld");
         assert!(apply(&mut s, &mut open, Action::MoveDown(0)));
         let st = PanelState::of(&s, false);
-        assert_eq!((st.modifiers[0].name, st.modifiers[0].shown), ("Weld", true));
-        assert_eq!((st.modifiers[1].name, st.modifiers[1].shown), ("Array", false), "the flag moved with the modifier");
+        assert_eq!((st.modifiers[0].name.as_str(), st.modifiers[0].shown), ("Weld", true));
+        assert_eq!((st.modifiers[1].name.as_str(), st.modifiers[1].shown), ("Array", false), "the flag moved with the modifier");
         assert!(apply(&mut s, &mut open, Action::Remove(0)));
         assert!(!PanelState::of(&s, false).modifiers[0].shown, "removing another one keeps the flag");
     }
@@ -504,6 +504,37 @@ mod tests {
     }
 
     #[test]
+    fn a_modifier_can_be_renamed() {
+        let mut s = Scene::startup();
+        let mut open = false;
+        for a in [1, 1, 15] {
+            apply(&mut s, &mut open, Action::Add(a));
+        }
+        let names = |s: &Scene| PanelState::of(s, false).modifiers.into_iter().map(|m| m.name).collect::<Vec<_>>();
+        assert_eq!(names(&s), ["Array", "Array", "Weld"]);
+        assert!(s.panel_rename_modifier(0, "  Row  "));
+        assert_eq!(names(&s), ["Row", "Array", "Weld"], "trimmed");
+        assert!(!s.panel_rename_modifier(0, "Row"), "unchanged");
+        assert!(!s.panel_rename_modifier(0, "   "), "empty names are refused");
+        assert!(!s.panel_rename_modifier(9, "X"), "no such modifier");
+        assert!(s.panel_rename_modifier(2, "Row"));
+        assert_eq!(names(&s)[2], "Row.001", "unique among the modifiers");
+        assert!(s.panel_rename_modifier(2, "Row.001") == false);
+        assert!(s.panel_rename_modifier(1, "Weld"), "another modifier's kind name is free");
+        assert!(s.panel_rename_modifier(1, "Array"), "back to the kind's name");
+        assert!(s.active_object().unwrap().mod_flags[1].name.is_none(), "which clears the custom name");
+        /* The name moves with the modifier, is undoable and does not change the geometry. */
+        assert!(apply(&mut s, &mut open, Action::MoveDown(0)));
+        assert_eq!(names(&s), ["Array", "Row", "Row.001"]);
+        assert!(s.undo());
+        assert_eq!(names(&s), ["Row", "Array", "Row.001"]);
+        assert!(s.undo());
+        assert_eq!(names(&s), ["Row", "Weld", "Row.001"], "the rename back to Array was a step of its own");
+        assert_eq!(s.active_object().unwrap().modifiers.len(), 3);
+        assert_eq!(crate::rename_popup::Rename::open_modifier([0, 0], "Row", 2).modifier, Some(2));
+    }
+
+    #[test]
     fn duplicate_inserts_a_copy_after_the_modifier() {
         let mut s = Scene::startup();
         let mut open = false;
@@ -517,6 +548,7 @@ mod tests {
         assert_eq!(o.modifiers[1], Modifier::array(3), "the copy keeps the settings");
         assert_eq!(o.active_modifier, 1, "the copy is the active one");
         assert!(!apply(&mut s, &mut open, Action::Duplicate(9)), "no such modifier");
+        assert_eq!(PanelState::of(&s, false).modifiers[1].name, "Array.001", "the copy gets a unique name");
         assert!(s.undo());
         assert_eq!(s.active_object().unwrap().modifiers.len(), 2);
         assert!(s.duplicate_active_modifier(), "the chord copies the active one");

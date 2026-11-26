@@ -206,6 +206,8 @@ struct App {
     box_select: Option<BoxSelect>,
     /// The F2 rename popup.
     rename: Option<rename_popup::Rename>,
+    /// The last click on a modifier panel button, for the double-click on a name (rename).
+    last_panel_click: Option<(std::time::Instant, modifier_panel::Action)>,
     /// The Ctrl + C buffer of `view3d.copybuffer`.
     clipboard: scene::Clipboard,
     /// Depth buffer of the main region from the last redraw (`rw * rh`, 1.0 where nothing is drawn).
@@ -788,6 +790,18 @@ impl ApplicationHandler for App {
                     let widgets = modifier_panel::widgets(user, below, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open));
                     if let Some(action) = modifier_panel::action_at(&widgets, self.cursor) {
                         let action = if self.modifiers.control_key() { modifier_panel::with_ctrl(action) } else { action };
+                        /* A double-click on a modifier's name edits it (Blender's text field of the panel header). */
+                        let now = std::time::Instant::now();
+                        let double = matches!(action, modifier_panel::Action::Select(_))
+                            && self.last_panel_click.is_some_and(|(t, a)| a == action && now.duration_since(t).as_millis() < 400);
+                        self.last_panel_click = if double { None } else { Some((now, action)) };
+                        if let (true, modifier_panel::Action::Select(i)) = (double, action) {
+                            if let Some(name) = self.scene.active_object().and_then(|o| o.modifier_name(i)) {
+                                self.rename = Some(rename_popup::Rename::open_modifier(self.cursor, &name, i));
+                            }
+                            gfx.window.request_redraw();
+                            return;
+                        }
                         if modifier_panel::apply(&mut self.scene, &mut self.mod_add_open, action) {
                             scene_changed(&mut self.scene, &mut self.taa);
                         }
@@ -994,8 +1008,13 @@ impl ApplicationHandler for App {
                     }
                     if outcome != rename_popup::Outcome::Editing {
                         let edit = self.rename.take();
+                        let edit_modifier = edit.as_ref().and_then(|e| e.modifier);
                         if let (rename_popup::Outcome::Apply, Some(name)) = (outcome, edit.and_then(|e| e.result())) {
-                            if self.scene.rename_active(&name) {
+                            let changed = match edit_modifier {
+                                Some(i) => self.scene.panel_rename_modifier(i, &name),
+                                None => self.scene.rename_active(&name),
+                            };
+                            if changed {
                                 scene_changed(&mut self.scene, &mut self.taa);
                             }
                         }

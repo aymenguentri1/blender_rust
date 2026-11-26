@@ -17,6 +17,7 @@ const FIELD_OUTLINE: Rgba = Rgba::hex(0x4772b3ff);
 const TITLE_TEXT: Rgba = Rgba::hex(0x999999ff);
 const TEXT: Rgba = Rgba::hex(0xffffffff);
 const TITLE: &str = "Rename Active Object";
+const TITLE_MODIFIER: &str = "Rename Modifier";
 /// `MAX_NAME` of Blender is 64 bytes including the terminator.
 pub const MAX_NAME_BYTES: usize = 63;
 
@@ -27,6 +28,8 @@ pub struct Rename {
     pub pos: [i32; 2],
     pub text: String,
     pub caret: usize,
+    /// `Some(i)`: renames modifier `i` of the active object instead of the object.
+    pub modifier: Option<usize>,
 }
 
 /// What a key did to the popup.
@@ -40,7 +43,12 @@ pub enum Outcome {
 impl Rename {
     /// Opens with the whole current name and the caret at its end.
     pub fn open(pos: [i32; 2], name: &str) -> Rename {
-        Rename { pos, text: name.to_string(), caret: name.len() }
+        Rename { pos, text: name.to_string(), caret: name.len(), modifier: None }
+    }
+
+    /// The popup of a modifier's name field.
+    pub fn open_modifier(pos: [i32; 2], name: &str, modifier: usize) -> Rename {
+        Rename { modifier: Some(modifier), ..Rename::open(pos, name) }
     }
 
     /// Inserts printable characters at the caret (control characters are ignored, the name stays within
@@ -136,7 +144,7 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, l: &La
     fill_rect(buf, width, height, l.panel, OUTLINE.to_xrgb());
     let inner = Rcti { xmin: l.panel.xmin + b, xmax: l.panel.xmax - b, ymin: l.panel.ymin + b, ymax: l.panel.ymax - b };
     fill_rect(buf, width, height, inner, INNER.to_xrgb());
-    font::draw_label(buf, width, height, user, l.title, TITLE, TITLE_TEXT);
+    font::draw_label(buf, width, height, user, l.title, if edit.modifier.is_some() { TITLE_MODIFIER } else { TITLE }, TITLE_TEXT);
     fill_rect(buf, width, height, l.field, FIELD_OUTLINE.to_xrgb());
     let f = Rcti { xmin: l.field.xmin + b, xmax: l.field.xmax - b, ymin: l.field.ymin + b, ymax: l.field.ymax - b };
     fill_rect(buf, width, height, f, FIELD.to_xrgb());
