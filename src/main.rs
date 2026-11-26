@@ -165,6 +165,7 @@ mod mirror_settings;
 #[allow(dead_code)]
 mod bevel_settings;
 mod material;
+mod mesh_query;
 
 use std::{num::NonZeroU32, sync::Arc};
 
