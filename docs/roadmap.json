@@ -1,0 +1,316 @@
+[
+ {
+  "key": "edit-mode",
+  "title": "Edit mode basics (select, extrude, bevel, loop cut)",
+  "dirs": [
+   "source/blender/editors/mesh/"
+  ],
+  "note": "planned in epics #61-#63"
+ },
+ {
+  "key": "outliner",
+  "title": "Outliner parity",
+  "dirs": [
+   "source/blender/editors/space_outliner/"
+  ],
+  "note": "planned in epic #64"
+ },
+ {
+  "key": "properties-editor",
+  "title": "Properties editor tabs",
+  "dirs": [
+   "source/blender/editors/space_buttons/",
+   "scripts/startup/bl_ui/properties_"
+  ],
+  "note": "planned in epic #65"
+ },
+ {
+  "key": "animation",
+  "title": "Timeline and keyframes",
+  "dirs": [
+   "source/blender/editors/animation/",
+   "source/blender/editors/space_action/"
+  ],
+  "note": "planned in epic #66"
+ },
+ {
+  "key": "graph-editor",
+  "title": "Graph editor",
+  "dirs": [
+   "source/blender/editors/space_graph/"
+  ],
+  "note": "planned in epic #67"
+ },
+ {
+  "key": "sculpt-face-sets",
+  "title": "Sculpt face sets",
+  "dirs": [
+   "source/blender/editors/sculpt_paint/mesh/sculpt_face_set"
+  ],
+  "note": "planned in epic #68"
+ },
+ {
+  "key": "multires",
+  "title": "Multires",
+  "dirs": [
+   "source/blender/blenkernel/intern/multires"
+  ],
+  "note": "planned in epic #69"
+ },
+ {
+  "key": "modifiers-audit",
+  "title": "Modifier audit",
+  "dirs": [
+   "source/blender/modifiers/intern/MOD_mirror"
+  ],
+  "note": "planned in epic #70"
+ },
+ {
+  "key": "materials",
+  "title": "Materials and Material Preview",
+  "dirs": [
+   "source/blender/blenkernel/intern/material"
+  ],
+  "note": "planned in epic #71"
+ },
+ {
+  "key": "io-obj",
+  "title": "OBJ import/export",
+  "dirs": [
+   "source/blender/io/wavefront_obj/"
+  ],
+  "note": "planned in epic #72"
+ },
+ {
+  "key": "io-gltf",
+  "title": "glTF import/export",
+  "dirs": [
+   "scripts/addons_core/io_scene_gltf2/"
+  ],
+  "note": "planned in epic #73"
+ },
+ {
+  "key": "io-blend",
+  "title": "Read .blend files",
+  "dirs": [
+   "source/blender/blenloader/",
+   "source/blender/makesdna/"
+  ],
+  "note": "planned in epic #74"
+ },
+ {
+  "key": "ci-health",
+  "title": "fmt and clippy clean",
+  "dirs": [],
+  "note": "planned in epic #75"
+ },
+ {
+  "key": "transform",
+  "title": "Transform system (grab/rotate/scale, snapping, proportional editing)",
+  "dirs": [
+   "source/blender/editors/transform/"
+  ],
+  "note": "Core feel of Blender. Existing src/transform.rs is partial: audit against these files first."
+ },
+ {
+  "key": "object-ops",
+  "title": "Object operators (join, separate, origin, shade smooth, convert)",
+  "dirs": [
+   "source/blender/editors/object/"
+  ],
+  "note": "Many operators already exist in src/scene/ops.rs: compare names and options with object_*.cc"
+ },
+ {
+  "key": "mesh-ops-more",
+  "title": "More mesh edit operators (inset, knife, merge, dissolve, fill, spin)",
+  "dirs": [
+   "source/blender/editors/mesh/editmesh_inset.cc",
+   "source/blender/editors/mesh/editmesh_knife.cc",
+   "source/blender/editors/mesh/editmesh_tools.cc"
+  ],
+  "note": "After edit-mode basics are merged."
+ },
+ {
+  "key": "bmesh",
+  "title": "BMesh data structure and operators",
+  "dirs": [
+   "source/blender/bmesh/"
+  ],
+  "note": "Half-edge style mesh core that edit-mode depends on; port the structures and iterators first."
+ },
+ {
+  "key": "undo",
+  "title": "Undo system (global and edit-mesh)",
+  "dirs": [
+   "source/blender/editors/undo/",
+   "source/blender/editors/mesh/editmesh_undo.cc"
+  ],
+  "note": "Check what src/scene.rs undo already does."
+ },
+ {
+  "key": "keymap",
+  "title": "Default keymap (Blender 4.x keyconfig)",
+  "dirs": [
+   "scripts/presets/keyconfig/",
+   "scripts/modules/bl_keymap_utils/"
+  ],
+  "note": "Keys must come from the real keymap files."
+ },
+ {
+  "key": "uv-editing",
+  "title": "UV editor and unwrap",
+  "dirs": [
+   "source/blender/editors/uvedit/"
+  ],
+  "note": ""
+ },
+ {
+  "key": "curves",
+  "title": "Curve and surface objects",
+  "dirs": [
+   "source/blender/editors/curve/"
+  ],
+  "note": ""
+ },
+ {
+  "key": "armature",
+  "title": "Armature, bones and pose mode",
+  "dirs": [
+   "source/blender/editors/armature/"
+  ],
+  "note": ""
+ },
+ {
+  "key": "rigging-skin",
+  "title": "Skinning and weight paint (files with weight/vertex in the name)",
+  "dirs": [
+   "source/blender/editors/sculpt_paint/"
+  ],
+  "note": ""
+ },
+ {
+  "key": "sculpt-brushes",
+  "title": "Sculpt brushes",
+  "dirs": [
+   "source/blender/editors/sculpt_paint/"
+  ],
+  "note": "Existing src/sculpt.rs is partial; audit against brush files."
+ },
+ {
+  "key": "geometry-nodes",
+  "title": "Geometry nodes",
+  "dirs": [
+   "source/blender/nodes/geometry/",
+   "source/blender/editors/space_node/"
+  ],
+  "note": "Very large; plan in small vertical slices."
+ },
+ {
+  "key": "shader-nodes",
+  "title": "Shader node editor",
+  "dirs": [
+   "source/blender/nodes/shader/"
+  ],
+  "note": ""
+ },
+ {
+  "key": "render-workbench",
+  "title": "Workbench and overlay engine parity",
+  "dirs": [
+   "source/blender/draw/engines/workbench/",
+   "source/blender/draw/engines/overlay/"
+  ],
+  "note": ""
+ },
+ {
+  "key": "render-eevee",
+  "title": "EEVEE-style realtime render",
+  "dirs": [
+   "source/blender/draw/engines/eevee/"
+  ],
+  "note": "Huge; later."
+ },
+ {
+  "key": "render-cycles",
+  "title": "Cycles path tracer (CPU)",
+  "dirs": [
+   "intern/cycles/"
+  ],
+  "note": "Huge; later, CPU kernels only."
+ },
+ {
+  "key": "physics",
+  "title": "Physics: cloth, rigid body, particles",
+  "dirs": [
+   "source/blender/blenkernel/intern/cloth",
+   "source/blender/blenkernel/intern/rigidbody",
+   "source/blender/blenkernel/intern/particle"
+  ],
+  "note": ""
+ },
+ {
+  "key": "grease-pencil",
+  "title": "Grease Pencil",
+  "dirs": [
+   "source/blender/editors/grease_pencil/"
+  ],
+  "note": ""
+ },
+ {
+  "key": "sequencer",
+  "title": "Video sequencer",
+  "dirs": [
+   "source/blender/editors/space_sequencer/",
+   "source/blender/sequencer/"
+  ],
+  "note": ""
+ },
+ {
+  "key": "compositor",
+  "title": "Compositor",
+  "dirs": [
+   "source/blender/compositor/"
+  ],
+  "note": ""
+ },
+ {
+  "key": "file-browser",
+  "title": "File browser and save/open UI",
+  "dirs": [
+   "source/blender/editors/space_file/"
+  ],
+  "note": ""
+ },
+ {
+  "key": "ui-widgets",
+  "title": "UI widgets and layout engine",
+  "dirs": [
+   "source/blender/editors/interface/"
+  ],
+  "note": ""
+ },
+ {
+  "key": "preferences",
+  "title": "Preferences editor",
+  "dirs": [
+   "scripts/startup/bl_ui/space_userpref.py"
+  ],
+  "note": ""
+ },
+ {
+  "key": "text-editor",
+  "title": "Text editor",
+  "dirs": [
+   "source/blender/editors/space_text/"
+  ],
+  "note": ""
+ },
+ {
+  "key": "python-api",
+  "title": "Scripting (decide scope with owner before planning)",
+  "dirs": [
+   "source/blender/python/"
+  ],
+  "note": "Ask owner in an issue first."
+ }
+]
