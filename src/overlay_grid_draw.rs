@@ -2,7 +2,7 @@
 //!
 //! Ported from Blender:
 //!  - the draw sequence of `Grid::begin_sync()` / `Grid::draw_line()`
-//!                                      (draw/engines/overlay/overlay_grid.hh:44-131): for each of
+//!    (draw/engines/overlay/overlay_grid.hh:44-131): for each of
 //!    `num_iters` iterations the axis pass (6 vertices) then the grid pass, as `GPU_PRIM_LINES`
 //!    with `DRW_STATE_DEPTH_LESS_EQUAL`, depth written only in iteration 0
 //!  - blend state: `DRW_STATE_BLEND_ALPHA | DRW_STATE_BLEND_ADD` ORs to the `BLEND_ALPHA` bits

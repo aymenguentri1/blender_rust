@@ -10,6 +10,7 @@
 //!    from the end of what has been read so far; a corner that is out of range invalidates the whole face (it is
 //!    dropped); UV / normal indices are ignored when the file has no UVs / normals (#103212, #98782); a `#` ends the
 //!    face; text after the first `/`-group of a corner is skipped
+//!
 //! Objects, groups, materials, smoothing, polylines and curves are not ported.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

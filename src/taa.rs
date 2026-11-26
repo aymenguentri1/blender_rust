@@ -4,12 +4,12 @@
 //!  - `RandomNumberGenerator`                (blenlib/BLI_rand.hh:20-151): the 48 bit linear
 //!    congruential generator behind `BLI_rng_new()` / `BLI_rng_get_double()`
 //!  - `BLI_jitterate1()`, `BLI_jitterate2()`, `BLI_jitter_init()`
-//!                                           (blenlib/intern/jitter_2d.cc:19-173)
+//!    (blenlib/intern/jitter_2d.cc:19-173)
 //!  - `TaaSamples::init_samples()`           (draw/engines/workbench/workbench_effect_antialiasing.cc:14-55):
 //!    the samples are moved so that the one closest to the centre is the first, recentred to
 //!    [-1, 1) and sorted by the farthest distance from the previous one
 //!  - `filter_blackman_harris()`, `setup_taa_weights()`
-//!                                           (workbench_effect_antialiasing.cc:84-112): the weights of the
+//!    (workbench_effect_antialiasing.cc:84-112): the weights of the
 //!    3x3 neighbourhood for a sample offset, with a filter width of 2
 //!
 //! The default `U.viewport_aa` is 8 (`DNA_userdef_types.h:1311`), so only the 8 sample table is built.
@@ -301,7 +301,7 @@ impl TaaState {
             .map(|&c| [lut[((c >> 16) & 0xff) as usize], lut[((c >> 8) & 0xff) as usize], lut[(c & 0xff) as usize]])
             .collect();
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(rh);
-        let rows_per = (rh + threads - 1) / threads;
+        let rows_per = rh.div_ceil(threads);
         let log = &log;
         let weights = &weights;
         std::thread::scope(|s| {
@@ -351,7 +351,7 @@ impl TaaState {
         let inv_w = 1.0 / self.weight_accum;
         let mut resolved = vec![0u32; rwu * rhu];
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(rhu);
-        let rows_per = (rhu + threads - 1) / threads;
+        let rows_per = rhu.div_ceil(threads);
         let accum = &self.accum;
         std::thread::scope(|s| {
             for (ci, chunk) in resolved.chunks_mut(rows_per * rwu).enumerate() {
