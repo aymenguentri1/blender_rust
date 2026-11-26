@@ -57,6 +57,8 @@ mod version;
 #[allow(dead_code)]
 mod transform_falloff;
 #[allow(dead_code)]
+mod transform_trackball;
+#[allow(dead_code)]
 mod math_base;
 #[allow(dead_code)]
 mod math_base_safe;

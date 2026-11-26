@@ -129,6 +129,21 @@ fn project(rv3d: &RegionView3D, winx: i32, winy: i32, co: V3) -> Option<[f32; 2]
     Some([(c[0] / c[3] * 0.5 + 0.5) * winx as f32, (c[1] / c[3] * 0.5 + 0.5) * winy as f32])
 }
 
+/// `InputSpringFlip()` with `calcSpringFactor()` (transform_input.cc): the distance of the cursor
+/// from the pivot over the distance of the start point (1 when that is 0), negated once the
+/// cursor is on the other side of the pivot than the start point (`center` truncated to int
+/// for that test, as Blender does).
+fn spring_flip_ratio(center: [f32; 2], start: [f32; 2], mval: [f32; 2]) -> f32 {
+    let mut factor = ((center[0] - start[0]).powi(2) + (center[1] - start[1]).powi(2)).sqrt();
+    if factor == 0.0 {
+        factor = 1.0;
+    }
+    let ratio = ((center[0] - mval[0]).powi(2) + (center[1] - mval[1]).powi(2)).sqrt() / factor;
+    let (cx, cy) = (center[0].trunc(), center[1].trunc());
+    let flip = (cx - mval[0]) * (cx - start[0].trunc()) + (cy - mval[1]) * (cy - start[1].trunc());
+    if flip < 0.0 { -ratio } else { ratio }
+}
+
 fn dot(a: V3, b: V3) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
@@ -369,9 +384,7 @@ impl Transform {
             Some(v) => v,
             None => match project(rv3d, winx, winy, self.pivot) {
                 Some(c) => {
-                    let d0 = ((self.start[0] - c[0]).powi(2) + (self.start[1] - c[1]).powi(2)).sqrt();
-                    let d1 = ((mval[0] - c[0]).powi(2) + (mval[1] - c[1]).powi(2)).sqrt();
-                    let f = if d0 > 1.0 { d1 / d0 } else { 1.0 };
+                    let f = spring_flip_ratio(c, self.start, mval);
                     if self.snap {
                         (f * 10.0).round() / 10.0
                     } else {
@@ -449,6 +462,20 @@ mod tests {
 
     fn obj<'a>(scene: &'a Scene, name: &str) -> &'a crate::scene::Object {
         scene.objects.iter().find(|o| o.name == name).unwrap()
+    }
+
+    #[test]
+    fn spring_ratio_grows_with_distance_and_flips_past_the_pivot() {
+        let (c, s) = ([100.0, 50.0], [150.0, 50.0]);
+        assert_eq!(spring_flip_ratio(c, s, [200.0, 50.0]), 2.0);
+        assert_eq!(spring_flip_ratio(c, s, [125.0, 50.0]), 0.5);
+        assert_eq!(spring_flip_ratio(c, s, [50.0, 50.0]), -1.0);
+        assert_eq!(spring_flip_ratio(c, s, [100.0, 100.0]), 1.0);
+    }
+
+    #[test]
+    fn spring_ratio_with_start_on_the_pivot_uses_factor_one() {
+        assert_eq!(spring_flip_ratio([10.0, 10.0], [10.0, 10.0], [13.0, 14.0]), 5.0);
     }
 
     #[test]
