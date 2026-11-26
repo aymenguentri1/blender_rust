@@ -259,6 +259,8 @@ struct App {
     mod_add_open: bool,
     /// The field of the Transform panel that is being typed into.
     field_edit: Option<transform_panel::Edit>,
+    /// Sculpt Mode of the active object (`Some` while the mode is on).
+    sculpt: Option<sculpt::Session>,
 }
 
 /// After a change of geometry, visibility or transforms: builds the modifier results and restarts the TAA
@@ -278,8 +280,18 @@ fn set_status_title(window: &Window, text: Option<&str>) {
 }
 
 /// What the 3D viewport header shows.
-fn header_state(wire: bool, xray: bool, overlays_hidden: bool, pivot: transform::PivotPoint) -> view3d_header::HeaderState {
-    view3d_header::HeaderState { wire, xray, overlays: !overlays_hidden, pivot }
+fn header_state(wire: bool, xray: bool, overlays_hidden: bool, pivot: transform::PivotPoint, sculpt: bool) -> view3d_header::HeaderState {
+    view3d_header::HeaderState { wire, xray, overlays: !overlays_hidden, pivot, sculpt }
+}
+
+/// `object.mode_set` between Object Mode and Sculpt Mode (Ctrl + Tab, the header mode dropdown): Sculpt Mode needs an
+/// active mesh object.
+fn toggle_sculpt(sculpt: &mut Option<sculpt::Session>, scene: &scene::Scene) {
+    if sculpt.is_some() {
+        *sculpt = None;
+    } else if scene.active_object().is_some_and(|o| o.mesh().is_some()) {
+        *sculpt = Some(sculpt::Session::new());
+    }
 }
 
 /// Same as `view3d.toggle_shading` (Shift + Z): entering wire drops the solid depth buffer,
@@ -379,11 +391,29 @@ impl ApplicationHandler for App {
                 let x = position.x.floor() as i32;
                 let y = height - 1 - position.y.floor() as i32;
                 self.cursor = [x, y];
+                /* Sculpt Mode: the radius / strength modal follows the cursor, a running stroke dabs along it,
+                 * and the brush ring is redrawn at the new position. */
+                if let Some(sc) = self.sculpt.as_mut() {
+                    if sc.adjust.is_some() {
+                        sc.adjust_move([x, y]);
+                    } else if sc.in_stroke() {
+                        let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
+                        self.rv3d.update(&self.v3d, rw, rh);
+                        let mval = [x - layout.main.xmin, y - layout.main.ymin];
+                        if sc.move_stroke(&mut self.scene, &self.rv3d, rw, rh, mval) {
+                            scene_changed(&mut self.scene, &mut self.taa);
+                        }
+                    }
+                    gfx.window.request_redraw();
+                    if sc.in_stroke() {
+                        return;
+                    }
+                }
                 /* The header buttons light up under the cursor. */
                 if let Some(user) = self.user.as_ref() {
                     let hover = area::view3d_header_rect(user, layout.main)
                         .filter(|header| header.isect_pt_v([x, y]))
-                        .and_then(|header| view3d_header::action_at(&view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point)), [x, y]));
+                        .and_then(|header| view3d_header::action_at(&view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, self.sculpt.is_some())), [x, y]));
                     if hover != self.header_hover {
                         self.header_hover = hover;
                         gfx.window.request_redraw();
@@ -742,7 +772,7 @@ impl ApplicationHandler for App {
                     (Some(layout), Some(user)) => area::view3d_header_rect(user, layout.main)
                         .filter(|header| header.isect_pt_v(self.cursor))
                         .map(|header| {
-                            let items = view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point));
+                            let items = view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, self.sculpt.is_some()));
                             let action = view3d_header::action_at(&items, self.cursor);
                             let anchor = action.and_then(|a| view3d_header::rect_of(&items, a)).map(|r| [r.xmin, r.ymin]);
                             (action, anchor)
@@ -765,6 +795,8 @@ impl ApplicationHandler for App {
                         Some(Action::Pivot) => self.pivot_point = self.pivot_point.next(),
                         /* Opens the Add menu below the button, like Shift + A does at the cursor. */
                         Some(Action::MenuAdd) => self.add_menu = anchor,
+                        /* The mode dropdown toggles Object Mode and Sculpt Mode (it has no menu here). */
+                        Some(Action::Mode) => toggle_sculpt(&mut self.sculpt, &self.scene),
                         _ => {}
                     }
                     gfx.window.request_redraw();
@@ -836,6 +868,17 @@ impl ApplicationHandler for App {
                     let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
                     self.rv3d.update(&self.v3d, rw, rh);
                     let mval = [self.cursor[0] - layout.main.xmin, self.cursor[1] - layout.main.ymin];
+                    /* Sculpt Mode: a press confirms the radius / strength modal or starts a brush stroke (Ctrl
+                     * inverts the brush, Shift smooths); nothing is selected. */
+                    if let Some(sc) = self.sculpt.as_mut() {
+                        if sc.adjust.is_some() {
+                            sc.adjust_end(false);
+                        } else if sc.begin_stroke(&mut self.scene, &self.rv3d, rw, rh, mval, self.modifiers.control_key(), self.modifiers.shift_key()) {
+                            scene_changed(&mut self.scene, &mut self.taa);
+                        }
+                        gfx.window.request_redraw();
+                        return;
+                    }
                     let mut hit = self.scene.pick(&self.rv3d, rw, rh, mval);
                     if hit.is_none() && !self.overlays_hidden {
                         /* Cameras and lights are overlay shapes: a click near their lines picks them. */
@@ -920,6 +963,11 @@ impl ApplicationHandler for App {
             /* `WM_gesture_box_modal()`: releasing LEFTMOUSE confirms the border and runs `view3d.zoom_border`. */
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
                 self.scrub_drag = false;
+                if let Some(sc) = self.sculpt.as_mut().filter(|sc| sc.in_stroke()) {
+                    sc.end_stroke();
+                    gfx.window.request_redraw();
+                    return;
+                }
                 if let Some((i, tops)) = self.mod_drag.take() {
                     if modifier_panel::drop_index(&tops, self.cursor[1]).is_some_and(|to| self.scene.panel_move_modifier_index(i, to)) {
                         scene_changed(&mut self.scene, &mut self.taa);
@@ -1249,6 +1297,56 @@ impl ApplicationHandler for App {
                         gfx.window.request_redraw();
                     }
                     return;
+                }
+
+                /* `object.mode_set`: Ctrl + Tab toggles Sculpt Mode on the active mesh object. */
+                if code == KeyCode::Tab && ctrl_k && !shift_k && !alt_k && !key_event.repeat {
+                    toggle_sculpt(&mut self.sculpt, &self.scene);
+                    gfx.window.request_redraw();
+                    return;
+                }
+                /* The "Sculpt" keymap over the viewport: X Draw, S Smooth, G Grab, I Inflate, Shift + T Flatten,
+                 * P Pinch, Shift + C Crease; F / Shift + F radius / strength; Alt + X / Y / Z symmetry. The object
+                 * operators that would act on the object instead (R, A, H, Delete, Shift + D) do nothing. */
+                if self.sculpt.is_some() {
+                    let cursor = self.cursor;
+                    let in_main = match (self.layout.as_ref(), self.user.as_ref()) {
+                        (Some(l), Some(u)) => area::in_view3d_main(u, l.main, cursor),
+                        _ => false,
+                    };
+                    let sc = self.sculpt.as_mut().unwrap();
+                    if sc.adjust.is_some() && matches!(code, KeyCode::Escape | KeyCode::Enter | KeyCode::NumpadEnter) {
+                        sc.adjust_end(code == KeyCode::Escape);
+                        gfx.window.request_redraw();
+                        return;
+                    }
+                    if in_main && !key_event.repeat && !sc.in_stroke() {
+                        let plain = !shift_k && !ctrl_k && !alt_k;
+                        let shift_only = shift_k && !ctrl_k && !alt_k;
+                        let alt_only = alt_k && !ctrl_k && !shift_k;
+                        let mut handled = true;
+                        match code {
+                            KeyCode::KeyX if plain => sc.settings.brush = sculpt::Brush::Draw,
+                            KeyCode::KeyS if plain => sc.settings.brush = sculpt::Brush::Smooth,
+                            KeyCode::KeyG if plain => sc.settings.brush = sculpt::Brush::Grab,
+                            KeyCode::KeyI if plain => sc.settings.brush = sculpt::Brush::Inflate,
+                            KeyCode::KeyT if shift_only => sc.settings.brush = sculpt::Brush::Flatten,
+                            KeyCode::KeyP if plain => sc.settings.brush = sculpt::Brush::Pinch,
+                            KeyCode::KeyC if shift_only => sc.settings.brush = sculpt::Brush::Crease,
+                            KeyCode::KeyF if plain => sc.start_adjust(false, cursor),
+                            KeyCode::KeyF if shift_only => sc.start_adjust(true, cursor),
+                            KeyCode::KeyX if alt_only => sc.toggle_symmetry(0),
+                            KeyCode::KeyY if alt_only => sc.toggle_symmetry(1),
+                            KeyCode::KeyZ if alt_only => sc.toggle_symmetry(2),
+                            KeyCode::KeyR | KeyCode::KeyA | KeyCode::KeyH | KeyCode::Delete if plain => {}
+                            KeyCode::KeyD if shift_only => {}
+                            _ => handled = false,
+                        }
+                        if handled {
+                            gfx.window.request_redraw();
+                            return;
+                        }
+                    }
                 }
 
                 /* Object operators of the "Object Mode" keymap, over the viewport: G / R / S grab, rotate, scale;
@@ -1902,6 +2000,10 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::RedrawRequested => {
+                /* Sculpt Mode ends with the mesh object it works on. */
+                if self.sculpt.is_some() && !self.scene.active_object().is_some_and(|o| o.mesh().is_some()) {
+                    self.sculpt = None;
+                }
                 /* The modifiers that depend on time (Build) follow the current frame. */
                 if self.scene.set_frame(self.frame.unwrap_or(1)) {
                     scene_changed(&mut self.scene, &mut self.taa);
@@ -2035,6 +2137,15 @@ impl ApplicationHandler for App {
                             overlay_text::draw(&mut buf, w, h, layout.main, user, &self.v3d, &self.rv3d, self.frame.unwrap_or(1), &{ let mut info = overlay_text::ObjectInfo::of(&self.scene); if self.pivot_point != transform::PivotPoint::Median { info.pivot = Some(self.pivot_point.label().to_string()); } if self.show_stats { info.with_stats(&self.scene) } else { info } });
                         }
                     }
+                    /* Sculpt Mode: the brush ring at the cursor and the brush line at the bottom left. */
+                    if let (Some(sc), Some(user)) = (self.sculpt.as_ref(), self.user.as_ref()) {
+                        if sc.adjust.is_some() || area::in_view3d_main(user, layout.main, self.cursor) {
+                            sc.draw_cursor(&mut buf, w, h, layout.main, user, self.cursor, self.modifiers.control_key());
+                        }
+                        if !self.overlays_hidden {
+                            sc.draw_status(&mut buf, w, h, layout.main, user);
+                        }
+                    }
                     if let Some(bs) = self.box_select.as_ref().filter(|b| b.dragging) {
                         if let Some(start) = bs.start {
                             select_box::draw_box(&mut buf, w, h, layout.main, start, bs.cur);
@@ -2139,7 +2250,7 @@ impl ApplicationHandler for App {
                             /* Editor type, mode, menus, transform cluster, overlays, X-ray and shading buttons. The ones
                              * this port models are wired to the same state as their keys (Shift + Z, Alt + Z,
                              * Shift + Alt + Z, Period). */
-                            let items = view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point));
+                            let items = view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, self.sculpt.is_some()));
                             view3d_header::draw(&mut buf, w, h, user, &items, self.header_hover);
                         }
                     }

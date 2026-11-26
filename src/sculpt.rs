@@ -637,4 +637,41 @@ mod tests {
         let s = Session::new();
         assert!(s.status_text().contains("Draw") && s.status_text().contains("Symmetry X"));
     }
+
+    /* A whole stroke through the scene: the press on the sphere lifts it under the cursor, the drag goes on
+     * and one undo step takes the stroke back. */
+    #[test]
+    fn a_stroke_deforms_the_mesh_and_undoes_in_one_step() {
+        use crate::mesh::Primitive;
+        use crate::view3d::View3D;
+        let mut scene = Scene::startup();
+        let id = scene.add_primitive(Primitive::UvSphere, [0.0, 0.0, 0.0]);
+        scene.active = Some(id);
+        let before = scene.active_object().unwrap().mesh().unwrap().clone();
+        let (w, h) = (400, 300);
+        let mut rv3d = RegionView3D::default();
+        rv3d.update(&View3D::default(), w, h);
+        let mut session = Session::new();
+        session.settings.radius_px = 40.0;
+        assert!(session.begin_stroke(&mut scene, &rv3d, w, h, [w / 2, h / 2], false, false));
+        assert!(session.in_stroke());
+        session.move_stroke(&mut scene, &rv3d, w, h, [w / 2 + 30, h / 2]);
+        session.end_stroke();
+        let after = scene.active_object().unwrap().mesh().unwrap().clone();
+        assert_ne!(before, after);
+        assert!(scene.undo());
+        assert_eq!(scene.active_object().unwrap().mesh().unwrap(), &before);
+    }
+
+    #[test]
+    fn a_press_on_nothing_does_not_stroke() {
+        use crate::view3d::View3D;
+        let mut scene = Scene::startup();
+        let (w, h) = (400, 300);
+        let mut rv3d = RegionView3D::default();
+        rv3d.update(&View3D::default(), w, h);
+        let mut session = Session::new();
+        assert!(!session.begin_stroke(&mut scene, &rv3d, w, h, [2, 2], false, false));
+        assert!(!session.in_stroke() && !scene.can_undo());
+    }
 }
