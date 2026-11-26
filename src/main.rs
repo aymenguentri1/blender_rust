@@ -182,6 +182,8 @@ mod uvedit_align_weld;
 mod uvedit_line_endpoint;
 #[allow(dead_code)]
 mod uvedit_minmax;
+#[allow(dead_code)]
+mod widget_colors;
 
 use std::{num::NonZeroU32, sync::Arc};
 
