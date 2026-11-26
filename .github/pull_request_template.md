@@ -2,7 +2,8 @@
 Closes #
 
 ## Blender source ported from
-`source/blender/...` (required; do not invent behaviour)
+<!-- REQUIRED, checked by CI. One full repo-relative path per line, from github.com/aymenguentri1/blender, e.g.: -->
+- `source/blender/editors/mesh/editmesh_select.cc`
 
 ## Checklist
 - [ ] Claimed the issue, no other open PR covers this

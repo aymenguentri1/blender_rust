@@ -1,0 +1,14 @@
+name: Blender reference check
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+jobs:
+  blender-ref:
+    name: blender-ref
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify cited Blender source files exist
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/check_blender_refs.py
