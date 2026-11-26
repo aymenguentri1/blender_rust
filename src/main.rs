@@ -176,6 +176,8 @@ mod mesh_walker_island;
 mod mesh_face_metrics;
 #[allow(dead_code)]
 mod uvedit_udim;
+#[allow(dead_code)]
+mod uvedit_align_weld;
 
 use std::{num::NonZeroU32, sync::Arc};
 
