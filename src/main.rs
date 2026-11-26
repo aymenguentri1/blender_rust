@@ -117,6 +117,8 @@ mod mesh_extrude_faces;
 #[allow(dead_code)]
 mod mesh_flip;
 #[allow(dead_code)]
+mod mesh_merge;
+#[allow(dead_code)]
 mod mesh_delete_loose;
 mod sculpt_hide;
 mod mesh_edgering;
