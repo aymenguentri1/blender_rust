@@ -157,6 +157,8 @@ pub struct Object {
     /// The sculpt mask (`CD_PAINT_MASK`): 0 to 1 per vertex of the base mesh, 1 is fully masked (protected from
     /// brushes). Empty when nothing is masked; a length that differs from the vertex count counts as no mask.
     pub mask: Vec<f32>,
+    /// `Object::mat`/`totcol`/`actcol`: indices into `Scene::materials`.
+    pub material_slots: crate::material::MaterialSlots,
     eval: Option<Mesh>,
     /// What the cached `eval` was built against besides the object itself (the targets of its Shrinkwrap and Boolean
     /// modifiers and the transforms involved); 0 when the stack has no such dependency.
@@ -324,6 +326,8 @@ pub struct Scene {
     /// Local View (`VIEW3D_OT_localview`): the ids of the objects this mode hid, `None` outside of it. They are kept
     /// apart from the objects the user hid, so leaving gives back exactly the former.
     local_view: Option<Vec<u32>>,
+    /// `Main::materials`, referenced by index from the object slots (not part of the undo steps yet).
+    pub materials: Vec<crate::material::Material>,
 }
 
 impl Default for Scene {
@@ -335,13 +339,16 @@ impl Default for Scene {
 impl Scene {
     /// The factory startup scene.
     pub fn startup() -> Scene {
-        let mut s = Scene { objects: Vec::new(), active: None, next_id: 0, undo: Vec::new(), redo: Vec::new(), select_seed: 0, frame: 1, local_view: None };
+        let mut s = Scene { objects: Vec::new(), active: None, next_id: 0, undo: Vec::new(), redo: Vec::new(), select_seed: 0, frame: 1, local_view: None, materials: vec![crate::material::Material::new("Material")] };
         let deg = std::f32::consts::PI / 180.0;
         let camera = s.new_object("Camera", ObjectData::Camera);
         camera.loc = [7.358_891, -6.925_791, 4.958_309];
         camera.rot = [63.559_3 * deg, 0.0, 46.691_9 * deg];
         let cube = s.new_object("Cube", ObjectData::Mesh(Mesh::cube(2.0)));
         cube.selected = true;
+        /* The startup cube carries the default "Material" in its one slot. */
+        cube.material_slots.slot_add(true);
+        cube.material_slots.assign(Some(0), 1);
         let light = s.new_object("Light", ObjectData::Light(LightKind::Point));
         light.loc = [4.076_245, 1.005_454, 5.903_862];
         s.active = s.objects.iter().find(|o| o.name == "Cube").map(|o| o.id);
@@ -372,6 +379,7 @@ impl Scene {
             parent_inv: IDENTITY4,
             parent_world: IDENTITY4,
             mask: Vec::new(),
+            material_slots: Default::default(),
             eval: None,
             eval_sig: 0,
         });
@@ -2649,6 +2657,17 @@ pub(crate) fn ray_triangle(origin: V3, dir: V3, a: V3, b: V3, c: V3) -> Option<f
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_startup_cube_has_the_default_material() {
+        let s = Scene::startup();
+        assert_eq!(s.materials.len(), 1);
+        assert_eq!(s.materials[0].name, "Material");
+        let cube = s.objects.iter().find(|o| o.name == "Cube").unwrap();
+        assert_eq!((cube.material_slots.slots.len(), cube.material_slots.active, cube.material_slots.get(1)), (1, 1, Some(0)));
+        let cam = s.objects.iter().find(|o| o.name == "Camera").unwrap();
+        assert!(cam.material_slots.slots.is_empty());
+    }
+
     use super::*;
     use crate::view3d::View3D;
 
