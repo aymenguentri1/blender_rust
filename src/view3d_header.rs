@@ -50,6 +50,8 @@ pub struct HeaderState {
     pub xray: bool,
     pub overlays: bool,
     pub pivot: PivotPoint,
+    /// Sculpt Mode is on: the mode dropdown reads `Sculpt Mode`.
+    pub sculpt: bool,
 }
 
 /// How an item is drawn.
@@ -121,9 +123,9 @@ pub fn layout(user: &UserDef, header: Rcti, state: &HeaderState) -> Vec<Item> {
     let mut c = Cursor { x: header.xmin + offset, y0, y1, space };
     let w = dropdown_width(user, None);
     items.push(Item { action: Action::EditorType, rect: c.place(w, true), look: Look::Dropdown { icon: Icon::View3D, label: None } });
-    let label = "Object Mode".to_string();
+    let (label, mode_icon) = if state.sculpt { ("Sculpt Mode".to_string(), Icon::SculptMode) } else { ("Object Mode".to_string(), Icon::ObjectMode) };
     let w = dropdown_width(user, Some(&label));
-    items.push(Item { action: Action::Mode, rect: c.place(w, true), look: Look::Dropdown { icon: Icon::ObjectMode, label: Some(label) } });
+    items.push(Item { action: Action::Mode, rect: c.place(w, true), look: Look::Dropdown { icon: mode_icon, label: Some(label) } });
     for (action, name) in [
         (Action::MenuView, "View"),
         (Action::MenuSelect, "Select"),
@@ -258,7 +260,7 @@ mod tests {
     use super::*;
 
     fn state() -> HeaderState {
-        HeaderState { wire: false, xray: false, overlays: true, pivot: PivotPoint::Median }
+        HeaderState { wire: false, xray: false, overlays: true, pivot: PivotPoint::Median, sculpt: false }
     }
 
     fn header() -> Rcti {

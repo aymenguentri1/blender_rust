@@ -5,6 +5,29 @@
 Selection, transforms (G / R / S), duplicate (Shift + D), delete, hide, undo / redo and the Add menu cycle
 (Shift + A) are modelled on Blender. On top of those:
 
+## Sculpt Mode
+
+Ctrl + Tab (or a click on the mode dropdown of the header) toggles Sculpt Mode on the active mesh object; the dropdown
+then reads `Sculpt Mode` with the brush icon. Strokes work on the base mesh (`src/sculpt.rs`), so use a mesh with
+enough vertices (Add > UV Sphere, or Alt + C to bake a subdivision level into the mesh).
+
+| Keys | Operator |
+| --- | --- |
+| Left mouse drag | Brush stroke: dabs every 10 % of the brush diameter along the path, found by ray casting the mesh |
+| Ctrl + drag | Inverted brush (the ring turns light blue, like `cursor_color_subtract`) |
+| Shift + drag | Smooth while held |
+| X / S / G / I | Draw / Smooth / Grab / Inflate brush |
+| Shift + T / P / Shift + C | Flatten / Pinch / Crease brush |
+| F / Shift + F | Brush radius / strength: move the mouse, click or Enter confirms, Esc cancels |
+| Alt + X / Y / Z | Toggle mirror symmetry on that axis (X is on, as in Blender) |
+| Ctrl + Z | Undo, one step per stroke |
+
+The brush ring shows the radius (outer circle) and the strength (inner circle); the line at the bottom left of the
+viewport names the brush, radius (default 50 px), strength (default 0.5) and symmetry. The falloff is Blender's
+Smooth curve preset. Deviations: the displacement factors are tuned by eye, there is no pressure, masking, face sets,
+dynamic topology or multires, the brush curve cannot be changed, and the viewport tool header and brush asset
+shelf are not drawn.
+
 ### 3D viewport header
 The header of the 3D viewport follows `VIEW3D_HT_header`: the editor type and `Object Mode` dropdowns, the
 `View`, `Select`, `Add` and `Object` menus, the transform cluster (orientation, pivot point, snapping,

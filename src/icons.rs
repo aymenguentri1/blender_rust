@@ -23,6 +23,8 @@ pub enum Icon {
     View3D,
     /// `ICON_OBJECT_DATAMODE`.
     ObjectMode,
+    /// `ICON_SCULPTMODE_HLT`: a brush.
+    SculptMode,
     /// `ICON_DOWNARROW_HLT`.
     DownArrow,
     /// `ICON_ORIENTATION_GLOBAL`.
@@ -144,6 +146,10 @@ fn shapes(icon: Icon) -> Vec<Shape> {
             v.extend(cube_outline(1.3));
             v
         }
+        Icon::SculptMode => vec![
+            poly(&[[10.5, 2.0], [14.0, 5.5], [8.5, 11.0], [5.0, 7.5]]).a(0.45),
+            poly(&[[5.0, 7.5], [8.5, 11.0], [5.5, 14.0], [2.0, 10.5]]),
+        ],
         Icon::DownArrow => vec![poly(&[[4.0, 6.0], [12.0, 6.0], [8.0, 10.5]])],
         Icon::OrientationGlobal => vec![
             ring(8.0, 8.0, 6.2, 1.3),
@@ -403,6 +409,7 @@ mod tests {
         for icon in [
             Icon::View3D,
             Icon::ObjectMode,
+            Icon::SculptMode,
             Icon::DownArrow,
             Icon::OrientationGlobal,
             Icon::PivotMedian,
