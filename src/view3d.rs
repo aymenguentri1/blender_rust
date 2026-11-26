@@ -3,19 +3,19 @@
 //! Ported from Blender:
 //!  - `view3d_create()`                         (editors/space_view3d/space_view3d.cc:253-265)
 //!  - `View3D` defaults `lens`, `clip_start`, `clip_end`
-//!                                              (makesdna/DNA_view3d_types.h:758-759)
+//!    (makesdna/DNA_view3d_types.h:758-759)
 //!  - `ED_view3d_viewplane_get()`               (editors/space_view3d/view3d_utils.cc:198)
 //!  - `BKE_camera_params_init()`, `BKE_camera_params_from_view3d()` (perspective branch),
 //!    `BKE_camera_params_compute_viewplane()`, `BKE_camera_frame_size()`,
 //!    `BKE_camera_sensor_size()`, `BKE_camera_sensor_fit()`
-//!                                              (blenkernel/intern/camera.cc:329-540)
+//!    (blenkernel/intern/camera.cc:329-540)
 //!  - `view3d_winmatrix_set()`, `view3d_viewmatrix_set()`
-//!                                              (editors/space_view3d/view3d_view.cc:319, 406)
+//!    (editors/space_view3d/view3d_view.cc:319, 406)
 //!  - `mat4_frustum_set()`                      (gpu/intern/gpu_matrix.cc:309)
 //!  - `quat_to_mat4()`, `translate_m4()`        (blenlib/intern/math_rotation_c.cc:244,
-//!                                               math_matrix_c.cc:2108)
+//!    math_matrix_c.cc:2108)
 //!  - `ED_view3d_update_viewmat()` (utility matrices and `pixsize`)
-//!                                              (editors/space_view3d/view3d_draw.cc:104-173)
+//!    (editors/space_view3d/view3d_draw.cc:104-173)
 //!  - `mul_m4_m4m4()`, `invert_m4_m4_fallback()` (blenlib/intern/math_matrix_c.cc:217, 1078)
 //!
 //! Only the default state is handled: perspective view (`RV3D_PERSP`), no camera object
@@ -29,10 +29,10 @@ pub type Mat4 = [[f32; 4]; 4];
 /// binary startup.blend, which is not available in the source, so those keep the
 /// `view3d_create()` defaults.
 pub const STARTUP_VIEWQUAT: [f32; 4] = [
-    0.712_375_879_287_719_7,
-    -0.441_062_092_781_066_9,
-    -0.287_358_254_194_259_64,
-    -0.464_122_921_466_827_4,
+    0.7123759,
+    -0.4410621,
+    -0.28735825,
+    -0.46412292,
 ];
 
 /// `DEFAULT_SENSOR_WIDTH` / `DEFAULT_SENSOR_HEIGHT` (makesdna/DNA_camera_types.h:88).
@@ -512,9 +512,9 @@ pub(crate) fn invert_m4_m4(mat: &Mat4) -> Mat4 {
         /* Look for row with max pivot. */
         let mut max = t[i][i].abs();
         let mut maxj = i;
-        for j in (i + 1)..4 {
-            if t[j][i].abs() > max {
-                max = t[j][i].abs();
+        for (j, row) in t.iter().enumerate().skip(i + 1) {
+            if row[i].abs() > max {
+                max = row[i].abs();
                 maxj = j;
             }
         }
@@ -996,6 +996,7 @@ impl RegionView3D {
     /// `viewrotate_apply()` (view3d_navigate_view_rotate.cc:166-293): the turntable rotation is
     /// applied to the unsnapped `curr` (`ViewOpsData::curr.viewquat`), which is kept for the next
     /// event; with `axis_snap` the view quaternion is then snapped, so the view never jams up.
+    #[allow(clippy::too_many_arguments)]
     pub fn rotate_apply(&mut self, curr: &mut [f32; 4], reverse: f32, sensitivity: f32, dx: i32, dy: i32, axis_snap: bool, init_ortho: bool) {
         self.viewquat = *curr;
         self.orbit_turntable(reverse, sensitivity, dx, dy);

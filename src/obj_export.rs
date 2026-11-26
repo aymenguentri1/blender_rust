@@ -33,6 +33,7 @@ impl Default for ObjParams {
 }
 
 /// `round_float_to_n_digits` (obj_export_mesh.cc:308).
+#[allow(clippy::excessive_precision)] /* the constant is Blender's `0.49999999f` */
 fn round_digits(f: f32, digits: i32) -> f32 {
     let scale = 10f32.powi(digits);
     (scale * f - 0.499_999_99).ceil() / scale
@@ -89,7 +90,7 @@ pub fn write_obj(name: &str, mesh: &Mesh, uvs: Option<&[[f32; 2]]>, params: &Obj
             NormalDomain::Face => {
                 for (f, face) in mesh.faces.iter().enumerate() {
                     let i = add(mesh.face_normal(f));
-                    corner_n.extend(std::iter::repeat(i).take(face.len()));
+                    corner_n.extend(std::iter::repeat_n(i, face.len()));
                 }
             }
             NormalDomain::Point => {

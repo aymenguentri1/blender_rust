@@ -5,6 +5,8 @@
 //! tables of unit.cc and are not ported: units are stored as indices into those tables, `USER_UNIT_ADAPTIVE` (0xFF)
 //! meaning "adaptive".
 
+#![allow(dead_code)] // not wired into the app yet
+
 /// `USER_UNIT_ADAPTIVE`.
 pub const UNIT_ADAPTIVE: u8 = 0xFF;
 /// `RNA_def_property_range` of `scale_length`.

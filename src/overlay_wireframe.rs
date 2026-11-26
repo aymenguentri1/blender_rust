@@ -75,6 +75,7 @@ fn lin(c: Rgba) -> [f32; 3] {
 
 /// Draws every edge of one object. `flat` is the colour of a selected or active object; `None` uses the
 /// `wire_color_get()` rim / wire mix of an unselected one.
+#[allow(clippy::too_many_arguments)]
 fn draw_object_wire(
     buf: &mut [u32],
     width: usize,

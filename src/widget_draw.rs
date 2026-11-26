@@ -24,6 +24,7 @@ pub(crate) fn blend_px(dst: u32, color: Rgba, alpha: f32) -> u32 {
 }
 
 /// Draws a rounded box covering the inclusive window `rect` (y up) into the buffer.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_round_box(
     buf: &mut [u32],
     width: usize,
@@ -39,6 +40,7 @@ pub fn draw_round_box(
 
 /// Like `draw_round_box()` with the left and / or right corners squared off, for the buttons of an
 /// aligned row (`UI_BUT_ALIGN_LEFT` / `UI_BUT_ALIGN_RIGHT` clear the corner flags, `UI_CNR_*`).
+#[allow(clippy::too_many_arguments)]
 pub fn draw_round_box_sides(
     buf: &mut [u32],
     width: usize,
