@@ -85,6 +85,7 @@ mod edit_select;
 mod mesh_extrude_faces;
 mod sculpt_hide;
 mod mesh_edgering;
+mod mesh_loopcut;
 mod mesh_ops;
 mod mesh_deform;
 mod mesh_wire;
