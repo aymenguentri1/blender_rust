@@ -111,6 +111,19 @@ impl<'a> Topology<'a> {
         }
     }
 
+    /// Faces of the loops met walking `l->radial_next` from corner `c` of face `f` until back at it (the loop's own
+    /// face excluded from the start, as in the radial `do { } while (l != l_start)` walks of `bmesh_walkers_impl.cc`).
+    pub(crate) fn radial_faces(&self, f: usize, c: usize) -> Vec<usize> {
+        let start: Loop = (f, c);
+        let mut out = Vec::new();
+        let mut l = self.radial_next(start);
+        while l != start {
+            out.push(l.0);
+            l = self.radial_next(l);
+        }
+        out
+    }
+
     /// `BM_face_find_double`: walks the radial cycle of the face's first loop edge and returns the first face (other
     /// loop) of equal length whose edge sequence matches in the same or the opposite winding.
     pub fn face_find_double(&self, f: usize) -> Option<usize> {
