@@ -442,6 +442,22 @@ impl Scene {
         true
     }
 
+    /// `sculpt.mask_filter`: one pass of `filter` over the mask of the active object. One undo step; false (and
+    /// no step) when nothing is masked.
+    pub fn mask_filter_active(&mut self, filter: crate::sculpt::MaskFilter) -> bool {
+        let Some(i) = self.active.and_then(|id| self.index_of(id)) else { return false };
+        if !self.objects[i].mask.iter().any(|&m| m > 0.0) {
+            return false;
+        }
+        let Some(adj) = self.objects[i].mesh().map(crate::sculpt::adjacency) else { return false };
+        if adj.adj.len() != self.objects[i].mask.len() {
+            return false;
+        }
+        self.push_undo();
+        crate::sculpt::filter_mask(&mut self.objects[i].mask, &adj, filter);
+        true
+    }
+
     /// Whether the active object has any masked vertex.
     pub fn has_mask(&self) -> bool {
         self.active_object().is_some_and(|o| o.mask.iter().any(|&m| m > 0.0))

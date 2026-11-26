@@ -26,6 +26,7 @@ enough vertices (Add > UV Sphere, or Alt + C to bake a subdivision level into th
 | Shift + B | Blob brush: inflates with an outward push as well, so the surface swells into a ball (Ctrl dents it) |
 | M | Mask brush: paints the mask (Ctrl + drag erases it). Masked vertices are drawn dark grey and every brush, Grab included, is scaled by `1 - mask` |
 | Alt + M / Ctrl + I | Clear the mask / invert it (an empty mask becomes fully masked), one undo step each |
+| Ctrl + Shift + G / H / S / X | Mask filters (`sculpt.mask_filter`, one pass each): Grow / Shrink (largest / smallest of a vertex and its neighbours), Smooth (neighbour mean), Sharpen (`3m² - 2m³`); one undo step, nothing happens on an empty mask (Blender has these in the Mask menu without keys) |
 | F / Shift + F | Brush radius / strength: move the mouse, click or Enter confirms, Esc cancels |
 | Alt + X / Y / Z | Toggle mirror symmetry on that axis (X is on, as in Blender) |
 | Ctrl + Z | Undo, one step per stroke |

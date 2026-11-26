@@ -449,6 +449,35 @@ fn pinch(mesh: &mut Mesh, hit: &[(usize, f32)], center: V3, normal: V3, amount: 
     }
 }
 
+/// `sculpt.mask_filter(filter_type=...)`: what happens to the mask of each vertex, from its neighbours.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaskFilter {
+    /// The mean of the neighbours.
+    Smooth,
+    /// `3 m^2 - 2 m^3`: pushes values towards 0 and 1.
+    Sharpen,
+    /// The largest of the vertex and its neighbours.
+    Grow,
+    /// The smallest of the vertex and its neighbours.
+    Shrink,
+}
+
+/// One pass of `filter` over `mask` (one value per vertex of the mesh `adj` was built from).
+pub fn filter_mask(mask: &mut [f32], adj: &Topo, filter: MaskFilter) {
+    let old = mask.to_vec();
+    for (i, m) in mask.iter_mut().enumerate() {
+        let near = &adj.adj[i];
+        *m = match filter {
+            MaskFilter::Sharpen => old[i] * old[i] * (3.0 - 2.0 * old[i]),
+            MaskFilter::Smooth if !near.is_empty() => near.iter().map(|&n| old[n as usize]).sum::<f32>() / near.len() as f32,
+            MaskFilter::Grow => near.iter().fold(old[i], |a, &n| a.max(old[n as usize])),
+            MaskFilter::Shrink => near.iter().fold(old[i], |a, &n| a.min(old[n as usize])),
+            MaskFilter::Smooth => old[i],
+        }
+        .clamp(0.0, 1.0);
+    }
+}
+
 /// The vertices a Grab stroke holds (`sculpt_grab`): fixed when the stroke starts, moved by the mouse delta.
 #[derive(Clone, Debug)]
 struct Grab {
@@ -900,6 +929,41 @@ mod tests {
     }
 
     #[test]
+    fn mask_filters_grow_shrink_smooth_sharpen() {
+        let m = grid();
+        let adj = adjacency(&m);
+        let c = centre_vertex(&m);
+        let mut base = vec![0.0f32; m.verts.len()];
+        base[c] = 1.0;
+        let count = |v: &[f32]| v.iter().filter(|&&x| x > 0.0).count();
+
+        let mut grown = base.clone();
+        filter_mask(&mut grown, &adj, MaskFilter::Grow);
+        assert_eq!(count(&grown), 1 + adj.adj[c].len(), "the vertex and its neighbours");
+        assert!(adj.adj[c].iter().all(|&n| grown[n as usize] == 1.0));
+
+        filter_mask(&mut grown, &adj, MaskFilter::Shrink);
+        assert_eq!(grown, base, "shrink undoes a grow of a single vertex");
+        let mut gone = base.clone();
+        filter_mask(&mut gone, &adj, MaskFilter::Shrink);
+        assert_eq!(count(&gone), 0, "a lone masked vertex shrinks away");
+
+        let mut smooth = base.clone();
+        filter_mask(&mut smooth, &adj, MaskFilter::Smooth);
+        assert_eq!(smooth[c], 0.0, "the mean of unmasked neighbours");
+        let n = adj.adj[c][0] as usize;
+        assert!(smooth[n] > 0.0 && smooth[n] < 1.0, "the neighbours pick up part of it");
+
+        let mut soft = vec![0.25f32, 0.5, 0.75, 0.0, 1.0];
+        let a2 = Topo { adj: vec![vec![]; 5], vfaces: vec![vec![]; 5] };
+        filter_mask(&mut soft, &a2, MaskFilter::Sharpen);
+        assert!(soft[0] < 0.25 && soft[2] > 0.75 && (soft[1] - 0.5).abs() < 1e-6);
+        assert_eq!((soft[3], soft[4]), (0.0, 1.0));
+        filter_mask(&mut soft, &a2, MaskFilter::Smooth);
+        assert!(soft.iter().all(|v| (0.0..=1.0).contains(v)), "no neighbours: unchanged and in range");
+    }
+
+    #[test]
     fn mask_brush_paints_and_ctrl_erases() {
         let mut m = grid();
         let adj = adjacency(&m);
@@ -1043,6 +1107,26 @@ mod tests {
         assert_eq!(scene.active_object().unwrap().mesh().unwrap(), &before);
         assert!(scene.undo());
         assert!(!scene.has_mask(), "one undo step takes the stroke's mask back");
+    }
+
+    #[test]
+    fn scene_mask_filters_grow_shrink_and_undo() {
+        let (mut scene, rv3d, w, h) = sphere_scene();
+        assert!(!scene.mask_filter_active(MaskFilter::Grow), "nothing masked, nothing to do");
+        let mut session = Session::new();
+        session.settings.radius_px = 30.0;
+        session.settings.brush = Brush::Mask;
+        session.begin_stroke(&mut scene, &rv3d, w, h, [w / 2, h / 2], false, false);
+        session.end_stroke();
+        let count = |s: &Scene| s.active_object().unwrap().mask.iter().filter(|&&m| m > 0.0).count();
+        let painted = count(&scene);
+        assert!(painted > 0);
+        assert!(scene.mask_filter_active(MaskFilter::Grow));
+        assert!(count(&scene) > painted, "grow reaches more vertices");
+        assert!(scene.mask_filter_active(MaskFilter::Shrink));
+        assert!(count(&scene) <= painted + 1);
+        assert!(scene.undo() && scene.undo());
+        assert_eq!(count(&scene), painted, "two undo steps back to the painted mask");
     }
 
     #[test]
