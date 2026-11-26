@@ -111,6 +111,7 @@ mod rename_popup;
 mod gltf_node;
 mod mirror_settings;
 mod bevel_settings;
+mod material;
 
 use std::{num::NonZeroU32, sync::Arc};
 
