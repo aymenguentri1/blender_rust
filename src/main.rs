@@ -71,6 +71,8 @@ mod mesh_extrude;
 #[allow(dead_code)]
 mod edit_select;
 mod mesh_extrude_faces;
+#[allow(dead_code)]
+mod sculpt_hide;
 mod mesh_ops;
 mod mesh_deform;
 mod mesh_wire;
