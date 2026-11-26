@@ -3,6 +3,7 @@
 //! Ported from `OBJParser` (io/wavefront_obj/importer/obj_import_file_reader.cc):
 //!  - `read_next_obj_line()` (512): a `\` followed only by blanks and a newline joins the next line with a space
 //!  - `parse_keyword()` (475): the keyword must be followed by a control character or blank, else it is not matched
+//!  - `parse_floats()` (io/common/intern/string_utils.cc:127): numeric prefix per value, `1-2` reads as 1 and -2
 //!  - `geom_add_vertex()` (87): 3 floats, missing ones 0 (the `xyzrgb` colour extension is not ported)
 //!  - `geom_add_vertex_normal()` (139): 3 floats, normalised; `geom_add_uv_vertex()` (152): 2 floats
 //!  - `geom_add_polygon()` (222): `v`, `v/vt`, `v//vn`, `v/vt/vn` corners; indices are 1-based, negative ones count
@@ -70,13 +71,70 @@ fn keyword<'a>(line: &'a str, kw: &str) -> Option<&'a str> {
     Some(&line[kw.len() + 1..])
 }
 
-/// `parse_floats()`: up to `N` whitespace separated values, the missing or unparsable ones `0`.
+/// `parse_float()` (io/common/intern/string_utils.cc:107): skips blanks, then takes the longest numeric prefix
+/// (fast_float, general format with a leading `+`): sign, digits, `.`, digits, an exponent that has digits, or
+/// `inf` / `infinity` / `nan`. `None` and the cursor unmoved when there is no number or the value overflows.
+fn float_prefix(s: &str) -> (Option<f32>, &str) {
+    let s = s.trim_start_matches([' ', '\t', '\n', '\x0b', '\x0c', '\r']);
+    let b = s.as_bytes();
+    let mut i = usize::from(!b.is_empty() && (b[0] == b'-' || b[0] == b'+'));
+    let start_digits = i;
+    while i < b.len() && b[i].is_ascii_digit() {
+        i += 1;
+    }
+    let mut ndigits = i - start_digits;
+    if i < b.len() && b[i] == b'.' {
+        let f = i + 1;
+        let mut j = f;
+        while j < b.len() && b[j].is_ascii_digit() {
+            j += 1;
+        }
+        ndigits += j - f;
+        if ndigits > 0 {
+            i = j;
+        }
+    }
+    if ndigits == 0 {
+        let low = s[start_digits..].to_ascii_lowercase();
+        for word in ["infinity", "inf", "nan"] {
+            if low.starts_with(word) {
+                let end = start_digits + word.len();
+                return match s[..end].trim_start_matches('+').parse::<f32>() {
+                    Ok(v) => (Some(v), &s[end..]),
+                    Err(_) => (None, s),
+                };
+            }
+        }
+        return (None, s);
+    }
+    if i < b.len() && (b[i] == b'e' || b[i] == b'E') {
+        let mut j = i + 1;
+        if j < b.len() && (b[j] == b'-' || b[j] == b'+') {
+            j += 1;
+        }
+        let e = j;
+        while j < b.len() && b[j].is_ascii_digit() {
+            j += 1;
+        }
+        if j > e {
+            i = j;
+        }
+    }
+    match s[..i].trim_start_matches('+').parse::<f32>() {
+        Ok(v) if v.is_finite() => (Some(v), &s[i..]),
+        _ => (None, s),
+    }
+}
+
+/// `parse_floats()` (string_utils.cc:127): `N` values, each the longest numeric prefix at the cursor, which moves
+/// past it; a value that does not parse is `0` and the cursor stays (`require_trailing_space` is false here).
 fn floats<const N: usize>(rest: &str) -> [f32; N] {
     let mut out = [0.0; N];
-    for (o, tok) in out.iter_mut().zip(rest.split_ascii_whitespace()) {
-        match tok.parse::<f32>() {
-            Ok(v) => *o = v,
-            Err(_) => break,
+    let mut p = rest;
+    for o in out.iter_mut() {
+        if let (Some(v), r) = float_prefix(p) {
+            *o = v;
+            p = r;
         }
     }
     out
@@ -210,6 +268,16 @@ f 1/1/1 4/4/1 3/3/1 2/2/1\nf 5/1/2 6/2/2 7/3/2 8/4/2\nf 1 2 6 5\nf 2//1 3//1 7//
         assert_eq!(d.normals, vec![[0.0; 3]]);
         assert!(d.has_invalid_faces);
         assert_eq!(d.faces.len(), 2); /* "f 1 2 1/9" (no UVs: ignored) and "f 1 2 # 3" */
+    }
+
+    #[test]
+    fn float_prefix_parsing() {
+        let d = parse("v 1.0abc 2 3\nv 1-2 3\nvt .5e1x +2\nvn 1e 0 0\nv 1e+2 -.5 +3");
+        assert_eq!(d.vertices[0], [1.0, 0.0, 0.0]); /* "abc" fails: stays 0 and so does everything after */
+        assert_eq!(d.vertices[1], [1.0, -2.0, 3.0]);
+        assert_eq!(d.uvs[0], [5.0, 0.0]); /* fails at "x": 0, cursor stays */
+        assert_eq!(d.normals[0], [1.0, 0.0, 0.0]);
+        assert_eq!(d.vertices[2], [100.0, -0.5, 3.0]);
     }
 
     #[test]
