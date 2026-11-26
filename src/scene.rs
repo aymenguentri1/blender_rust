@@ -842,6 +842,19 @@ impl Scene {
         n
     }
 
+    /// `rna_Object_name_set` for object `id` (the outliner rename field): same rules as `rename_active`.
+    pub fn rename_object(&mut self, id: u32, name: &str) -> bool {
+        let name = name.trim();
+        let Some(i) = self.index_of(id) else { return false };
+        if name.is_empty() || self.objects[i].name == name {
+            return false;
+        }
+        self.push_undo();
+        let unique = self.unique_name(name);
+        self.objects[i].name = unique;
+        true
+    }
+
     /// `rna_Object_name_set` for the active object (F2): the name is made unique among the objects (`Cube.001`
     /// style) and is one undo step. Returns whether the name changed.
     pub fn rename_active(&mut self, name: &str) -> bool {

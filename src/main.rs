@@ -30,6 +30,7 @@ mod array_settings;
 mod solidify_settings;
 mod outliner_select;
 mod scene_units;
+mod outliner_rename;
 mod playhead_draw;
 
 mod status_input;
@@ -232,6 +233,10 @@ struct App {
     box_select: Option<BoxSelect>,
     /// The F2 rename popup.
     rename: Option<rename_popup::Rename>,
+    /// The outliner's rename text field (`TSE_TEXTBUT`).
+    outliner_rename: Option<outliner_rename::Rename>,
+    /// The last click on an outliner object row, for the double-click that renames it.
+    last_outliner_click: Option<(std::time::Instant, u32)>,
     /// The modifier value field being typed into.
     mod_edit: Option<modifier_panel::ValueEdit>,
     /// The open modifier dropdown menu: the modifier and the window position it opened at.
@@ -1034,7 +1039,18 @@ impl ApplicationHandler for App {
                         gfx.window.request_redraw();
                     }
                 } else if let Some(window) = outliner_draw::window_rect(user, layout.outliner).filter(|w| w.isect_pt_v(self.cursor)) {
-                    if let Some((id, col)) = outliner_draw::restrict_click(user, window, &self.scene, self.cursor[0], self.cursor[1]) {
+                    if let Some(edit) = self.outliner_rename.as_ref() {
+                        /* Clicking inside the field keeps editing, anywhere else confirms it. */
+                        let inside = outliner_draw::rename_field_rect(user, window, &self.scene, edit.id).is_some_and(|r| r.isect_pt_v(self.cursor));
+                        if !inside {
+                            if let Some(e) = self.outliner_rename.take() {
+                                if outliner_rename::commit(&mut self.scene, &e) {
+                                    scene_changed(&mut self.scene, &mut self.taa);
+                                }
+                            }
+                        }
+                        gfx.window.request_redraw();
+                    } else if let Some((id, col)) = outliner_draw::restrict_click(user, window, &self.scene, self.cursor[0], self.cursor[1]) {
                         let which = match col {
                             outliner_draw::RestrictCol::Hide | outliner_draw::RestrictCol::Viewport => scene::Restrict::Viewport,
                             outliner_draw::RestrictCol::Select => scene::Restrict::Select,
@@ -1046,6 +1062,20 @@ impl ApplicationHandler for App {
                         gfx.window.request_redraw();
                     } else if let Some(row) = outliner_draw::row_at(user, window, self.cursor[1]) {
                         let rows = self.scene.outliner_rows();
+                        /* `LEFTMOUSE` `DOUBLE_CLICK` -> `outliner.item_rename` on the name of the element under the cursor. */
+                        if let Some(scene::RowKind::Object(id)) = rows.get(row).map(|r| r.kind.clone()) {
+                            let now = std::time::Instant::now();
+                            let double = self.last_outliner_click.is_some_and(|(t, i)| i == id && now.duration_since(t).as_millis() < 400);
+                            self.last_outliner_click = if double { None } else { Some((now, id)) };
+                            let name_w = self.scene.index_of(id).map_or(0, |i| font::string_width(user, &self.scene.objects[i].name));
+                            let over_name = outliner_draw::rename_field_rect(user, window, &self.scene, id)
+                                .is_some_and(|r| self.cursor[0] >= r.xmin && self.cursor[0] <= r.xmin + name_w);
+                            if double && over_name {
+                                self.outliner_rename = outliner_rename::start(&self.scene, &scene::RowKind::Object(id));
+                                gfx.window.request_redraw();
+                                return;
+                            }
+                        }
                         if let Some(scene::RowKind::Object(id)) = rows.get(row).map(|r| r.kind.clone()) {
                             let click = outliner_select::Click::from_keys(self.modifiers.control_key(), extend);
                             outliner_select::item_activate(&mut self.scene, id, click);
@@ -1254,6 +1284,47 @@ impl ApplicationHandler for App {
                                 if !ctrl_k && !alt_k {
                                     e.push(text);
                                 }
+                            }
+                        }
+                    }
+                    gfx.window.request_redraw();
+                    return;
+                }
+                /* The outliner's rename field: Enter confirms, ESC cancels (`ui_do_but_textedit()`). */
+                if self.outliner_rename.is_some() {
+                    use outliner_rename::Key;
+                    let mut done = None;
+                    if let Some(r) = self.outliner_rename.as_mut() {
+                        let key = match code {
+                            KeyCode::Enter | KeyCode::NumpadEnter => {
+                                done = Some(true);
+                                None
+                            }
+                            KeyCode::Escape => {
+                                done = Some(false);
+                                None
+                            }
+                            KeyCode::ArrowLeft => Some(Key::Left),
+                            KeyCode::ArrowRight => Some(Key::Right),
+                            KeyCode::Home => Some(Key::Home),
+                            KeyCode::End => Some(Key::End),
+                            KeyCode::Backspace => Some(Key::Backspace),
+                            KeyCode::Delete => Some(Key::Delete),
+                            KeyCode::KeyA if ctrl_k => Some(Key::SelectAll),
+                            _ => None,
+                        };
+                        if let Some(k) = key {
+                            r.key(k, shift_k);
+                        } else if done.is_none() && !ctrl_k && !alt_k {
+                            for ch in key_event.text.as_ref().map(|t| t.chars().collect::<Vec<_>>()).unwrap_or_default() {
+                                r.key(Key::Char(ch), false);
+                            }
+                        }
+                    }
+                    if let Some(apply) = done {
+                        if let Some(e) = self.outliner_rename.take() {
+                            if apply && outliner_rename::commit(&mut self.scene, &e) {
+                                scene_changed(&mut self.scene, &mut self.taa);
                             }
                         }
                     }
@@ -1635,6 +1706,10 @@ impl ApplicationHandler for App {
                         /* `mesh.subdivide` (one cut, no smoothing) and `mesh.separate` by loose parts (P). */
                         KeyCode::KeyD if ctrl_k && alt_k && !shift_k => geometry = self.scene.subdivide_simple() > 0,
                         /* `wm.call_panel` of `TOPBAR_PT_name` on F2: rename the active object. */
+                        KeyCode::F2 if plain && self.layout.as_ref().zip(self.user.as_ref()).and_then(|(l, u)| outliner_draw::window_rect(u, l.outliner)).is_some_and(|w| w.isect_pt_v(self.cursor)) => {
+                            /* `outliner.item_rename` with `use_active` while the cursor is over the outliner. */
+                            self.outliner_rename = outliner_rename::start_active(&self.scene);
+                        }
                         KeyCode::F2 if plain => {
                             if let Some(name) = self.scene.active_object().map(|o| o.name.clone()) {
                                 self.rename = Some(rename_popup::Rename::open(self.cursor, &name));
@@ -2210,6 +2285,9 @@ impl ApplicationHandler for App {
                             outliner_draw::draw_row_stripes(&mut buf, w, h, user, window);
                             outliner_draw::draw_tree_rows(&mut buf, w, h, user, window, &outliner_draw::scene_rows(&self.scene));
                             outliner_draw::draw_restrict_buttons(&mut buf, w, h, user, window, &self.scene);
+                            if let Some(edit) = self.outliner_rename.as_ref() {
+                                outliner_draw::draw_rename_field(&mut buf, w, h, user, window, &self.scene, edit);
+                            }
                         }
                     }
                     /* Modifiers panel of the properties editor. */
