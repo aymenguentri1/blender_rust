@@ -93,6 +93,8 @@ mod mesh_bevel_meet;
 mod mesh_extrude;
 #[allow(dead_code)]
 mod edit_select;
+#[allow(dead_code)]
+mod edit_overlay;
 mod mesh_extrude_faces;
 mod sculpt_hide;
 mod mesh_edgering;
