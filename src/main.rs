@@ -328,8 +328,13 @@ fn set_status_title(window: &Window, text: Option<&str>) {
 }
 
 /// What the 3D viewport header shows.
-fn header_state(wire: bool, xray: bool, overlays_hidden: bool, pivot: transform::PivotPoint, sculpt: bool) -> view3d_header::HeaderState {
-    view3d_header::HeaderState { wire, xray, overlays: !overlays_hidden, pivot, sculpt }
+/// The mode the header shows: Edit and Sculpt are exclusive (`mode_set`).
+fn mode_of(edit: bool, sculpt: bool) -> object_mode::ObjectMode {
+    if edit { object_mode::ObjectMode::Edit } else if sculpt { object_mode::ObjectMode::Sculpt } else { object_mode::ObjectMode::Object }
+}
+
+fn header_state(wire: bool, xray: bool, overlays_hidden: bool, pivot: transform::PivotPoint, mode: object_mode::ObjectMode) -> view3d_header::HeaderState {
+    view3d_header::HeaderState { wire, xray, overlays: !overlays_hidden, pivot, mode }
 }
 
 /// `object.mode_set` between Object Mode and Sculpt Mode (Ctrl + Tab, the header mode dropdown): Sculpt Mode needs an
@@ -480,7 +485,7 @@ impl ApplicationHandler for App {
                 if let Some(user) = self.user.as_ref() {
                     let hover = area::view3d_header_rect(user, layout.main)
                         .filter(|header| header.isect_pt_v([x, y]))
-                        .and_then(|header| view3d_header::action_at(&view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, self.sculpt.is_some())), [x, y]));
+                        .and_then(|header| view3d_header::action_at(&view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, mode_of(self.edit_mode, self.sculpt.is_some()))), [x, y]));
                     if hover != self.header_hover {
                         self.header_hover = hover;
                         gfx.window.request_redraw();
@@ -876,7 +881,7 @@ impl ApplicationHandler for App {
                     (Some(layout), Some(user)) => area::view3d_header_rect(user, layout.main)
                         .filter(|header| header.isect_pt_v(self.cursor))
                         .map(|header| {
-                            let items = view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, self.sculpt.is_some()));
+                            let items = view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, mode_of(self.edit_mode, self.sculpt.is_some())));
                             let action = view3d_header::action_at(&items, self.cursor);
                             let anchor = action.and_then(|a| view3d_header::rect_of(&items, a)).map(|r| [r.xmin, r.ymin]);
                             (action, anchor)
@@ -900,7 +905,10 @@ impl ApplicationHandler for App {
                         /* Opens the Add menu below the button, like Shift + A does at the cursor. */
                         Some(Action::MenuAdd) => self.add_menu = anchor,
                         /* The mode dropdown toggles Object Mode and Sculpt Mode (it has no menu here). */
-                        Some(Action::Mode) => toggle_sculpt(&mut self.sculpt, &self.scene),
+                        Some(Action::Mode) => {
+                            toggle_sculpt(&mut self.sculpt, &self.scene);
+                            self.edit_mode &= self.sculpt.is_none();
+                        }
                         _ => {}
                     }
                     gfx.window.request_redraw();
@@ -1496,6 +1504,7 @@ impl ApplicationHandler for App {
                 /* `object.mode_set`: Ctrl + Tab toggles Sculpt Mode on the active mesh object. */
                 if code == KeyCode::Tab && ctrl_k && !shift_k && !alt_k && !key_event.repeat {
                     toggle_sculpt(&mut self.sculpt, &self.scene);
+                    self.edit_mode &= self.sculpt.is_none(); /* Sculpt and Edit Mode are exclusive */
                     gfx.window.request_redraw();
                     return;
                 }
@@ -2488,7 +2497,7 @@ impl ApplicationHandler for App {
                             /* Editor type, mode, menus, transform cluster, overlays, X-ray and shading buttons. The ones
                              * this port models are wired to the same state as their keys (Shift + Z, Alt + Z,
                              * Shift + Alt + Z, Period). */
-                            let items = view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, self.sculpt.is_some()));
+                            let items = view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, mode_of(self.edit_mode, self.sculpt.is_some())));
                             view3d_header::draw(&mut buf, w, h, user, &items, self.header_hover);
                         }
                     }
