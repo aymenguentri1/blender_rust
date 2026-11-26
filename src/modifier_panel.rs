@@ -33,6 +33,8 @@ pub enum Action {
     Duplicate(usize),
     /// The disclosure triangle in the header.
     ToggleCollapse(usize),
+    /// Ctrl + click on the triangle: collapses all the others (or opens all when it is the only open one).
+    CollapseOthers(usize),
     /// The monitor toggle in the header (`show_viewport`).
     ToggleViewport(usize),
     Decrease(usize),
@@ -206,6 +208,14 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
     out
 }
 
+/// The action with Ctrl held: the triangle collapses the other panels instead of itself.
+pub fn with_ctrl(action: Action) -> Action {
+    match action {
+        Action::ToggleCollapse(i) => Action::CollapseOthers(i),
+        a => a,
+    }
+}
+
 /// The action of the widget under `xy`, if any.
 pub fn action_at(widgets: &[Widget], xy: [i32; 2]) -> Option<Action> {
     widgets.iter().find(|w| w.rect.isect_pt_v(xy)).and_then(|w| w.action)
@@ -262,6 +272,10 @@ pub fn apply(scene: &mut Scene, add_open: &mut bool, action: Action) -> bool {
         Action::Duplicate(i) => scene.panel_duplicate_modifier(i),
         Action::ToggleCollapse(i) => {
             scene.panel_toggle_collapse(i);
+            false
+        }
+        Action::CollapseOthers(i) => {
+            scene.panel_collapse_others(i);
             false
         }
         Action::ToggleViewport(i) => scene.panel_toggle_viewport(i),
@@ -467,6 +481,26 @@ mod tests {
         assert!(s.undo(), "undoes the remove, not the collapse");
         assert!(PanelState::of(&s, false).modifiers[1].collapsed);
         assert!(!apply(&mut s, &mut open, Action::ToggleCollapse(1)) && !PanelState::of(&s, false).modifiers[1].collapsed);
+    }
+
+    #[test]
+    fn ctrl_click_on_the_triangle_collapses_the_others() {
+        let mut s = Scene::startup();
+        let mut open = false;
+        for a in [1, 15, 3] {
+            apply(&mut s, &mut open, Action::Add(a));
+        }
+        let collapsed = |s: &Scene| PanelState::of(s, false).modifiers.iter().map(|m| m.collapsed).collect::<Vec<_>>();
+        assert_eq!(with_ctrl(Action::ToggleCollapse(1)), Action::CollapseOthers(1));
+        assert_eq!(with_ctrl(Action::Remove(1)), Action::Remove(1), "other buttons are unchanged");
+        assert!(!apply(&mut s, &mut open, Action::CollapseOthers(1)));
+        assert_eq!(collapsed(&s), [true, false, true]);
+        apply(&mut s, &mut open, Action::CollapseOthers(1));
+        assert_eq!(collapsed(&s), [false; 3], "again: everything opens");
+        apply(&mut s, &mut open, Action::ToggleCollapse(0));
+        apply(&mut s, &mut open, Action::CollapseOthers(2));
+        assert_eq!(collapsed(&s), [true, true, false]);
+        assert!(!apply(&mut s, &mut open, Action::CollapseOthers(9)), "no such modifier");
     }
 
     #[test]
