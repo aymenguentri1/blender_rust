@@ -26,6 +26,7 @@ mod outliner_draw;
 mod face_set;
 mod blend_sdna;
 mod gltf_accessor;
+mod gltf_prim_mode;
 mod face_set_create;
 mod obj_export;
 #[allow(dead_code)]
