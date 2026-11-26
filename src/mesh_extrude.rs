@@ -112,7 +112,7 @@ mod tests {
         assert_eq!((r.new_verts.len(), r.new_edges.len(), r.new_faces.len()), (2, 1, 1));
         assert_eq!(r.mesh.verts[4], plane.verts[e.a as usize]);
         assert!(up(&r.mesh, 0) > 0.99);
-        r.mesh.edges().iter().filter(|x| x.faces > 2).for_each(|_| panic!("non manifold"));
+        assert!(!r.mesh.edges().iter().any(|x| x.faces > 2), "non manifold");
         /* The new quad shares the edge with the plane and traverses it the other way round. */
         let q = &r.mesh.faces[1];
         let n = q.len();
