@@ -33,6 +33,7 @@ mod obj_export;
 mod multires;
 #[allow(dead_code)]
 mod obj_import;
+mod gltf_mesh;
 mod array_settings;
 mod solidify_settings;
 mod outliner_select;
