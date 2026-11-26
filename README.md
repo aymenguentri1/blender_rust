@@ -16,7 +16,8 @@ enough vertices (Add > UV Sphere, or Alt + C to bake a subdivision level into th
 | Left mouse drag | Brush stroke: dabs every 10 % of the brush diameter along the path, found by ray casting the mesh |
 | Ctrl + drag | Inverted brush (the ring turns light blue, like `cursor_color_subtract`) |
 | Shift + drag | Smooth while held |
-| X / S / G / I | Draw / Smooth / Grab / Inflate brush |
+| X / S / G / I / C | Draw / Smooth / Grab / Inflate / Clay Strips brush |
+| Ctrl + Shift + D | Subdivide the base mesh once (Catmull-Clark), for meshes too coarse to sculpt |
 | Shift + T / P / Shift + C | Flatten / Pinch / Crease brush |
 | F / Shift + F | Brush radius / strength: move the mouse, click or Enter confirms, Esc cancels |
 | Alt + X / Y / Z | Toggle mirror symmetry on that axis (X is on, as in Blender) |

@@ -389,6 +389,21 @@ impl Scene {
         }
     }
 
+    /// Subdivides the base mesh of the active object once (Catmull-Clark) so that it has enough vertices to sculpt
+    /// on. One undo step; refused above 400000 vertices.
+    pub fn subdivide_active_base(&mut self) -> bool {
+        let Some(id) = self.active else { return false };
+        let Some(i) = self.index_of(id) else { return false };
+        let new = match &self.objects[i].data {
+            ObjectData::Mesh(m) if !m.faces.is_empty() && m.verts.len() * 3 < 400_000 => m.subdivided(1),
+            _ => return false,
+        };
+        self.push_undo();
+        self.objects[i].eval = None;
+        self.objects[i].data = ObjectData::Mesh(new);
+        true
+    }
+
     pub fn active_object(&self) -> Option<&Object> {
         self.active.and_then(|id| self.index_of(id)).map(|i| &self.objects[i])
     }

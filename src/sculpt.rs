@@ -32,10 +32,11 @@ pub enum Brush {
     Flatten,
     Pinch,
     Crease,
+    Clay,
 }
 
 impl Brush {
-    pub const ALL: [Brush; 7] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease];
+    pub const ALL: [Brush; 8] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -46,6 +47,7 @@ impl Brush {
             Brush::Flatten => "Flatten",
             Brush::Pinch => "Pinch",
             Brush::Crease => "Crease",
+            Brush::Clay => "Clay Strips",
         }
     }
 }
@@ -212,6 +214,22 @@ fn dab_one(mesh: &mut Mesh, adj: &[Vec<u32>], brush: Brush, center: V3, radius: 
                 mesh.verts[i] = add(mesh.verts[i], scale(area, -push * f * dir));
             }
             pinch(mesh, &hit, center, area, strength * dir);
+        }
+        Brush::Clay => {
+            /* `do_clay_strips_brush()`, simplified: builds up towards a plane a little above the surface, so
+             * only what lies below it rises (the inverted brush cuts what lies above a plane below it). */
+            let (mut sum, mut wsum) = ([0.0f32; 3], 0.0f32);
+            for &(i, f) in &hit {
+                sum = add(sum, scale(mesh.verts[i], f));
+                wsum += f;
+            }
+            let plane = add(scale(sum, 1.0 / wsum.max(1e-12)), scale(area, push * 0.5 * dir));
+            for &(i, f) in &hit {
+                let dist = dot(sub(mesh.verts[i], plane), area) * dir;
+                if dist < 0.0 {
+                    mesh.verts[i] = sub(mesh.verts[i], scale(area, dist * dir * (f * strength * BLEND_FACTOR).min(1.0)));
+                }
+            }
         }
         Brush::Grab => {}
     }
@@ -594,6 +612,21 @@ mod tests {
         m.verts[i][2] = 0.2;
         dab(&mut m, &adj, Brush::Flatten, [0.0, 0.0, 0.0], 0.5, 1.0, false, [false; 3]);
         assert!(m.verts[i][2].abs() < 0.2);
+    }
+
+    #[test]
+    fn clay_fills_a_dent_and_leaves_a_bump() {
+        let mut m = grid();
+        let adj = adjacency(&m);
+        let i = m.verts.iter().position(|v| v[0].abs() < 1e-3 && v[1].abs() < 1e-3).unwrap();
+        let up = m.vertex_normals()[i][2].signum();
+        m.verts[i][2] = -0.2 * up;
+        dab(&mut m, &adj, Brush::Clay, [0.0, 0.0, 0.0], 0.5, 1.0, false, [false; 3]);
+        assert!((m.verts[i][2] * up).abs() < 0.2, "the dent is filled");
+        let mut b = grid();
+        b.verts[i][2] = 0.2 * up;
+        dab(&mut b, &adj, Brush::Clay, [0.0, 0.0, 0.0], 0.5, 1.0, false, [false; 3]);
+        assert_eq!(b.verts[i][2], 0.2 * up, "a bump above the plane is left alone");
     }
 
     #[test]
