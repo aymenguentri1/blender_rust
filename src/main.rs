@@ -194,6 +194,8 @@ mod blend_dna_read;
 mod blend_mesh_read;
 #[allow(dead_code)]
 mod blend_object_read;
+#[allow(dead_code)]
+mod blend_scene;
 
 use std::{num::NonZeroU32, sync::Arc};
 
