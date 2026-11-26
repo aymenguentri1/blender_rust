@@ -12,7 +12,10 @@ use crate::mesh_deform::{CastShape, DeformMode};
 pub enum Modifier {
     Mirror { axes: [bool; 3], merge: bool, threshold: f32 },
     /// `merge` is the merge distance in metres (0 is off): vertices of neighbouring copies that touch are joined.
-    Array { count: u32, relative: V3, constant: V3, merge: f32 },
+    ///
+    /// `fit` is Blender's Fit Length in metres (0 is Fixed Count): the number of copies is then the length divided by
+    /// the length of the offset, rounded down, and `count` is not used.
+    Array { count: u32, relative: V3, constant: V3, merge: f32, fit: f32 },
     Solidify { thickness: f32, offset: f32 },
     /// `Offset` width, `segments` segments (1 is a chamfer).
     Bevel { width: f32, segments: u32 },
@@ -94,7 +97,7 @@ impl Modifier {
     }
 
     pub fn array(count: u32) -> Modifier {
-        Modifier::Array { count: count.max(1), relative: [1.0, 0.0, 0.0], constant: [0.0; 3], merge: 0.0 }
+        Modifier::Array { count: count.max(1), relative: [1.0, 0.0, 0.0], constant: [0.0; 3], merge: 0.0, fit: 0.0 }
     }
 
     pub fn solidify() -> Modifier {
@@ -254,8 +257,8 @@ impl Modifier {
                 let names: String = axes.iter().zip(["X", "Y", "Z"]).filter(|(on, _)| **on).map(|(_, n)| n).collect();
                 format!(" {names}")
             }
-            Modifier::Array { count, relative, constant, merge } => {
-                let mut d = format!(" x{count}");
+            Modifier::Array { count, relative, constant, merge, fit } => {
+                let mut d = if *fit > 0.0 { format!(" fit {} m", num(*fit)) } else { format!(" x{count}") };
                 if let Some(i) = array_preset(*relative, *constant).filter(|&i| i != 0) {
                     d.push_str(&format!(" {}", ARRAY_PRESETS[i].0));
                 } else if array_preset(*relative, *constant).is_none() {
@@ -320,6 +323,7 @@ impl Modifier {
                     *op = if steps > 0 { op.next() } else { op.prev() };
                 }
             }
+            Modifier::Array { fit, .. } if *fit > 0.0 => *fit = round((*fit + 0.5 * n).max(0.1)),
             Modifier::Array { count, .. } => *count = (*count as i64 + steps as i64).clamp(1, 1000) as u32,
             Modifier::Solidify { thickness, .. } => *thickness = round((*thickness + 0.01 * n).max(0.001)),
             Modifier::Bevel { width, .. } => *width = round((*width + 0.01 * n).max(0.001)),
@@ -379,8 +383,9 @@ impl Modifier {
                 }
                 m
             }
-            Modifier::Array { count, relative, constant, merge } => {
-                let m = mesh.arrayed(*count, *relative, *constant);
+            Modifier::Array { count, relative, constant, merge, fit } => {
+                let count = mesh.array_fit_count(*relative, *constant, *fit).unwrap_or(*count);
+                let m = mesh.arrayed(count, *relative, *constant);
                 if *merge > 0.0 {
                     m.merged_by_distance(*merge).0
                 } else {
@@ -594,6 +599,25 @@ mod tests {
     }
 
     #[test]
+    fn array_fit_length_derives_the_count() {
+        let cube = Mesh::cube(2.0);
+        let mut m = Modifier::array(2);
+        let Modifier::Array { fit, .. } = &mut m else { unreachable!() };
+        *fit = 7.0;
+        /* 2 m cubes with a relative offset of 1: floor(7 / 2) = 3 copies. */
+        assert_eq!(m.apply(&cube).faces.len(), 18);
+        assert_eq!(m.summary(), "Array fit 7 m");
+        assert!(m.adjust(1) && m.summary() == "Array fit 7.5 m");
+        assert!(m.adjust(-100) && m.summary() == "Array fit 0.1 m");
+        /* Shorter than one step: one copy, never zero. */
+        assert_eq!(m.apply(&cube).faces.len(), 6);
+        /* No offset length (zero offset): the fixed count is used. */
+        let mut z = Modifier::Array { count: 4, relative: [0.0; 3], constant: [0.0; 3], merge: 0.0, fit: 5.0 };
+        assert_eq!(z.apply(&cube).faces.len(), 24);
+        assert!(!z.adjust(0));
+    }
+
+    #[test]
     fn the_catalog_has_every_kind_once() {
         let c = Modifier::catalog();
         assert_eq!(c.len(), 21);
@@ -650,9 +674,9 @@ mod tests {
     #[test]
     fn array_summary_shows_non_default_offset_and_merge() {
         assert_eq!(Modifier::array(3).summary(), "Array x3");
-        let m = Modifier::Array { count: 2, relative: [0.0; 3], constant: [0.0, 1.0, 0.0], merge: 0.001 };
+        let m = Modifier::Array { count: 2, relative: [0.0; 3], constant: [0.0, 1.0, 0.0], merge: 0.001, fit: 0.0 };
         assert_eq!(m.summary(), "Array x2 +1 m Y merge 0.001 m");
-        let m = Modifier::Array { count: 2, relative: [0.5, 0.0, 0.0], constant: [0.0; 3], merge: 0.0 };
+        let m = Modifier::Array { count: 2, relative: [0.5, 0.0, 0.0], constant: [0.0; 3], merge: 0.0, fit: 0.0 };
         assert_eq!(m.summary(), "Array x2 custom offset");
     }
 
@@ -660,8 +684,8 @@ mod tests {
     fn array_merge_joins_touching_copies() {
         /* Two unit cubes side by side along X share a face: 16 vertices become 12 once merged. */
         let cube = Mesh::cube(1.0);
-        let plain = Modifier::Array { count: 2, relative: [1.0, 0.0, 0.0], constant: [0.0; 3], merge: 0.0 };
-        let merged = Modifier::Array { count: 2, relative: [1.0, 0.0, 0.0], constant: [0.0; 3], merge: 0.001 };
+        let plain = Modifier::Array { count: 2, relative: [1.0, 0.0, 0.0], constant: [0.0; 3], merge: 0.0, fit: 0.0 };
+        let merged = Modifier::Array { count: 2, relative: [1.0, 0.0, 0.0], constant: [0.0; 3], merge: 0.001, fit: 0.0 };
         assert_eq!(plain.apply(&cube).verts.len(), 16);
         assert_eq!(merged.apply(&cube).verts.len(), 12);
     }

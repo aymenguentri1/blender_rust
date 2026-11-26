@@ -77,6 +77,18 @@ impl Mesh {
         out
     }
 
+    /// Fit Length: how many copies of the Array fit in `fit` metres, `None` when the length is off (0) or the offset
+    /// has no length. As in Blender it is the length over the offset length rounded down, at least 1 and at most 1000.
+    pub fn array_fit_count(&self, relative: V3, constant: V3, fit: f32) -> Option<u32> {
+        if !(fit > 0.0) {
+            return None;
+        }
+        let size = self.bounds().map_or([0.0; 3], |(mn, mx)| sub(mx, mn));
+        let step = add([relative[0] * size[0], relative[1] * size[1], relative[2] * size[2]], constant);
+        let len = dot(step, step).sqrt();
+        (len > 1e-6).then(|| (((fit + 1e-4) / len).floor() as i64).clamp(1, 1000) as u32)
+    }
+
     /// The Array modifier with a relative offset (a factor of the bounds size) and a constant one.
     pub fn arrayed(&self, count: u32, relative: V3, constant: V3) -> Mesh {
         let count = count.max(1);

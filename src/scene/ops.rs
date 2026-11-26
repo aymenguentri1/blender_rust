@@ -1035,6 +1035,28 @@ mod tests {
     }
 
     #[test]
+    fn array_fit_cycles_and_sizes_the_array() {
+        let mut s = Scene::startup();
+        assert_eq!(s.cycle_array_fit(), 0, "no Array modifier yet");
+        s.set_array(2);
+        let fit = |s: &Scene| match &s.active_object().unwrap().modifiers[0] {
+            Modifier::Array { fit, .. } => *fit,
+            _ => unreachable!(),
+        };
+        for want in [2.0, 4.0, 8.0, 0.0, 2.0] {
+            assert_eq!(s.cycle_array_fit(), 1);
+            assert_eq!(fit(&s), want);
+        }
+        /* The default cube is 2 m wide: 4 m fit two copies, 8 m four. */
+        s.cycle_array_fit();
+        s.update_eval();
+        assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), 12);
+        s.cycle_array_fit();
+        s.update_eval();
+        assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), 24);
+    }
+
+    #[test]
     fn array_offset_cycles_through_the_presets_and_wraps() {
         let mut s = Scene::startup();
         assert_eq!(s.cycle_array_offset(), 0, "no Array modifier yet");
