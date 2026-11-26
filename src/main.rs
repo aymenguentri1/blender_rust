@@ -24,6 +24,7 @@ mod buttons_context;
 mod object_tab_layout;
 mod outliner_draw;
 mod face_set;
+mod face_set_create;
 #[allow(dead_code)]
 mod multires;
 mod array_settings;
