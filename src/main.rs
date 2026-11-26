@@ -787,6 +787,7 @@ impl ApplicationHandler for App {
                     let below = area::Rcti { ymax: tp.as_ref().map_or(window.ymax, |l| l.bottom), ..window };
                     let widgets = modifier_panel::widgets(user, below, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open));
                     if let Some(action) = modifier_panel::action_at(&widgets, self.cursor) {
+                        let action = if self.modifiers.control_key() { modifier_panel::with_ctrl(action) } else { action };
                         if modifier_panel::apply(&mut self.scene, &mut self.mod_add_open, action) {
                             scene_changed(&mut self.scene, &mut self.taa);
                         }

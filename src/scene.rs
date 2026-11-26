@@ -1092,6 +1092,22 @@ impl Scene {
         true
     }
 
+    /// Ctrl + click on a modifier's triangle (`UI_panel_drag_collapse` / `ui_handle_panel_header`): collapses every
+    /// other panel and opens modifier `i`; when it already is the only open one, opens them all. UI state only.
+    pub fn panel_collapse_others(&mut self, i: usize) -> bool {
+        let Some(idx) = self.active.and_then(|id| self.index_of(id)) else { return false };
+        let o = &mut self.objects[idx];
+        if i >= o.modifiers.len() {
+            return false;
+        }
+        o.mod_flags.resize(o.modifiers.len(), modifiers::ModFlags::default());
+        let only_open = (0..o.modifiers.len()).all(|j| o.mod_flags[j].collapsed == (j != i));
+        for (j, f) in o.mod_flags.iter_mut().enumerate() {
+            f.collapsed = !only_open && j != i;
+        }
+        true
+    }
+
     /// The monitor toggle of modifier `i` of the active object (`show_viewport`). Undoable.
     pub fn panel_toggle_viewport(&mut self, i: usize) -> bool {
         self.edit_active_object(|o| {
