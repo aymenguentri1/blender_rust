@@ -190,6 +190,8 @@ mod widget_radius;
 mod widget_state_blend;
 #[allow(dead_code)]
 mod blend_dna_read;
+#[allow(dead_code)]
+mod blend_mesh_read;
 
 use std::{num::NonZeroU32, sync::Arc};
 
