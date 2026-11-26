@@ -53,7 +53,20 @@ impl ObjectInfo {
             None => ObjectInfo::default(),
             Some(o) => {
                 let mut modifiers: Vec<String> =
-                    o.modifiers.iter().enumerate().map(|(i, m)| if o.modifier_shown(i) { m.summary() } else { format!("{} (off)", m.summary()) }).collect();
+                    o.modifiers
+                        .iter()
+                        .enumerate()
+                        .map(|(i, m)| {
+                            let mut line = m.summary();
+                            if !o.modifier_shown(i) {
+                                line.push_str(" (off)");
+                            }
+                            if !o.modifier_render(i) {
+                                line.push_str(" (no render)");
+                            }
+                            line
+                        })
+                        .collect();
                 if o.subsurf > 0 {
                     modifiers.push(format!("Subdivision Surface {}", o.subsurf));
                 }

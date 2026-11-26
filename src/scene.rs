@@ -224,6 +224,11 @@ impl Object {
         !self.mod_flags.get(i).is_some_and(|f| f.hide_viewport)
     }
 
+    /// Is modifier `i` enabled for rendering (`show_render`)?
+    pub fn modifier_render(&self, i: usize) -> bool {
+        !self.mod_flags.get(i).is_some_and(|f| f.hide_render)
+    }
+
     /// Is the panel of modifier `i` collapsed?
     pub fn modifier_collapsed(&self, i: usize) -> bool {
         self.mod_flags.get(i).is_some_and(|f| f.collapsed)
@@ -1236,6 +1241,18 @@ impl Scene {
             }
             o.mod_flags.resize(o.modifiers.len(), modifiers::ModFlags::default());
             o.mod_flags[i].hide_viewport = !o.mod_flags[i].hide_viewport;
+            true
+        })
+    }
+
+    /// The camera toggle of modifier `i` of the active object (`show_render`). Undoable; the viewport is unchanged.
+    pub fn panel_toggle_render(&mut self, i: usize) -> bool {
+        self.edit_active_object(|o| {
+            if i >= o.modifiers.len() {
+                return false;
+            }
+            o.mod_flags.resize(o.modifiers.len(), modifiers::ModFlags::default());
+            o.mod_flags[i].hide_render = !o.mod_flags[i].hide_render;
             true
         })
     }

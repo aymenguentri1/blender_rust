@@ -48,6 +48,8 @@ pub enum Icon {
     RightArrow,
     /// `ICON_RESTRICT_VIEW_OFF`: the monitor of a modifier's "Show in Viewport" toggle.
     Monitor,
+    /// `ICON_RESTRICT_RENDER_OFF`: the camera of a modifier's "Show in Render" toggle.
+    Camera,
 }
 
 #[derive(Clone, Debug)]
@@ -187,6 +189,11 @@ fn shapes(icon: Icon) -> Vec<Shape> {
             poly(&[[3.6, 4.6], [12.4, 4.6], [12.4, 8.9], [3.6, 8.9]]).a(0.3),
             line(8.0, 10.5, 8.0, 12.6, 1.4),
             line(4.8, 12.9, 11.2, 12.9, 1.4),
+        ],
+        Icon::Camera => vec![
+            polyline(&[[1.8, 4.0], [10.2, 4.0], [10.2, 12.0], [1.8, 12.0]], 1.4, true),
+            poly(&[[3.4, 5.6], [8.6, 5.6], [8.6, 10.4], [3.4, 10.4]]).a(0.3),
+            poly(&[[10.2, 7.0], [14.4, 4.6], [14.4, 11.4], [10.2, 9.0]]),
         ],
         Icon::ShadingRendered => vec![disc(8.0, 8.0, 6.2).a(0.7), ring(8.0, 8.0, 6.2, 1.3), disc(5.8, 5.8, 2.3)],
     }
