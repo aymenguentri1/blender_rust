@@ -213,6 +213,12 @@ impl Object {
         self.mesh()
     }
 
+    /// The name modifier `i` shows in its panel: the one typed into the header or the kind's name.
+    pub fn modifier_name(&self, i: usize) -> Option<String> {
+        let m = self.modifiers.get(i)?;
+        Some(self.mod_flags.get(i).and_then(|f| f.name.clone()).unwrap_or_else(|| m.label().to_string()))
+    }
+
     /// Is modifier `i` shown in the viewport?
     pub fn modifier_shown(&self, i: usize) -> bool {
         !self.mod_flags.get(i).is_some_and(|f| f.hide_viewport)
@@ -916,6 +922,13 @@ impl Scene {
     // The properties editor panel acts on the active object (not on every selected one), like Blender's buttons.
 
     fn edit_active_object(&mut self, f: impl FnOnce(&mut Object) -> bool) -> bool {
+        self.edit_active_object_impl(f, true)
+    }
+
+    /// `edit_active_object`; `resync` lines the per-modifier flags up by comparing the stacks, which cannot tell
+    /// identical neighbours apart, so an edit that moves or removes modifiers keeps the flags right itself and
+    /// passes false.
+    fn edit_active_object_impl(&mut self, f: impl FnOnce(&mut Object) -> bool, resync: bool) -> bool {
         let Some(i) = self.active.and_then(|id| self.index_of(id)) else { return false };
         if self.objects[i].mesh().is_none() {
             return false;
@@ -923,9 +936,13 @@ impl Scene {
         self.push_undo();
         let o = &mut self.objects[i];
         let old = o.modifiers.clone();
+        o.mod_flags.resize(old.len(), modifiers::ModFlags::default());
         let changed = f(o);
         if changed {
-            modifiers::resync_flags(&old, &o.modifiers, &mut o.mod_flags);
+            if resync {
+                modifiers::resync_flags(&old, &o.modifiers, &mut o.mod_flags);
+            }
+            o.mod_flags.resize(o.modifiers.len(), modifiers::ModFlags::default());
             o.eval = None;
         } else {
             self.pop_undo();
@@ -964,15 +981,19 @@ impl Scene {
 
     /// Moves modifier `i` of the active object one place down (`delta` 1) or up (-1).
     pub fn panel_move_modifier(&mut self, i: usize, delta: i32) -> bool {
-        self.edit_active_object(|o| {
-            let to = i as i32 + delta;
-            if i >= o.modifiers.len() || to < 0 || to >= o.modifiers.len() as i32 {
-                return false;
-            }
-            o.modifiers.swap(i, to as usize);
-            o.active_modifier = to as usize;
-            true
-        })
+        self.edit_active_object_impl(
+            |o| {
+                let to = i as i32 + delta;
+                if i >= o.modifiers.len() || to < 0 || to >= o.modifiers.len() as i32 {
+                    return false;
+                }
+                o.modifiers.swap(i, to as usize);
+                o.mod_flags.swap(i, to as usize);
+                o.active_modifier = to as usize;
+                true
+            },
+            false,
+        )
     }
 
     /// The Shrinkwrap / Boolean target picker: moves modifier `i` of the active object to the next other mesh object
@@ -1016,12 +1037,16 @@ impl Scene {
         }
         let (ctx, _) = self.eval_ctx(idx);
         let baked = m.apply_with(mesh, &ctx);
-        self.edit_active_object(|o| {
-            o.data = ObjectData::Mesh(baked.clone());
-            o.modifiers.remove(i);
-            o.active_modifier = o.active_modifier.min(o.modifiers.len().saturating_sub(1));
-            true
-        })
+        self.edit_active_object_impl(
+            |o| {
+                o.data = ObjectData::Mesh(baked.clone());
+                o.modifiers.remove(i);
+                o.mod_flags.remove(i);
+                o.active_modifier = o.active_modifier.min(o.modifiers.len().saturating_sub(1));
+                true
+            },
+            false,
+        )
     }
 
     /// `OBJECT_OT_make_links_data` (Modifiers): replaces the modifier stack and the Subdivision Surface level of
@@ -1051,12 +1076,23 @@ impl Scene {
     /// `OBJECT_OT_modifier_copy`: inserts a copy of modifier `i` of the active object right after it and makes the
     /// copy the active modifier.
     pub fn panel_duplicate_modifier(&mut self, i: usize) -> bool {
-        self.edit_active_object(|o| {
-            let Some(m) = o.modifiers.get(i).cloned() else { return false };
-            o.modifiers.insert(i + 1, m);
-            o.active_modifier = i + 1;
-            true
-        })
+        self.edit_active_object_impl(
+            |o| {
+                let Some(m) = o.modifiers.get(i).cloned() else { return false };
+                let mut flags = o.mod_flags[i].clone();
+                /* `BKE_modifier_copy_ex` + `BKE_modifier_unique_name`: the copy is Array.001 and so on. */
+                let base = o.modifier_name(i).unwrap_or_default();
+                let stem = split_suffix(&base).0.to_string();
+                let taken = |n: &str| (0..o.modifiers.len()).any(|j| o.modifier_name(j).as_deref() == Some(n));
+                let unique = (1..100_000).map(|n| format!("{stem}.{n:03}")).find(|c| !taken(c)).unwrap_or(base);
+                flags.name = (unique != m.label()).then_some(unique);
+                o.modifiers.insert(i + 1, m);
+                o.mod_flags.insert(i + 1, flags);
+                o.active_modifier = i + 1;
+                true
+            },
+            false,
+        )
     }
 
     /// Ctrl + Shift + Alt + D: duplicates the active modifier of the active object.
@@ -1077,6 +1113,31 @@ impl Scene {
         }
         let i = o.active_modifier.min(o.modifiers.len() - 1);
         self.panel_apply_modifier(i)
+    }
+
+    /// `rna_Modifier_name_set` (double-click on the name in the panel): the name is made unique among the modifiers
+    /// of the object (`Array.001` style). Naming it back to its kind's name clears the custom name. One undo step.
+    /// Returns whether the name changed.
+    pub fn panel_rename_modifier(&mut self, i: usize, name: &str) -> bool {
+        let name = name.trim();
+        self.edit_active_object(|o| {
+            let Some(current) = o.modifier_name(i) else { return false };
+            if name.is_empty() || name == current {
+                return false;
+            }
+            let taken = |n: &str| (0..o.modifiers.len()).any(|j| j != i && o.modifier_name(j).as_deref() == Some(n));
+            let mut unique = name.to_string();
+            if taken(&unique) {
+                let stem = split_suffix(name).0.to_string();
+                unique = (1..100_000).map(|n| format!("{stem}.{n:03}")).find(|c| !taken(c)).unwrap_or(unique);
+            }
+            if unique == current {
+                return false;
+            }
+            o.mod_flags.resize(o.modifiers.len(), modifiers::ModFlags::default());
+            o.mod_flags[i].name = (unique != o.modifiers[i].label()).then_some(unique);
+            true
+        })
     }
 
     /// Collapses / expands the panel of modifier `i` of the active object. Not an undo step and no geometry change,
@@ -1122,14 +1183,18 @@ impl Scene {
 
     /// Removes modifier `i` of the active object.
     pub fn panel_remove_modifier(&mut self, i: usize) -> bool {
-        self.edit_active_object(|o| {
-            if i >= o.modifiers.len() {
-                return false;
-            }
-            o.modifiers.remove(i);
-            o.active_modifier = o.active_modifier.min(o.modifiers.len().saturating_sub(1));
-            true
-        })
+        self.edit_active_object_impl(
+            |o| {
+                if i >= o.modifiers.len() {
+                    return false;
+                }
+                o.modifiers.remove(i);
+                o.mod_flags.remove(i);
+                o.active_modifier = o.active_modifier.min(o.modifiers.len().saturating_sub(1));
+                true
+            },
+            false,
+        )
     }
 
     /// Adds a Mirror modifier for `axis` (0 = X, 1 = Y, 2 = Z) to the selected meshes, or flips that axis of
