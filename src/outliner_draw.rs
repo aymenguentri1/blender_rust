@@ -133,6 +133,41 @@ pub fn draw_tree_rows(buf: &mut [u32], width: usize, height: usize, user: &UserD
     }
 }
 
+/// The text field of an open rename (`TSE_TEXTBUT`) as window rect: it starts at the element's name and ends at the
+/// right edge of the region minus `V2D_SCROLL_WIDTH`, over the row `UI_UNIT_Y` high.
+pub fn rename_field_rect(user: &UserDef, region: Rcti, scene: &crate::scene::Scene, id: u32) -> Option<Rcti> {
+    let rows = scene.outliner_rows();
+    let i = rows.iter().position(|r| matches!(r.kind, crate::scene::RowKind::Object(o) if o == id))?;
+    let rh = region.size_y() + 1;
+    let unit = user.widget_unit;
+    let offsx = (2.0 * unit as f32 + 4.0 * (unit as f32 / 20.0)) as i32;
+    let ymin = region.ymin + rh - OL_Y_OFFSET - unit * (i as i32 + 1);
+    let xmin = region.xmin + rows[i].level * unit + offsx;
+    let scroll = (0.45 * unit as f32 + 2.0 * user.pixelsize as f32) as i32;
+    let xmax = region.xmin + region.size_x() + 1 - scroll - 1;
+    (xmax > xmin).then_some(Rcti { xmin, xmax, ymin, ymax: ymin + unit - 1 })
+}
+
+/// Draws the rename field: outline, inner, the selection, the text and the caret (colours as `rename_popup`'s field).
+pub fn draw_rename_field(buf: &mut [u32], width: usize, height: usize, user: &UserDef, region: Rcti, scene: &crate::scene::Scene, edit: &crate::outliner_rename::Rename) {
+    let Some(r) = rename_field_rect(user, region, scene, edit.id) else { return };
+    let b = user.pixelsize.max(1);
+    let (outline, inner, text) = (theme::Rgba::hex(0x4772b3ff), theme::Rgba::hex(0x282828ff), theme::Rgba::hex(0xffffffff));
+    fill_rect(buf, width, height, r, outline.to_xrgb());
+    let f = Rcti { xmin: r.xmin + b, xmax: r.xmax - b, ymin: r.ymin + b, ymax: r.ymax - b };
+    fill_rect(buf, width, height, f, inner.to_xrgb());
+    let pad = 4 * b;
+    let at = |n: usize| r.xmin + pad + font::string_width(user, &edit.text.chars().take(n).collect::<String>());
+    if edit.selend > edit.selsta {
+        let sel = Rcti { xmin: at(edit.selsta), xmax: at(edit.selend) - 1, ymin: f.ymin + b, ymax: f.ymax - b };
+        fill_rect(buf, width, height, sel, outline.to_xrgb());
+    }
+    let ufac = user.widget_unit as f32 / 20.0;
+    font::draw_text(buf, width, height, user, r.xmin + pad, r.ymin + (5.0 * ufac).round() as i32, &edit.text, text);
+    let x = at(edit.pos);
+    fill_rect(buf, width, height, Rcti { xmin: x, xmax: x + b - 1, ymin: f.ymin + b + 1, ymax: f.ymax - b - 1 }, text.to_xrgb());
+}
+
 /// The restriction columns of the View Layer display mode (`SO_RESTRICT_*` of `SpaceOutliner::show_restrict_flags`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RestrictCol {
@@ -262,6 +297,24 @@ mod row_tests {
         assert_eq!(row_at(&user, region, 141), Some(0));
         assert_eq!(row_at(&user, region, 140), Some(1));
         assert_eq!(row_at(&user, region, 100), Some(3));
+    }
+
+    #[test]
+    fn rename_field_spans_name_to_scroll_edge() {
+        use crate::scene::Scene;
+        let user = UserDef::from_window_scale(1.0);
+        let region = Rcti { xmin: 0, xmax: 199, ymin: 0, ymax: 162 };
+        let s = Scene::startup();
+        let id = s.active.unwrap();
+        /* Cube row 3: level 2, x = 40 + 44; right edge 200 - 11 - 1 = 188; y 81..=100. */
+        let r = rename_field_rect(&user, region, &s, id).unwrap();
+        assert_eq!((r.xmin, r.xmax, r.ymin, r.ymax), (84, 188, 81, 100));
+        assert_eq!(rename_field_rect(&user, region, &s, 9999), None);
+        let (w, h) = (200usize, 163usize);
+        let mut buf = vec![0u32; w * h];
+        let edit = crate::outliner_rename::start_active(&s).unwrap();
+        draw_rename_field(&mut buf, w, h, &user, region, &s, &edit);
+        assert_eq!(buf[(h - 1 - 90) * w + 84], 0x0047_72b3); /* outline */
     }
 
     #[test]
