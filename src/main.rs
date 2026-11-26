@@ -11,6 +11,7 @@
 #[allow(dead_code)]
 mod area;
 mod screen;
+mod sculpt;
 mod screen_draw;
 #[allow(dead_code)]
 mod ui_layout;
