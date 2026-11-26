@@ -608,7 +608,7 @@ mod tests {
         resync_flags(&[b.clone(), a.clone(), c.clone()], &[b.clone(), c.clone()], &mut f);
         assert_eq!(f, vec![ModFlags::default(); 2], "removing the hidden one drops its flag");
         let mut short = Vec::new();
-        resync_flags(&[b.clone()], &[b.clone(), c.clone()], &mut short);
+        resync_flags(std::slice::from_ref(&b), &[b.clone(), c.clone()], &mut short);
         assert_eq!(short.len(), 2, "a short list is padded");
     }
 
@@ -720,7 +720,7 @@ mod tests {
         let cube = Mesh::cube(2.0);
         let mut ctx = EvalCtx::default();
         let m = Modifier::Shrinkwrap { target: Some(7), offset: 0.0 };
-        assert_eq!(evaluate_with(&cube, &[m.clone()], &ctx), cube, "no target found: unchanged");
+        assert_eq!(evaluate_with(&cube, std::slice::from_ref(&m), &ctx), cube, "no target found: unchanged");
         ctx.targets.insert(7, Mesh::uv_sphere(16, 8, 2.0));
         let r = evaluate_with(&cube, &[m], &ctx);
         assert_ne!(r.verts, cube.verts);
@@ -753,7 +753,7 @@ mod tests {
         let cs = Modifier::corrective_smooth();
         assert_eq!(cs.summary(), "Corrective Smooth 0.5 x5");
         /* First in the stack the rest is the input itself: no change. */
-        let same = evaluate(&sphere, &[cs.clone()]);
+        let same = evaluate(&sphere, std::slice::from_ref(&cs));
         assert!(same.verts.iter().zip(&sphere.verts).all(|(a, b)| (0..3).all(|k| (a[k] - b[k]).abs() < 1e-3)));
         /* After a deformer it differs from plain smoothing. */
         let tw = Modifier::simple_deform(DeformMode::Taper);

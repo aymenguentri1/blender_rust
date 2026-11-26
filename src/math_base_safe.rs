@@ -33,13 +33,7 @@ pub fn safe_inverse_sqrtf(a: f32) -> f32 {
 
 /// `CLAMP(a, -1, 1)` of the source (NaN passes through).
 fn clamp_unit(a: f32) -> f32 {
-    if a < -1.0 {
-        -1.0
-    } else if a > 1.0 {
-        1.0
-    } else {
-        a
-    }
+    a.clamp(-1.0, 1.0)
 }
 
 /// `safe_asinf()`: `asinf()` of `a` clamped to `[-1, 1]`.
@@ -73,7 +67,7 @@ mod tests {
     fn safe_powf_cases() {
         let expected: [(f32, f32, f32); 8] = [
             (4.0, 3.0, 64.0),
-            (3.2, 5.6, 674.2793796),
+            (3.2, 5.6, 674.279_36),
             (4.0, -2.0, 0.0625),
             (6.0, -3.2, 0.003235311),
             (-4.0, 6.0, 4096.0),
@@ -104,7 +98,7 @@ mod tests {
     #[test]
     fn safe_logf_cases() {
         let expected: [(f32, f32, f32); 6] = [
-            (3.3, 2.5, 1.302995247),
+            (3.3, 2.5, 1.302_995_2),
             (0.0, 3.0, 0.0),
             (3.0, 0.0, 0.0),
             (-2.0, 4.3, 0.0),
@@ -136,7 +130,7 @@ mod tests {
         use std::f32::consts::{FRAC_PI_2, PI};
         assert!(float_eq(safe_asinf(2.0), FRAC_PI_2));
         assert!(float_eq(safe_asinf(-2.0), -FRAC_PI_2));
-        assert!(float_eq(safe_asinf(0.5), 0.5235988));
+        assert!(float_eq(safe_asinf(0.5), std::f32::consts::FRAC_PI_6));
         assert_eq!(safe_acosf(2.0), 0.0);
         assert!(float_eq(safe_acosf(-2.0), PI));
         assert!(safe_acosf(f32::NAN).is_nan());

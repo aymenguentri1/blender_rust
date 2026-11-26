@@ -934,7 +934,7 @@ mod tests {
         assert!(!s.panel_rename_modifier(9, "X"), "no such modifier");
         assert!(s.panel_rename_modifier(2, "Row"));
         assert_eq!(names(&s)[2], "Row.001", "unique among the modifiers");
-        assert!(s.panel_rename_modifier(2, "Row.001") == false);
+        assert!(!s.panel_rename_modifier(2, "Row.001"));
         assert!(s.panel_rename_modifier(1, "Weld"), "another modifier's kind name is free");
         assert!(s.panel_rename_modifier(1, "Array"), "back to the kind's name");
         assert!(s.active_object().unwrap().mod_flags[1].name.is_none(), "which clears the custom name");

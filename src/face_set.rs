@@ -159,7 +159,7 @@ mod tests {
             let [r, g, b] = overlay_color(id, 3);
             let (mx, mn) = (r.max(g).max(b) as f32 / 255.0, r.min(g).min(b) as f32 / 255.0);
             /* Saturation 0.6..0.85 and value 0.65..1.0. */
-            assert!(mx >= 0.64 && mx <= 1.0, "value {mx}");
+            assert!((0.64..=1.0).contains(&mx), "value {mx}");
             assert!((mx - mn) / mx >= 0.59 && (mx - mn) / mx <= 0.86, "saturation");
         }
     }

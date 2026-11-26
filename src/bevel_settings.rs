@@ -154,7 +154,7 @@ mod tests {
         let b = BevelSettings::default();
         assert_eq!((b.affect, b.width_type, b.width, b.segments), (Affect::Edges, WidthType::Offset, 0.1, 1));
         assert_eq!(b.limit_method, LimitMethod::Angle);
-        assert!((b.angle_limit - 0.523_598_8).abs() < 1e-6);
+        assert!((b.angle_limit - std::f32::consts::FRAC_PI_6).abs() < 1e-6);
         assert!(!b.is_disabled());
     }
 

@@ -282,7 +282,7 @@ mod tests {
     fn build(types: &[(&str, i16)], members: &[&str], structs: &[(usize, &[(usize, usize)])], be: bool) -> Vec<u8> {
         let i32b = |v: i32| if be { v.to_be_bytes() } else { v.to_le_bytes() };
         let i16b = |v: i16| if be { v.to_be_bytes() } else { v.to_le_bytes() };
-        let pad = |o: &mut Vec<u8>| while o.len() % 4 != 0 { o.push(0) };
+        let pad = |o: &mut Vec<u8>| while !o.len().is_multiple_of(4) { o.push(0) };
         let mut o = b"SDNANAME".to_vec();
         o.extend(i32b(members.len() as i32));
         for m in members {

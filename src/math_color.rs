@@ -9,13 +9,7 @@
 
 /// `CLAMP(a, 0, 1)` of the source.
 fn clamp01(a: f32) -> f32 {
-    if a < 0.0 {
-        0.0
-    } else if a > 1.0 {
-        1.0
-    } else {
-        a
-    }
+    a.clamp(0.0, 1.0)
 }
 
 /// `hsv_to_rgb()`: returns `[r, g, b]`.

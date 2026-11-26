@@ -119,7 +119,7 @@ impl Mesh {
             corners += f.len();
         }
         let mut parent: Vec<usize> = (0..corners).collect();
-        fn find(p: &mut Vec<usize>, mut x: usize) -> usize {
+        fn find(p: &mut [usize], mut x: usize) -> usize {
             while p[x] != x {
                 p[x] = p[p[x]];
                 x = p[x];
