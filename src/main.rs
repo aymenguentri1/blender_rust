@@ -59,6 +59,8 @@ mod math_half;
 #[allow(dead_code)]
 mod math_solvers;
 #[allow(dead_code)]
+mod fcurve_eval;
+#[allow(dead_code)]
 mod math_time;
 #[allow(dead_code)]
 mod view3d;
