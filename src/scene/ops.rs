@@ -473,6 +473,22 @@ impl Scene {
         self.objects.iter().zip(&was).filter(|(o, w)| o.selected && !**w).count()
     }
 
+    /// `OBJECT_OT_select_same_collection` with its `collection` name: selects every visible, selectable object that
+    /// is in that collection. The scene has one collection holding every object ("Collection", the outliner's
+    /// `RowKind::ActiveCollection`) and the empty "XGen Guides"; any other name finds no collection and does nothing
+    /// (`OPERATOR_PASS_THROUGH`). Returns how many objects were newly selected.
+    pub fn select_same_collection(&mut self, collection: &str) -> usize {
+        if collection != "Collection" {
+            return 0;
+        }
+        let mut n = 0;
+        for o in self.objects.iter_mut().filter(|o| !o.hidden && !o.hide_select && !o.selected) {
+            o.selected = true;
+            n += 1;
+        }
+        n
+    }
+
     /// `object_select_more_less` (`OBJECT_OT_select_more` / `OBJECT_OT_select_less`): every selectable object
     /// whose selected state differs from its parent's, and the parent of such a pair, is selected (`select`) or
     /// deselected. Returns whether any object changed.
@@ -1322,6 +1338,34 @@ mod tests {
         s.objects[i].selected = false;
         assert_eq!(s.select_by_type(ObjectType::Mesh, false), 0);
         assert_eq!(s.select_by_type(ObjectType::Empty, false), 0);
+        assert_eq!(s.selected().count(), 0);
+    }
+
+    #[test]
+    fn select_same_collection_selects_the_visible_selectable_members() {
+        let mut s = Scene::startup();
+        let a = s.add_primitive(Primitive::Cube, [1.0, 0.0, 0.0]);
+        let b = s.add_primitive(Primitive::Cube, [2.0, 0.0, 0.0]);
+        let (ai, bi) = (s.index_of(a).unwrap(), s.index_of(b).unwrap());
+        s.objects[ai].hidden = true;
+        s.objects[bi].hide_select = true;
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        let selectable = s.objects.iter().filter(|o| !o.hidden && !o.hide_select).count();
+        assert_eq!(s.select_same_collection("Collection"), selectable);
+        assert!(!s.objects[ai].selected && !s.objects[bi].selected);
+        assert_eq!(s.select_same_collection("Collection"), 0, "already selected: nothing new");
+    }
+
+    #[test]
+    fn select_same_collection_unknown_or_empty_collection_does_nothing() {
+        let mut s = Scene::startup();
+        for o in &mut s.objects {
+            o.selected = false;
+        }
+        assert_eq!(s.select_same_collection("Nope"), 0);
+        assert_eq!(s.select_same_collection("XGen Guides"), 0);
         assert_eq!(s.selected().count(), 0);
     }
 
