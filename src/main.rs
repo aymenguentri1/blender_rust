@@ -68,6 +68,7 @@ mod transform;
 mod overlay_outline;
 mod overlay_extra;
 mod add_menu;
+mod add_modifier_menu;
 mod icons;
 mod view3d_header;
 mod modifier_menu;
@@ -211,6 +212,8 @@ struct App {
     mod_edit: Option<modifier_panel::ValueEdit>,
     /// The open modifier dropdown menu: the modifier and the window position it opened at.
     mod_menu: Option<(usize, [i32; 2])>,
+    /// The Add Modifier popup: the position of its top left corner and the category whose submenu is open.
+    add_mod_menu: Option<([i32; 2], Option<usize>)>,
     /// A modifier being dragged by its handle: its index and the header tops of the panel when the press happened.
     mod_drag: Option<(usize, Vec<(usize, i32)>)>,
     /// The last click on a modifier panel button, for the double-click on a name (rename).
@@ -387,6 +390,14 @@ impl ApplicationHandler for App {
                 }
                 /* The popup menu highlights the entry under the cursor. */
                 if self.add_menu.is_some() || self.mod_menu.is_some() {
+                    gfx.window.request_redraw();
+                }
+                if let (Some((pos, open)), Some(user)) = (self.add_mod_menu, self.user.as_ref()) {
+                    let size = gfx.window.inner_size();
+                    let menu = add_modifier_menu::layout(user, pos, size.width as i32, size.height as i32, open);
+                    if let Some(add_modifier_menu::Hit::Category(c)) = add_modifier_menu::hit(&menu, [x, y]) {
+                        self.add_mod_menu = Some((pos, Some(c)));
+                    }
                     gfx.window.request_redraw();
                 }
                 /* `view3d.select_box`: the border follows the cursor once it left the drag threshold. */
@@ -589,7 +600,7 @@ impl ApplicationHandler for App {
              * `ED_view3d_cursor3d_position()` is done, and the cursor orientation is not modelled. */
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => {
                 /* A popup menu closes on RIGHTMOUSE. */
-                if self.add_menu.take().is_some() || self.mod_menu.take().is_some() {
+                if self.add_menu.take().is_some() || self.mod_menu.take().is_some() || self.add_mod_menu.take().is_some() {
                     gfx.window.request_redraw();
                     return;
                 }
@@ -671,6 +682,24 @@ impl ApplicationHandler for App {
                 /* A click in the popup menu runs the entry under the cursor (`object.*_add`: the new object is
                  * placed at the 3D cursor); any click closes the menu, outside it nothing else happens. */
                 if self.rename.take().is_some() {
+                    gfx.window.request_redraw();
+                    return;
+                }
+                /* A click in the Add Modifier menu: a category row keeps it open, an entry adds that modifier, anything else closes it. */
+                if let Some((pos, open)) = self.add_mod_menu.take() {
+                    if let Some(user) = self.user.as_ref() {
+                        let size = gfx.window.inner_size();
+                        let menu = add_modifier_menu::layout(user, pos, size.width as i32, size.height as i32, open);
+                        match add_modifier_menu::hit(&menu, self.cursor) {
+                            Some(add_modifier_menu::Hit::Category(c)) => self.add_mod_menu = Some((pos, Some(c))),
+                            Some(add_modifier_menu::Hit::Item(idx)) => {
+                                if modifier_panel::Action::Add(idx).run_add(&mut self.scene) {
+                                    scene_changed(&mut self.scene, &mut self.taa);
+                                }
+                            }
+                            None => {}
+                        }
+                    }
                     gfx.window.request_redraw();
                     return;
                 }
@@ -840,6 +869,13 @@ impl ApplicationHandler for App {
                         }
                         if self.mod_edit.take().is_some_and(|e| e.commit(&mut self.scene)) {
                             scene_changed(&mut self.scene, &mut self.taa);
+                        }
+                        if action == modifier_panel::Action::ToggleAddList {
+                            if let Some(w) = widgets.iter().find(|w| w.action == Some(action)) {
+                                self.add_mod_menu = Some(([w.rect.xmin, w.rect.ymin - 1], None));
+                            }
+                            gfx.window.request_redraw();
+                            return;
                         }
                         if let modifier_panel::Action::DragStart(i) = action {
                             self.mod_drag = Some((i, modifier_panel::header_tops(&widgets)));
@@ -1153,10 +1189,11 @@ impl ApplicationHandler for App {
                 }
 
                 /* An open popup menu takes the keyboard: ESC closes it, other keys do nothing. */
-                if self.add_menu.is_some() || self.mod_menu.is_some() {
+                if self.add_menu.is_some() || self.mod_menu.is_some() || self.add_mod_menu.is_some() {
                     if code == KeyCode::Escape {
                         self.add_menu = None;
                         self.mod_menu = None;
+                        self.add_mod_menu = None;
                         gfx.window.request_redraw();
                     }
                     return;
@@ -2117,6 +2154,10 @@ impl ApplicationHandler for App {
                         rename_popup::draw(&mut buf, w, h, user, &l, edit);
                     }
                     /* Popup menus are drawn above everything else. */
+                    if let (Some((pos, open)), Some(user)) = (self.add_mod_menu, self.user.as_ref()) {
+                        let menu = add_modifier_menu::layout(user, pos, w as i32, h as i32, open);
+                        add_modifier_menu::draw(&mut buf, w, h, user, &menu, self.cursor);
+                    }
                     if let (Some((i, pos)), Some(user)) = (self.mod_menu, self.user.as_ref()) {
                         let menu = modifier_menu::layout(user, &self.scene, i, pos, w as i32, h as i32);
                         modifier_menu::draw(&mut buf, w, h, user, &menu, self.cursor);
