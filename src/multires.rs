@@ -7,7 +7,7 @@
 //!  - level ranges: `rna_MultiresModifier_level_range()` (makesrna/intern/rna_modifier.cc:1321)
 //!  - Subdivide uses Catmull-Clark (`subdiv_mesh.cc`), the `Mesh::subdivided` of this port; one level turns
 //!    every n-gon into n quads, so a cube has 8 / 26 / 98 vertices and 6 / 24 / 96 faces at levels 0 / 1 / 2.
-//! Displacement grids (`MDisps`) are not ported.
+//!    Displacement grids (`MDisps`) are not ported.
 
 use crate::mesh::Mesh;
 

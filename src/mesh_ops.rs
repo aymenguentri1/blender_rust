@@ -186,7 +186,7 @@ impl Mesh {
     /// The connected pieces of the mesh (vertices that no face uses are dropped), ordered by their first face.
     pub fn loose_parts(&self) -> Vec<Mesh> {
         let mut parent: Vec<u32> = (0..self.verts.len() as u32).collect();
-        fn find(parent: &mut Vec<u32>, mut x: u32) -> u32 {
+        fn find(parent: &mut [u32], mut x: u32) -> u32 {
             while parent[x as usize] != x {
                 parent[x as usize] = parent[parent[x as usize] as usize];
                 x = parent[x as usize];

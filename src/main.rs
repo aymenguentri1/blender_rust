@@ -3,7 +3,7 @@
 //! Ported from `source/blender/windowmanager/intern/wm_window.cc`:
 //!  - title:  `wm_window_title_text()`  -> "(Unsaved) — Blender <version>"
 //!  - size:   `wm_init_state.size` = screen size, `start` = (0, 0)
-//!            (used when there is no startup.blend window geometry)
+//!    (used when there is no startup.blend window geometry)
 //!  - paint:  window content is the editor-border colour (screen_draw.cc)
 //!
 //! No areas / widgets / viewport yet.
@@ -778,6 +778,7 @@ impl ApplicationHandler for App {
                     if let Some(user) = self.user.as_ref() {
                         let size = gfx.window.inner_size();
                         let menu = add_modifier_menu::layout(user, pos, size.width as i32, size.height as i32, open);
+                        #[allow(clippy::collapsible_match)] /* `if` must not fall through to other arms */
                         match add_modifier_menu::hit(&menu, self.cursor) {
                             Some(add_modifier_menu::Hit::Category(c)) => self.add_mod_menu = Some((pos, Some(c))),
                             Some(add_modifier_menu::Hit::Item(idx)) => {
