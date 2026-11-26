@@ -10,6 +10,8 @@
 
 #[allow(dead_code)]
 mod area;
+#[allow(dead_code)]
+mod blend_header;
 mod screen;
 mod object_mode;
 mod sculpt;
