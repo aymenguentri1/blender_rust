@@ -14,6 +14,7 @@ use crate::area::{properties_nav_bar_rect, top_header_rect, Rcti};
 use crate::font;
 use crate::icons::{self, Icon};
 use crate::modifiers::Modifier;
+use crate::panel_frame;
 use crate::scene::Scene;
 use crate::theme::{self, Rgba};
 use crate::userdef::UserDef;
@@ -76,6 +77,8 @@ pub enum Style {
     Handle,
     /// The type icon of a modifier header: no box, the label is the kind's name.
     ModIcon,
+    /// The `panel_frame::frame` boxes behind a modifier; the widget rect is the body below the header.
+    Frame { open: bool, active: bool },
     /// A value field that is being typed into (blue outline).
     Editing,
 }
@@ -324,11 +327,19 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
             (slot(1), slot(1) + hb - 1, String::new(), Style::Button, Some(Action::Remove(i)), true),
             (slot(0), x1, String::new(), Style::Handle, Some(Action::DragStart(i)), true),
         ];
+        /* `draw_aligned_panel`: the header is `PNL_HEADER` high with the buttons centred in it; the body follows. */
+        let (first, hdr_top, hh) = (out.len(), top, panel_frame::header_height(user));
+        let (fx0, fx1) = (window.xmin + panel_frame::margins(user).0, window.xmax - panel_frame::margins(user).0);
+        let body_top = hdr_top - hh;
+        let active = i == st.active;
+        top -= (hh - unit) / 2;
         row(&mut out, &mut top, head);
         if *collapsed {
-            top -= gap;
+            out.insert(first, Widget { rect: Rcti { xmin: fx0, xmax: fx1, ymin: body_top, ymax: body_top }, label: String::new(), style: Style::Frame { open: false, active }, action: None, centered: false });
+            top = body_top - gap * 2;
             continue;
         }
+        top = body_top - gap;
         let (m2, m1) = (x1 - small + 1, x1 - 2 * small - gap + 1);
         let (text, field_style, field_action) = match (&st.editing, field) {
             (Some((e, t)), _) if *e == i => (format!("{t}|"), Style::Editing, Action::EditValue(i)),
@@ -368,7 +379,8 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
         if let Some(label) = target {
             row(&mut out, &mut top, vec![(x0, x1, label.clone(), Style::Button, Some(Action::CycleTarget(i)), false)]);
         }
-        top -= gap;
+        out.insert(first, Widget { rect: Rcti { xmin: fx0, xmax: fx1, ymin: top, ymax: body_top }, label: String::new(), style: Style::Frame { open: true, active }, action: None, centered: false });
+        top -= gap * 2;
     }
     out
 }
@@ -394,12 +406,16 @@ pub fn with_ctrl(action: Action) -> Action {
 
 /// The action of the widget under `xy`, if any.
 pub fn action_at(widgets: &[Widget], xy: [i32; 2]) -> Option<Action> {
-    widgets.iter().find(|w| w.rect.isect_pt_v(xy)).and_then(|w| w.action)
+    widgets.iter().filter(|w| w.action.is_some()).find(|w| w.rect.isect_pt_v(xy)).and_then(|w| w.action)
 }
 
 pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widgets: &[Widget]) {
     for w in widgets {
         let (inner, round) = match w.style {
+            Style::Frame { open, active } => {
+                panel_frame::draw(buf, width, height, user, &panel_frame::frame(user, w.rect, open, active));
+                continue;
+            }
             Style::Title => {
                 font::draw_label_pad(buf, width, height, user, w.rect, &w.label, theme::WCOL_PULLDOWN_TEXT, 0);
                 continue;
@@ -568,15 +584,16 @@ mod tests {
             editing: None,
         };
         let ws = widgets(&user, window(), &st);
-        /* add, then 2 x (9 header + 3 value) widgets */
-        assert_eq!(ws.len(), 1 + 2 * 12);
+        /* add, then 2 x (frame + 9 header + 3 value) widgets */
+        assert_eq!(ws.len(), 1 + 2 * 13);
         assert!(ws.iter().all(|w| window().isect(&w.rect) == Some(w.rect)));
-        assert!(ws[1].rect.ymax < ws[0].rect.ymin);
+        assert!(ws[2].rect.ymax < ws[0].rect.ymin);
         /* The active modifier's name is the one highlighted name; the monitor toggles are lit too (shown). */
         let selected: Vec<_> = ws.iter().filter(|w| w.style == Style::Selected && matches!(w.action, Some(Action::Select(_)))).collect();
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].action, Some(Action::Select(1)));
-        /* No two buttons overlap. */
+        /* No two buttons overlap (the frames lie behind them). */
+        let ws: Vec<Widget> = ws.into_iter().filter(|w| !matches!(w.style, Style::Frame { .. })).collect();
         for (i, a) in ws.iter().enumerate() {
             for b in &ws[i + 1..] {
                 assert!(a.rect.isect(&b.rect).is_none(), "{a:?} overlaps {b:?}");
@@ -596,7 +613,7 @@ mod tests {
             ..Default::default()
         };
         let ws = widgets(&user, window(), &st);
-        assert_eq!(ws.len(), 1 + 9 + 3 + 1);
+        assert_eq!(ws.len(), 1 + 1 + 9 + 3 + 1, "add, frame, header, value, target");
         let t = ws.iter().find(|w| w.action == Some(Action::CycleTarget(0))).unwrap();
         assert_eq!(t.label, "Target: (none)");
         assert_eq!(t.rect.xmin, ws[0].rect.xmin, "full width");
@@ -928,6 +945,36 @@ mod tests {
         assert!(head.windows(2).all(|p| p[0].rect.xmax < p[1].rect.xmin), "left to right, no overlap");
         assert!(head.iter().all(|w| !matches!(w.label.as_str(), "x" | ">" | "v")), "icons, not glyphs");
         assert_eq!(head[1].style, Style::ModIcon);
+    }
+
+    #[test]
+    fn each_modifier_gets_the_frame_boxes_of_panel_frame_at_1x_and_2x() {
+        for scale in [1.0, 2.0] {
+            let user = UserDef::from_window_scale(scale);
+            let mut s = Scene::startup();
+            let mut open = false;
+            assert!(apply(&mut s, &mut open, Action::Add(1)));
+            assert!(apply(&mut s, &mut open, Action::Add(15)));
+            apply(&mut s, &mut open, Action::ToggleCollapse(0));
+            let win = Rcti { xmax: window().xmin + (309.0 * scale) as i32, ..window() };
+            let ws = widgets(&user, win, &PanelState::of(&s, false));
+            let frames: Vec<&Widget> = ws.iter().filter(|w| matches!(w.style, Style::Frame { .. })).collect();
+            assert_eq!(frames.len(), 2);
+            let (closed, opened) = (frames[0], frames[1]);
+            assert_eq!(closed.style, Style::Frame { open: false, active: false });
+            assert_eq!(opened.style, Style::Frame { open: true, active: true });
+            let f = panel_frame::frame(&user, opened.rect, true, true);
+            assert_eq!(f.boxes.len(), 2, "backdrop and header");
+            assert_eq!(panel_frame::frame(&user, closed.rect, false, false).boxes.len(), 1, "header only");
+            /* The header buttons sit inside the header rectangle, the body rows inside the body. */
+            let toggle = ws.iter().find(|w| w.action == Some(Action::ToggleCollapse(1))).unwrap();
+            assert!(f.header_rect.ymin <= toggle.rect.ymin && toggle.rect.ymax <= f.header_rect.ymax);
+            let field = ws.iter().find(|w| w.action == Some(Action::EditValue(1))).unwrap();
+            assert!(opened.rect.ymin <= field.rect.ymin && field.rect.ymax <= opened.rect.ymax);
+            /* Frames never swallow clicks meant for the buttons over them. */
+            let c = [toggle.rect.xmin + 1, toggle.rect.ymin + 1];
+            assert_eq!(action_at(&ws, c), Some(Action::ToggleCollapse(1)));
+        }
     }
 
     #[test]
