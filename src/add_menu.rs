@@ -9,6 +9,7 @@
 
 use crate::area::{fill_rect, Rcti};
 use crate::font;
+use crate::icons::{self, Icon};
 use crate::mesh::Primitive;
 pub use crate::scene::{EmptyKind, LightKind};
 use crate::theme::Rgba;
@@ -80,6 +81,40 @@ impl AddItem {
         }
     }
 
+    /// The icon left of the label (`icon=` of the operators in `VIEW3D_MT_mesh_add`, `VIEW3D_MT_empty_add`,
+    /// `VIEW3D_MT_camera_add` and the light type icons of `VIEW3D_MT_light_add`).
+    pub fn icon(self) -> Icon {
+        match self {
+            AddItem::Mesh(p) => match p {
+                Primitive::Plane => Icon::MeshPlane,
+                Primitive::Cube => Icon::MeshCube,
+                Primitive::Circle => Icon::MeshCircle,
+                Primitive::UvSphere => Icon::MeshUvSphere,
+                Primitive::IcoSphere => Icon::MeshIcoSphere,
+                Primitive::Cylinder => Icon::MeshCylinder,
+                Primitive::Cone => Icon::MeshCone,
+                Primitive::Torus => Icon::MeshTorus,
+                Primitive::Grid => Icon::MeshGrid,
+            },
+            AddItem::Empty(k) => match k {
+                EmptyKind::PlainAxes => Icon::EmptyAxis,
+                EmptyKind::Arrows => Icon::EmptyArrows,
+                EmptyKind::SingleArrow => Icon::EmptySingleArrow,
+                EmptyKind::Circle => Icon::MeshCircle,
+                EmptyKind::Cube => Icon::Cube,
+                EmptyKind::Sphere => Icon::Sphere,
+                EmptyKind::Cone => Icon::Cone,
+            },
+            AddItem::Camera => Icon::ObCamera,
+            AddItem::Light(k) => match k {
+                LightKind::Point => Icon::LightPoint,
+                LightKind::Sun => Icon::LightSun,
+                LightKind::Spot => Icon::LightSpot,
+                LightKind::Area => Icon::LightArea,
+            },
+        }
+    }
+
     /// The name of the new object.
     pub fn object_name(self) -> &'static str {
         match self {
@@ -107,7 +142,8 @@ pub fn layout(user: &UserDef, pos: [i32; 2], win_w: i32, win_h: i32) -> Layout {
         .chain([font::label_width(user, TITLE)])
         .max()
         .unwrap_or(0);
-    let width = (widest + 2 * margin).max(6 * unit);
+    /* One unit of icon column left of every label. */
+    let width = (widest + unit + 2 * margin).max(6 * unit);
     let rows = AddItem::ALL.len() as i32 + 1;
     let height = rows * unit + 2 * margin;
 
@@ -159,7 +195,10 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, layout
         if selected {
             fill_rect(buf, width, height, rect, INNER_SEL.to_xrgb());
         }
-        font::draw_label(buf, width, height, user, rect, prim.label(), if selected { ITEM_TEXT_SEL } else { ITEM_TEXT });
+        let color = if selected { ITEM_TEXT_SEL } else { ITEM_TEXT };
+        let icon_rect = Rcti { xmax: rect.xmin + user.widget_unit - 1, ..rect };
+        icons::draw_icon(buf, width, height, user, icon_rect, prim.icon(), color);
+        font::draw_label(buf, width, height, user, Rcti { xmin: rect.xmin + user.widget_unit, ..rect }, prim.label(), color);
     }
 }
 
@@ -207,6 +246,38 @@ mod tests {
                 "Light: Area"
             ]
         );
+    }
+
+    #[test]
+    fn every_item_maps_to_its_blender_icon() {
+        let icons: Vec<_> = AddItem::ALL.iter().map(|i| i.icon()).collect();
+        assert_eq!(
+            icons,
+            [
+                Icon::MeshPlane, Icon::MeshCube, Icon::MeshCircle, Icon::MeshUvSphere, Icon::MeshIcoSphere,
+                Icon::MeshCylinder, Icon::MeshCone, Icon::MeshTorus, Icon::MeshGrid,
+                Icon::EmptyAxis, Icon::EmptyArrows, Icon::EmptySingleArrow, Icon::MeshCircle, Icon::Cube,
+                Icon::Sphere, Icon::Cone,
+                Icon::ObCamera,
+                Icon::LightPoint, Icon::LightSun, Icon::LightSpot, Icon::LightArea,
+            ]
+        );
+    }
+
+    #[test]
+    fn the_icon_is_drawn_left_of_the_label() {
+        let u = user();
+        let (w, h) = (400usize, 600usize);
+        let l = layout(&u, [50, 550], w as i32, h as i32);
+        let bg = 0x0055_5555u32;
+        let mut buf = vec![bg; w * h];
+        draw(&mut buf, w, h, &u, &l, [0, 0]);
+        let (r, _) = l.items[1]; /* Cube */
+        let lit = |x0: i32, x1: i32| {
+            (x0..=x1).any(|x| (r.ymin..=r.ymax).any(|y| buf[(h as i32 - 1 - y) as usize * w + x as usize] != INNER.to_xrgb()))
+        };
+        assert!(lit(r.xmin, r.xmin + u.widget_unit - 1), "icon column");
+        assert!(lit(r.xmin + u.widget_unit, r.xmax), "label");
     }
 
     #[test]
