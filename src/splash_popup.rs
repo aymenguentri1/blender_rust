@@ -126,7 +126,7 @@ mod tests {
     #[test]
     fn rows_stay_inside_the_popup_and_the_menu() {
         let u = UserDef::from_window_scale(1.0);
-        let s = layout(&u, 1920, 1080, [1000, 500]);
+        let s = layout(&u, 1920, 1080, [1000, 500], false);
         assert_eq!(s.rows.len(), 16);
         for r in &s.rows {
             assert!(s.layout.popup.isect_pt(r.rect.xmin, r.rect.ymin) && s.layout.popup.isect_pt(r.rect.xmax, r.rect.ymax));
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn the_popup_is_centred() {
         let u = UserDef::from_window_scale(1.0);
-        let s = layout(&u, 1920, 1080, [1000, 500]);
+        let s = layout(&u, 1920, 1080, [1000, 500], false);
         assert!((s.layout.popup.cent_x() - 960).abs() <= 1);
     }
 }
