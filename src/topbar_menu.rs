@@ -17,11 +17,14 @@ pub enum Item {
     },
     /// `layout.separator()`.
     Separator,
+    /// `layout.label(text=..)`.
+    Label { label: &'static str },
     /// `layout.menu(id)`: a row that opens a submenu.
     Sub {
         id: &'static str,
         label: &'static str,
         icon: Option<&'static str>,
+        shortcut: Option<&'static str>,
     },
     /// `layout.prop(.., bool)`: a row with a checkbox.
     Check {
@@ -41,6 +44,10 @@ pub struct Ctx {
     pub show_statusbar: bool,
     /// `sys.platform` starts with `win`: the Window menu has Toggle System Console.
     pub windows: bool,
+    /// `bpy.data.is_saved`: Revert and Save Incremental need a saved file.
+    pub is_saved: bool,
+    /// `bpy.data.use_autopack`.
+    pub use_autopack: bool,
 }
 
 impl Default for Ctx {
@@ -52,6 +59,8 @@ impl Default for Ctx {
             lock_interface: false,
             show_statusbar: true,
             windows: cfg!(windows),
+            is_saved: false,
+            use_autopack: false,
         }
     }
 }
@@ -82,16 +91,30 @@ impl Item {
                 shortcut,
                 enabled,
             },
-            Item::Sub { id, label, .. } => Item::Sub {
+            Item::Sub {
+                id,
+                label,
+                shortcut,
+                ..
+            } => Item::Sub {
                 id,
                 label,
                 icon: Some(icon),
+                shortcut,
             },
             other => other,
         }
     }
     const fn key(self, shortcut: &'static str) -> Item {
         match self {
+            Item::Sub {
+                id, label, icon, ..
+            } => Item::Sub {
+                id,
+                label,
+                icon,
+                shortcut: Some(shortcut),
+            },
             Item::Op {
                 idname,
                 label,
@@ -133,6 +156,7 @@ const fn sub(id: &'static str, label: &'static str) -> Item {
         id,
         label,
         icon: None,
+        shortcut: None,
     }
 }
 
@@ -251,6 +275,149 @@ pub fn help() -> Vec<Item> {
     ]
 }
 
+/// `TOPBAR_MT_file`.
+pub fn file(c: &Ctx) -> Vec<Item> {
+    vec![
+        sub("TOPBAR_MT_file_new", "New").icon("file_new"),
+        op("wm.open_mainfile", "Open...")
+            .icon("file_folder")
+            .key("Ctrl O"),
+        sub("TOPBAR_MT_file_open_recent", "Open Recent").key("Shift Ctrl O"),
+        op("wm.revert_mainfile", "Revert").enabled(c.is_saved),
+        sub("TOPBAR_MT_file_recover", "Recover"),
+        Item::Separator,
+        op("wm.save_mainfile", "Save")
+            .icon("file_tick")
+            .key("Ctrl S"),
+        op("wm.save_as_mainfile", "Save As...").key("Shift Ctrl S"),
+        op("wm.save_as_mainfile.copy", "Save Copy..."),
+        op("wm.save_mainfile.incremental", "Save Incremental")
+            .key("Ctrl Alt S")
+            .enabled(c.is_saved),
+        Item::Separator,
+        op("wm.link", "Link...").icon("link_blend"),
+        op("wm.append", "Append...").icon("append_blend"),
+        sub("TOPBAR_MT_file_previews", "Data Previews"),
+        Item::Separator,
+        sub("TOPBAR_MT_file_project", "Project").icon("project"),
+        Item::Separator,
+        sub("TOPBAR_MT_file_import", "Import").icon("import"),
+        sub("TOPBAR_MT_file_export", "Export").icon("export"),
+        Item::Separator,
+        sub("TOPBAR_MT_file_external_data", "External Data"),
+        sub("TOPBAR_MT_file_cleanup", "Clean Up"),
+        Item::Separator,
+        sub("TOPBAR_MT_file_defaults", "Defaults"),
+        Item::Separator,
+        op("wm.quit_blender", "Quit").icon("quit").key("Ctrl Q"),
+    ]
+}
+
+/// `TOPBAR_MT_file_new` with no application templates installed: only the General entry.
+pub fn file_new() -> Vec<Item> {
+    vec![op("wm.read_homefile", "General").icon("file_new")]
+}
+
+/// `TOPBAR_MT_file_recover`.
+pub fn file_recover() -> Vec<Item> {
+    vec![
+        op("wm.recover_last_session", "Last Session").icon("recover_last"),
+        op("wm.recover_auto_save", "Auto Save..."),
+    ]
+}
+
+/// `TOPBAR_MT_file_defaults` with no application template.
+pub fn file_defaults() -> Vec<Item> {
+    vec![
+        op("wm.save_homefile", "Save Startup File"),
+        op("wm.read_factory_settings", "Load Factory Settings"),
+    ]
+}
+
+/// `TOPBAR_MT_file_project` with an empty recent projects list.
+pub fn file_project() -> Vec<Item> {
+    vec![
+        op("project.new", "New...").icon("add"),
+        op("project.open", "Open...").icon("file_folder"),
+        op("project.close", "Close"),
+        Item::Separator,
+        Item::Label {
+            label: "No Recent Projects",
+        },
+    ]
+}
+
+/// `TOPBAR_MT_blender_system`.
+pub fn blender_system() -> Vec<Item> {
+    vec![
+        op("script.reload", "Reload Scripts"),
+        Item::Separator,
+        op("wm.memory_statistics", "Memory Statistics"),
+        op("wm.debug_menu", "Debug Menu"),
+        sub("WM_OT_redraw_timer", "Redraw Timer"),
+        Item::Separator,
+        op("screen.spacedata_cleanup", "Clean Up Space Data"),
+        op("wm.operator_presets_cleanup", "Clean Up Operator Presets"),
+    ]
+}
+
+/// `TOPBAR_MT_file_cleanup`: starts with a separator in the python source.
+pub fn file_cleanup() -> Vec<Item> {
+    vec![
+        Item::Separator,
+        op("outliner.orphans_purge", "Purge Unused Data..."),
+        op("outliner.orphans_manage", "Manage Unused Data..."),
+    ]
+}
+
+/// `TOPBAR_MT_file_previews`.
+pub fn file_previews() -> Vec<Item> {
+    vec![
+        op("wm.previews_ensure", "Refresh Data-Block Previews"),
+        op("wm.previews_batch_generate", "Batch-Generate Previews..."),
+        Item::Separator,
+        op("wm.previews_clear", "Clear Data-Block Previews..."),
+        op("wm.previews_batch_clear", "Batch-Clear Previews..."),
+    ]
+}
+
+/// `TOPBAR_MT_file_external_data`: the pack rows are inactive while auto-pack is on.
+pub fn file_external_data(c: &Ctx) -> Vec<Item> {
+    let icon = if c.use_autopack {
+        "checkbox_hlt"
+    } else {
+        "checkbox_dehlt"
+    };
+    vec![
+        op("file.autopack_toggle", "Automatically Pack Resources").icon(icon),
+        op("file.pack_all", "Pack Resources").enabled(!c.use_autopack),
+        op("file.unpack_all", "Unpack Resources...").enabled(!c.use_autopack),
+        Item::Separator,
+        op("file.pack_libraries", "Pack Linked Libraries"),
+        op("file.unpack_libraries", "Unpack Linked Libraries"),
+        Item::Separator,
+        op("file.make_paths_relative", "Make Paths Relative"),
+        op("file.make_paths_absolute", "Make Paths Absolute"),
+        Item::Separator,
+        op("file.report_missing_files", "Report Missing Files"),
+        op("file.find_missing_files", "Find Missing Files..."),
+    ]
+}
+
+/// `TOPBAR_MT_file_import`. Deviation: only the Wavefront importer exists in this app.
+pub fn file_import() -> Vec<Item> {
+    vec![op("wm.obj_import", "Wavefront (.obj)")]
+}
+
+/// `TOPBAR_MT_file_export`; Export All Collections is inactive without export collections. Deviation: only Wavefront.
+pub fn file_export() -> Vec<Item> {
+    vec![
+        op("wm.collection_export_all", "Export All Collections").enabled(false),
+        Item::Separator,
+        op("wm.obj_export", "Wavefront (.obj)"),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -263,6 +430,7 @@ mod tests {
                     *label
                 }
                 Item::Separator => "-",
+                Item::Label { label } => *label,
             })
             .collect()
     }
@@ -400,6 +568,140 @@ mod tests {
                 "Report a Bug",
                 "Save System Info..."
             ]
+        );
+    }
+
+    #[test]
+    fn file_menu_order_icons_and_disabled_rows() {
+        let m = file(&Ctx::default());
+        assert_eq!(
+            labels(&m),
+            [
+                "New",
+                "Open...",
+                "Open Recent",
+                "Revert",
+                "Recover",
+                "-",
+                "Save",
+                "Save As...",
+                "Save Copy...",
+                "Save Incremental",
+                "-",
+                "Link...",
+                "Append...",
+                "Data Previews",
+                "-",
+                "Project",
+                "-",
+                "Import",
+                "Export",
+                "-",
+                "External Data",
+                "Clean Up",
+                "-",
+                "Defaults",
+                "-",
+                "Quit"
+            ]
+        );
+        assert!(
+            matches!(m[3], Item::Op { enabled: false, .. }),
+            "Revert needs a saved file"
+        );
+        assert!(matches!(
+            m[9],
+            Item::Op {
+                enabled: false,
+                shortcut: Some("Ctrl Alt S"),
+                ..
+            }
+        ));
+        assert!(matches!(
+            m[2],
+            Item::Sub {
+                shortcut: Some("Shift Ctrl O"),
+                ..
+            }
+        ));
+        assert!(matches!(
+            m[25],
+            Item::Op {
+                icon: Some("quit"),
+                shortcut: Some("Ctrl Q"),
+                ..
+            }
+        ));
+        let saved = file(&Ctx {
+            is_saved: true,
+            ..Ctx::default()
+        });
+        assert!(
+            matches!(saved[3], Item::Op { enabled: true, .. })
+                && matches!(saved[9], Item::Op { enabled: true, .. })
+        );
+    }
+
+    #[test]
+    fn system_menu_matches_the_screenshot_rows() {
+        assert_eq!(
+            labels(&blender_system()),
+            [
+                "Reload Scripts",
+                "-",
+                "Memory Statistics",
+                "Debug Menu",
+                "Redraw Timer",
+                "-",
+                "Clean Up Space Data",
+                "Clean Up Operator Presets"
+            ]
+        );
+    }
+
+    #[test]
+    fn file_submenus_match_the_python_lists() {
+        assert_eq!(labels(&file_recover()), ["Last Session", "Auto Save..."]);
+        assert_eq!(
+            labels(&file_defaults()),
+            ["Save Startup File", "Load Factory Settings"]
+        );
+        assert_eq!(
+            labels(&file_project()),
+            ["New...", "Open...", "Close", "-", "No Recent Projects"]
+        );
+        assert_eq!(
+            labels(&file_cleanup()),
+            ["-", "Purge Unused Data...", "Manage Unused Data..."]
+        );
+        assert_eq!(labels(&file_previews()).len(), 5);
+        assert_eq!(labels(&file_external_data(&Ctx::default())).len(), 12);
+    }
+
+    #[test]
+    fn autopack_toggles_the_icon_and_the_pack_rows() {
+        let off = file_external_data(&Ctx::default());
+        let on = file_external_data(&Ctx {
+            use_autopack: true,
+            ..Ctx::default()
+        });
+        assert!(
+            matches!(
+                off[0],
+                Item::Op {
+                    icon: Some("checkbox_dehlt"),
+                    ..
+                }
+            ) && matches!(off[1], Item::Op { enabled: true, .. })
+        );
+        assert!(
+            matches!(
+                on[0],
+                Item::Op {
+                    icon: Some("checkbox_hlt"),
+                    ..
+                }
+            ) && matches!(on[1], Item::Op { enabled: false, .. })
         );
     }
 }
