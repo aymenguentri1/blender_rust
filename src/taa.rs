@@ -253,11 +253,13 @@ pub struct TaaState {
     weight_accum: f32,
     /// Region pixels, y up, row-major.
     accum: Vec<[f32; 3]>,
+    /// The sample image, kept between redraws so a sample does not allocate a region-sized buffer.
+    scratch: Vec<u32>,
 }
 
 impl Default for TaaState {
     fn default() -> Self {
-        Self { key: None, samples: taa_samples_x8(), sample: 0, weight_accum: 0.0, accum: Vec::new() }
+        Self { key: None, samples: taa_samples_x8(), sample: 0, weight_accum: 0.0, accum: Vec::new(), scratch: Vec::new() }
     }
 }
 
@@ -271,6 +273,19 @@ impl TaaState {
             self.sample = 0;
         }
         self.sample
+    }
+
+    /// The kept sample buffer, refilled with `fill` and resized to `len` pixels; give it back with `put_scratch`.
+    pub fn take_scratch(&mut self, len: usize, fill: u32) -> Vec<u32> {
+        let mut v = std::mem::take(&mut self.scratch);
+        v.clear();
+        v.resize(len, fill);
+        v
+    }
+
+    /// Keep `v` (from `take_scratch`) for the next sample.
+    pub fn put_scratch(&mut self, v: Vec<u32>) {
+        self.scratch = v;
     }
 
     /// `get_taa_samples().x8[sample]`.
@@ -389,6 +404,19 @@ mod tests {
 
     /* The first sample is the one closest to the centre, which is moved to exactly (0, 0); all
      * samples are in [-1, 1) and distinct. */
+    #[test]
+    fn scratch_is_reused_and_refilled() {
+        let mut t = TaaState::default();
+        let mut v = t.take_scratch(6, 7);
+        assert_eq!(v, vec![7; 6]);
+        v[2] = 99;
+        let ptr = v.as_ptr();
+        t.put_scratch(v);
+        let v = t.take_scratch(6, 7);
+        assert_eq!(v, vec![7; 6]);
+        assert_eq!(v.as_ptr(), ptr);
+    }
+
     #[test]
     fn samples_x8_layout() {
         let s = taa_samples_x8();
