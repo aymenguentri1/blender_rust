@@ -42,6 +42,53 @@
 <sub>Every task is ported from a real file in the Blender source tree (about 21 000 files exist, so this is the progress of the planned scope, not of all of Blender). Regenerate with `python3 scripts/progress.py`; the % can drop when new tasks are planned.</sub>
 <!-- progress:end -->
 
+## Parity with the Blender source
+
+The progress bar above is the share of *planned* tasks, not of Blender. This is the share of the real source tree:
+
+<!-- parity:start -->
+**254 of 6817 Blender source files (3.7 %)** are referenced by the Rust port (`53666` lines of Rust). Left: **6563** files, i.e. about **96 %** of `source/blender`.
+
+| Blender module | Files referenced | Total | Covered |
+| --- | ---: | ---: | ---: |
+| `editors` | 117 | 1177 | 9.9 % |
+| `nodes` | 0 | 724 | 0.0 % |
+| `gpu` | 2 | 629 | 0.3 % |
+| `blenkernel` | 20 | 590 | 3.4 % |
+| `draw` | 16 | 547 | 2.9 % |
+| `freestyle` | 0 | 525 | 0.0 % |
+| `blenlib` | 31 | 512 | 6.1 % |
+| `io` | 4 | 338 | 1.2 % |
+| `compositor` | 0 | 212 | 0.0 % |
+| `python` | 0 | 203 | 0.0 % |
+| `bmesh` | 15 | 149 | 10.1 % |
+| `imbuf` | 0 | 143 | 0.0 % |
+| `makesrna` | 4 | 138 | 2.9 % |
+| `depsgraph` | 0 | 128 | 0.0 % |
+| `geometry` | 0 | 117 | 0.0 % |
+| `makesdna` | 22 | 110 | 20.0 % |
+| `modifiers` | 8 | 108 | 7.4 % |
+| `sequencer` | 0 | 95 | 0.0 % |
+| `windowmanager` | 5 | 80 | 6.2 % |
+| `animrig` | 2 | 52 | 3.8 % |
+| `asset_system` | 0 | 46 | 0.0 % |
+| `functions` | 0 | 43 | 0.0 % |
+| `blenloader` | 3 | 42 | 7.1 % |
+| `render` | 0 | 42 | 0.0 % |
+| `blenfont` | 2 | 14 | 14.3 % |
+| `shader_fx` | 0 | 14 | 0.0 % |
+| `blentranslation` | 0 | 9 | 0.0 % |
+| `simulation` | 0 | 8 | 0.0 % |
+| `blendthumb` | 0 | 7 | 0.0 % |
+| `ikplugin` | 0 | 7 | 0.0 % |
+| `blenloader_core` | 3 | 6 | 50.0 % |
+| `cpucheck` | 0 | 1 | 0.0 % |
+| `datatoc` | 0 | 1 | 0.0 % |
+
+<sub>File count, not lines: a lower bound of what is ported, and headers count as files. Regenerate with `python3 scripts/parity.py`.</sub>
+<!-- parity:end -->
+
+
 ## Object-mode editing
 
 Selection, transforms (G / R / S), duplicate (Shift + D), delete, hide, undo / redo and the Add menu cycle
