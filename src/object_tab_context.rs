@@ -3,9 +3,7 @@
 //! (`OBJECT_PT_context_object`, properties_object.py:21: `template_ID` = browse button plus name field).
 //! Deviation, as in properties_tabs.rs: the offsets come from measuring a Blender 5.1.1 Object tab at 1x (region
 //! left edge x=28, panels 8 px in, rows 20 px high, 36 px between the two row tops, first panel header 30 px under
-//! the ID row), not from the panel layout code. Drawing leaves out the pin icon (no `ICON_UNPINNED` mask yet).
-
-#![allow(dead_code)]
+//! the ID row), not from the panel layout code. 
 
 use crate::area::Rcti;
 use crate::font;
@@ -57,7 +55,12 @@ pub fn layout(user: &UserDef, window: Rcti) -> Option<ContextRows> {
 /// Draws the rows for an object called `name`.
 pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, rows: &ContextRows, name: &str) {
     let text = theme::WCOL_PULLDOWN_TEXT;
-    icons::draw_icon(buf, width, height, user, rows.path_icon, Icon::ObjectData, text);
+    /* `buttons_panel_context_draw()`: `uiItemLDrag(name, ICON_OBJECT_DATA)` and the `BUTTONS_OT_toggle_pin` button. */
+    let icon = Icon::ObjectData;
+    icons::draw_icon(buf, width, height, user, rows.path_icon, icon, crate::icon_theme::theme_color(icon).unwrap_or(text));
+    let label = Rcti { xmin: rows.path_icon.xmax + 1, xmax: rows.pin.xmin - 1, ..rows.path_icon };
+    font::draw_label_pad(buf, width, height, user, label, name, text, 0);
+    icons::draw_icon(buf, width, height, user, rows.pin, Icon::Unpinned, text);
     /* The ID row: a square-cornered-inside pair, the browse button and the text field. */
     let none = theme::WCOL_TOOL_OUTLINE;
     draw_round_box(buf, width, height, user, rows.browse, theme::WCOL_MENU_INNER, none, theme::WCOL_TOOL_ROUNDNESS);
@@ -108,5 +111,21 @@ mod tests {
     fn a_narrow_window_has_no_rows() {
         let user = UserDef::from_window_scale(1.0);
         assert_eq!(layout(&user, Rcti { xmax: 28 + 100, ..WINDOW }), None);
+    }
+}
+
+#[cfg(test)]
+mod order_tests {
+    use super::*;
+
+    #[test]
+    fn name_row_is_above_the_transform_panel() {
+        let user = UserDef::from_window_scale(1.0);
+        let window = Rcti { xmin: 28, xmax: 337, ymin: 0, ymax: 757 };
+        let r = layout(&user, window).unwrap();
+        let tp = crate::object_tab_view::layout(&user, window, &crate::scene::Scene::startup(), None);
+        let first = tp.widgets.iter().map(|w| w.rect.ymax).max().unwrap();
+        assert!(r.browse.ymin > first, "{} above {}", r.browse.ymin, first);
+        assert!(r.path_icon.ymin > r.browse.ymax);
     }
 }
