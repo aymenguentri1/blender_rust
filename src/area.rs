@@ -334,6 +334,24 @@ pub fn view3d_visible_rect(user: &UserDef, main: Rcti) -> Rcti {
     }
 }
 
+/// `region_rect_recursive()` for the toolbar (`RGN_TYPE_TOOLS`, `RGN_ALIGN_LEFT`) of the 3D viewport: the left column
+/// of `main`, `UI_TOOLBAR_WIDTH` wide, from the bottom up to the lower edge of the header regions. `None` when
+/// the area is too narrow for it (`RGN_FLAG_TOO_SMALL`).
+pub fn view3d_toolbar_rect(user: &UserDef, main: Rcti) -> Option<Rcti> {
+    let top = tool_header_rect(user, main).or_else(|| view3d_header_rect(user, main)).map_or(main.ymax, |h| h.ymin - 1);
+    let r = crate::toolbar::region_rect(user, main, top);
+    (r.xmax < main.xmax && r.ymax >= r.ymin).then_some(r)
+}
+
+/// The window region (`RGN_TYPE_WINDOW`) of the 3D viewport with the toolbar: an overlap region (the default
+/// `USER_REGION_OVERLAP`) leaves it the whole area, otherwise it starts right of the toolbar.
+pub fn view3d_main_region_rect(user: &UserDef, main: Rcti, toolbar_shown: bool, overlap: bool) -> Rcti {
+    match view3d_toolbar_rect(user, main) {
+        Some(tb) if toolbar_shown && !overlap => Rcti { xmin: tb.xmax + 1, ..main },
+        _ => main,
+    }
+}
+
 /// Composites an overlap region over the buffer: `ED_region_clear()` clears it to the
 /// premultiplied colour `(a*rgb, a)` and the region is blended with `GPU_BLEND_ALPHA_PREMULT`,
 /// i.e. `out = src_premultiplied + dst * (1 - a)`. Same inclusive y-up rect as `fill_rect`.
@@ -411,5 +429,31 @@ mod visible_rect_tests {
         let main = Rcti { xmin: 0, xmax: 999, ymin: 0, ymax: 799 };
         let tool = tool_header_rect(&user, main).unwrap();
         assert_eq!(view3d_visible_rect(&user, main), Rcti { ymax: tool.ymin - 1, ..main });
+    }
+}
+
+#[cfg(test)]
+mod toolbar_region_tests {
+    use super::*;
+
+    #[test]
+    fn toolbar_width_and_main_region_at_1x_and_2x() {
+        for (scale, width) in [(1.0_f64, 56), (2.0, 112)] {
+            let user = UserDef::from_window_scale(scale);
+            let main = Rcti { xmin: 0, xmax: 1999, ymin: 0, ymax: 1199 };
+            let tb = view3d_toolbar_rect(&user, main).unwrap();
+            assert_eq!((tb.xmax - tb.xmin + 1, tb.xmin), (width, 0));
+            assert_eq!(tb.ymin, 0);
+            assert!(tb.ymax < view3d_header_rect(&user, main).unwrap().ymin);
+            assert_eq!(view3d_main_region_rect(&user, main, true, false), Rcti { xmin: tb.xmax + 1, ..main });
+            assert_eq!(view3d_main_region_rect(&user, main, true, true), main);
+            assert_eq!(view3d_main_region_rect(&user, main, false, false), main);
+        }
+    }
+
+    #[test]
+    fn a_too_narrow_area_has_no_toolbar() {
+        let user = UserDef::from_window_scale(1.0);
+        assert!(view3d_toolbar_rect(&user, Rcti { xmin: 0, xmax: 30, ymin: 0, ymax: 400 }).is_none());
     }
 }
