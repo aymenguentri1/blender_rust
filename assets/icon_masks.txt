@@ -63,3 +63,9 @@ view_camera_unselected
 view_camera
 view_perspective
 view_ortho
+outliner
+properties
+time
+filter
+viewzoom
+collection_new
