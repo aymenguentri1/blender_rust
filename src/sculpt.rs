@@ -227,6 +227,17 @@ fn multiplane_scrape(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radi
     }
 }
 
+/// `do_pinch_brush()` with every mirror of it; `dir` is the stroke direction, `strength` the brush alpha.
+#[allow(clippy::too_many_arguments)]
+fn pinch_brush(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radius: f32, strength: f32, dir: V3, invert: bool, symmetry: [bool; 3]) {
+    for s in mirror_signs(symmetry) {
+        let c = mirrored(center, s);
+        let hit = affected(mesh, mask, c, radius);
+        let n = area_normal(mesh, adj, &hit);
+        crate::sculpt_pinch::dab(&mut mesh.verts, mask, n, c, mirrored(dir, s), radius, crate::sculpt_pinch::brush_strength(strength, invert), |d| falloff(d, 1.0));
+    }
+}
+
 /// `do_topology_slide_brush()` (Drag type) with every mirror of it; `dir` is the stroke direction.
 #[allow(clippy::too_many_arguments)]
 fn topology_slide(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radius: f32, strength: f32, dir: V3, symmetry: [bool; 3]) {
@@ -279,7 +290,7 @@ pub fn dab(mesh: &mut Mesh, adj: &Topo, brush: Brush, center: V3, radius: f32, s
 /// `dab()` on a mesh with a mask (one value per vertex); the Mask brush paints it, the others are scaled by it.
 #[allow(clippy::too_many_arguments)]
 pub fn dab_masked(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
-    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide) {
+    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide | Brush::Pinch) {
         return;
     }
     for s in mirror_signs(symmetry) {
@@ -354,7 +365,6 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
                 mesh.verts[i] = sub(mesh.verts[i], scale(area, dist * (f * strength * BLEND_FACTOR).min(1.0)));
             }
         }
-        Brush::Pinch => pinch(mesh, &hit, center, area, strength * dir),
         Brush::Crease => {
             /* Digs a groove (the inverted brush raises a ridge) and pulls the sides in. */
             for &(i, f) in &hit {
@@ -388,7 +398,7 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
                 mesh.verts[i] = add(mesh.verts[i], scale(d, push * BLOB_FACTOR * f * dir));
             }
         }
-        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide => {}
+        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide | Brush::Pinch => {}
     }
 }
 
@@ -869,6 +879,10 @@ impl Session {
             clay_strips(mesh, mask, &a.adj, hit.local, radius, self.settings.strength, a.dir, a.invert, sym);
             return true;
         }
+        if a.brush == Brush::Pinch {
+            pinch_brush(mesh, mask, &a.adj, hit.local, radius, self.settings.strength, a.dir, a.invert, sym);
+            return true;
+        }
         if a.brush == Brush::Nudge {
             nudge(mesh, mask, &a.adj, hit.local, radius, self.settings.strength, a.dir, sym);
             return true;
@@ -925,7 +939,7 @@ impl Session {
             }
             a.last = cur;
         } else {
-            if matches!(a.brush, Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::MultiplaneScrape | Brush::Slide) {
+            if matches!(a.brush, Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::MultiplaneScrape | Brush::Slide | Brush::Pinch) {
                 let p0 = rv3d.unproject_v3(rw, rh, a.last[0], a.last[1], a.depth);
                 let p1 = rv3d.unproject_v3(rw, rh, cur[0], cur[1], a.depth);
                 if let (Some(p0), Some(p1)) = (p0, p1) {
@@ -1288,12 +1302,12 @@ mod tests {
     }
 
     #[test]
-    fn pinch_moves_vertices_to_the_centre() {
+    fn pinch_moves_vertices_across_the_stroke_to_the_centre() {
         let mut m = grid();
         let adj = adjacency(&m);
-        let i = m.verts.iter().position(|v| (v[0] - 0.2).abs() < 1e-3 && v[1].abs() < 1e-3).unwrap();
-        dab(&mut m, &adj, Brush::Pinch, [0.0, 0.0, 0.0], 0.5, 1.0, false, [false; 3]);
-        assert!(m.verts[i][0] < 0.2);
+        let i = m.verts.iter().position(|v| v[0].abs() < 1e-3 && (v[1] - 0.2).abs() < 1e-3).unwrap();
+        pinch_brush(&mut m, &[], &adj, [0.0, 0.0, 0.0], 0.5, 1.0, [1.0, 0.0, 0.0], false, [false; 3]);
+        assert!(m.verts[i][1] < 0.2);
     }
 
     #[test]
