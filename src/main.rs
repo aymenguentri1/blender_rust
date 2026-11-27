@@ -145,6 +145,7 @@ mod sculpt_rotate;
 mod kelvinlet;
 mod sculpt_elastic;
 mod sculpt_multiplane;
+mod sculpt_slide;
 mod sculpt_relax;
 mod sculpt_smooth_mask;
 mod sculpt_surface_smooth;
