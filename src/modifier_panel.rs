@@ -410,6 +410,7 @@ pub fn action_at(widgets: &[Widget], xy: [i32; 2]) -> Option<Action> {
 }
 
 pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widgets: &[Widget]) {
+    let mut hovered_number: Option<Rcti> = None;
     for w in widgets {
         let (inner, round) = match w.style {
             Style::Frame { open, active } => {
@@ -431,12 +432,18 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
             Style::NumField => {
                 /* The box spans the whole row, including the arrow zones that are drawn after it. */
                 let full = Rcti { xmin: w.rect.xmin - user.widget_unit, xmax: w.rect.xmax + user.widget_unit, ..w.rect };
-                draw_round_box(buf, width, height, user, full, theme::WCOL_TOOL_INNER, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS);
+                /* `widget_numbut_draw()`: the field lights up and shows its arrows only while hovered. */
+                let (inner, text) = crate::hover::colors(full, theme::WCOL_TOOL_INNER, theme::WCOL_PULLDOWN_TEXT);
+                hovered_number = crate::hover::inside(full).then_some(full);
+                draw_round_box(buf, width, height, user, full, inner, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS);
                 let pad = ((w.rect.size_x() + 1 - font::string_width(user, &w.label)) / 2).max(0);
-                font::draw_label_pad(buf, width, height, user, w.rect, &w.label, theme::WCOL_PULLDOWN_TEXT, pad);
+                font::draw_label_pad(buf, width, height, user, w.rect, &w.label, text, pad);
                 continue;
             }
             Style::NumArrowL | Style::NumArrowR => {
+                if !hovered_number.is_some_and(|f| f.isect_pt_v([w.rect.xmin, w.rect.ymin])) {
+                    continue;
+                }
                 let icon = if w.style == Style::NumArrowL { Icon::LeftArrow } else { Icon::RightArrow };
                 icons::draw_icon(buf, width, height, user, w.rect, icon, theme::WCOL_PULLDOWN_TEXT);
                 continue;
@@ -469,6 +476,7 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
             icons::draw_icon(buf, width, height, user, w.rect, icon, theme::WCOL_PULLDOWN_TEXT);
             continue;
         }
+        let inner = if w.action.is_some() { crate::hover::colors(w.rect, inner, theme::WCOL_PULLDOWN_TEXT).0 } else { inner };
         draw_round_box(buf, width, height, user, w.rect, inner, theme::WCOL_TOOL_OUTLINE, round);
         if w.action.is_some_and(|a| matches!(a, Action::OpenMenu(_))) {
             icons::draw_icon(buf, width, height, user, w.rect, Icon::DownArrow, theme::WCOL_PULLDOWN_TEXT);

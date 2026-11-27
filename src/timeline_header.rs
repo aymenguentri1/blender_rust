@@ -108,10 +108,11 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, items:
     let u = user.widget_unit;
     for it in items {
         let r = it.rect;
-        draw_round_box_sides(buf, width, height, user, r, theme::WCOL_TOOL_INNER, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS, !it.left, !it.right);
+        let (inner, icon_color) = crate::hover::colors(r, theme::WCOL_TOOL_INNER, ICON_COLOR);
+        draw_round_box_sides(buf, width, height, user, r, inner, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS, !it.left, !it.right);
         match &it.look {
-            Look::Glyph(icon) => icons::draw_icon(buf, width, height, user, r, *icon, ICON_COLOR),
-            Look::Arrow => icons::draw_icon(buf, width, height, user, r, Icon::DownArrow, ICON_COLOR),
+            Look::Glyph(icon) => icons::draw_icon(buf, width, height, user, r, *icon, icon_color),
+            Look::Arrow => icons::draw_icon(buf, width, height, user, r, Icon::DownArrow, icon_color),
             Look::KeyType => {
                 let (cx, cy) = (r.xmin as f32 + (r.size_x() + 1) as f32 / 2.0, r.ymin as f32 + (r.size_y() + 1) as f32 / 2.0);
                 keyframe_draw::draw_keyframe(buf, width, height, cx, height as f32 - cy, 0.5 * u as f32, false, KeyType::Keyframe, 1.0);

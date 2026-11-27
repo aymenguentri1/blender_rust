@@ -42,7 +42,8 @@ pub fn layout(user: &UserDef, header: Rcti) -> Vec<Item> {
 pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, items: &[Item]) {
     let last = items.len().saturating_sub(1);
     for (i, it) in items.iter().enumerate() {
-        let inner = if it.selected { theme::WCOL_TOGGLE_INNER_SEL } else { theme::WCOL_TOOL_INNER };
+        let base = if it.selected { theme::WCOL_TOGGLE_INNER_SEL } else { theme::WCOL_TOOL_INNER };
+        let inner = crate::hover::colors(it.rect, base, theme::WCOL_PULLDOWN_TEXT).0;
         draw_round_box_sides(buf, width, height, user, it.rect, inner, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS, i == 0, i == last);
         icons::draw_icon(buf, width, height, user, it.rect, it.icon, if it.selected { ICON_COLOR_SEL } else { ICON_COLOR });
     }
