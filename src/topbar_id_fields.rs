@@ -33,6 +33,19 @@ pub fn total_width(parts: &[(Part, i32)]) -> i32 {
     parts.iter().map(|p| p.1).sum()
 }
 
+/// The rects of the parts of one field, packed left to right from `x` (`row.place_packed()`), `ymin..=ymax` tall.
+pub fn rects(parts: &[(Part, i32)], x: i32, ymin: i32, ymax: i32) -> Vec<(Part, crate::area::Rcti)> {
+    let mut x = x;
+    parts
+        .iter()
+        .map(|&(p, w)| {
+            let r = crate::area::Rcti { xmin: x, xmax: x + w - 1, ymin, ymax };
+            x += w;
+            (p, r)
+        })
+        .collect()
+}
+
 /// The icon of a part: the field's own ID icon on the browse button.
 pub fn icon(part: Part, id_icon: Icon) -> Option<Icon> {
     match part {
@@ -60,6 +73,18 @@ mod tests {
         let b = parts(20, 40, true);
         assert_eq!(b[1].1, a[1].1 + 20);
         assert_eq!(total_width(&a), 20 + 80 + 20 + 20);
+    }
+
+    #[test]
+    fn view_layer_rects_follow_in_order_without_gaps() {
+        /* `template_search(window, "view_layer", ...)` with new and unlink: browse, name, new, unlink. */
+        let r = rects(&parts(20, 40, false), 100, 5, 24);
+        let order: Vec<Part> = r.iter().map(|x| x.0).collect();
+        assert_eq!(order, vec![Part::Browse, Part::Name, Part::New, Part::Unlink]);
+        for w in r.windows(2) {
+            assert_eq!(w[0].1.xmax + 1, w[1].1.xmin);
+        }
+        assert_eq!((r[0].1.xmin, r[3].1.xmax), (100, 100 + 140 - 1));
     }
 
     #[test]
