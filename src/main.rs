@@ -165,6 +165,7 @@ mod modifier_menu;
 mod modifier_panel;
 mod panel_frame;
 mod splash_layout;
+mod splash_popup;
 mod outliner_highlight;
 mod outliner_lines;
 mod outliner_iconrow;
@@ -363,6 +364,8 @@ struct App {
     box_select: Option<BoxSelect>,
     /// The F2 rename popup.
     rename: Option<rename_popup::Rename>,
+    /// The startup splash popup (`WM_OT_splash`) is open until a click or Escape closes it.
+    splash_closed: bool,
     /// The outliner's rename text field (`TSE_TEXTBUT`).
     outliner_rename: Option<outliner_rename::Rename>,
     /// The last click on an outliner object row, for the double-click that renames it.
@@ -918,6 +921,12 @@ impl ApplicationHandler for App {
             }
             /* `Transform Modal Map`: CONFIRM on LEFTMOUSE press (any modifier) while the cursor drag runs. */
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
+                /* The splash image button closes the popup; the click does not reach the editors. */
+                if !self.splash_closed {
+                    self.splash_closed = true;
+                    gfx.window.request_redraw();
+                    return;
+                }
                 /* A click outside the properties editor applies the number being typed into a modifier field
                  * (and the click goes on to whatever is under it, as in Blender). */
                 if self.mod_edit.is_some() {
@@ -1396,6 +1405,13 @@ impl ApplicationHandler for App {
             /* `view3d.zoom` (`delta = +1 / -1`) on NUMPAD_PLUS / NUMPAD_MINUS without modifiers and
              * `view3d.view_pan` on Ctrl + NUMPAD_2 / 4 / 6 / 8; not over the header region. */
             WindowEvent::KeyboardInput { event: key_event, .. } => {
+                if !self.splash_closed && key_event.state == ElementState::Pressed {
+                    if matches!(key_event.physical_key, PhysicalKey::Code(KeyCode::Escape)) {
+                        self.splash_closed = true;
+                        gfx.window.request_redraw();
+                    }
+                    return;
+                }
                 use winit::keyboard::{KeyCode, PhysicalKey};
                 /* `View3D Rotate Modal`: AXIS_SNAP_ENABLE on LEFT_ALT / RIGHT_ALT press and
                  * AXIS_SNAP_DISABLE on release (`any` modifier). Disabling restores the perspective
@@ -2705,6 +2721,11 @@ impl ApplicationHandler for App {
                     if let (Some(edit), Some(user)) = (self.rename.as_ref(), self.user.as_ref()) {
                         let l = rename_popup::layout(user, edit.pos, w as i32, h as i32);
                         rename_popup::draw(&mut buf, w, h, user, &l, edit);
+                    }
+                    /* `wm_block_splash_create`: the splash popup is drawn above everything else. */
+                    if let (false, Some(user)) = (self.splash_closed, self.user.as_ref()) {
+                        let s = splash_popup::layout(user, w as i32, h as i32, [2, 1]);
+                        splash_popup::draw(&mut buf, w, h, user, &s, self.cursor);
                     }
                     /* Popup menus are drawn above everything else. */
                     if let (Some((pos, open)), Some(user)) = (self.add_mod_menu, self.user.as_ref()) {
