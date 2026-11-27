@@ -161,6 +161,7 @@ mod modifier_menu;
 #[allow(dead_code)]
 mod modifier_panel;
 mod panel_frame;
+mod splash_layout;
 mod transform_panel;
 mod select_box;
 mod rename_popup;
