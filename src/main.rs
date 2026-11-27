@@ -233,6 +233,7 @@ mod blend_object_read;
 mod blend_scene;
 mod blend_zstd;
 mod blend_drop;
+mod topbar_menu;
 
 use std::{num::NonZeroU32, sync::Arc};
 
