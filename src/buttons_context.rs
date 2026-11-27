@@ -1,6 +1,6 @@
 //! The tab strip of the properties editor: `ED_buttons_tabs_list()` (space_buttons.cc:211) over the paths of
 //! `buttons_context_path()` / `buttons_context_compute()` (buttons_context.cc:632, :802), `eSpaceButtons_Context`
-//! (DNA_space_enums.h:95). Not modelled yet (their paths need data this port lacks): Particles, Bone, Bone
+//! (DNA_space_enums.h:95). Not modelled yet (their paths need data this port lacks): Bone, Bone
 //! Constraints, Texture, Compositor, Strip, Strip Modifier, Shader Effects.
 
 use crate::icons::Icon;
@@ -14,6 +14,7 @@ pub enum Context {
     Object = 3,
     Data = 4,
     Material = 5,
+    Particle = 7,
     Physics = 8,
     Modifier = 10,
     Constraint = 11,
@@ -51,7 +52,8 @@ pub fn path_flags(scene: &Scene) -> u32 {
             f |= Modifier.bit();
         }
         if matches!(o.data, ObjectData::Mesh(_)) {
-            f |= Material.bit();
+            /* `buttons_context_path_particle`: meshes have the tab even without a particle system. */
+            f |= Particle.bit() | Material.bit();
         }
     }
     f
@@ -79,7 +81,7 @@ pub fn tabs_list(pathflag: u32) -> Vec<Tab> {
     spacer(&mut tabs);
     add(&mut tabs, Collection);
     spacer(&mut tabs);
-    for c in [Object, Modifier, Physics, Constraint, Data, Material] {
+    for c in [Object, Modifier, Particle, Physics, Constraint, Data, Material] {
         add(&mut tabs, c);
     }
     /* `add_spacer()` after Material and Texture: the unmodelled group adds nothing, the dedupe keeps one. */
@@ -103,6 +105,7 @@ pub fn tab_icon(c: Context, active: Option<&ObjectData>) -> Icon {
         Context::Constraint => Icon::Constraint,
         Context::Modifier => Icon::ModWrench,
         Context::Physics => Icon::Physics,
+        Context::Particle => Icon::Particles,
         Context::Material => Icon::ShadingMaterial,
         Context::Data => match active {
             Some(ObjectData::Mesh(_)) => Icon::MeshData,
@@ -124,7 +127,7 @@ pub fn effective_tab(pathflag: u32, user: Context) -> Context {
         mainb = if pathflag & 3 != 0 {
             Object
         } else {
-            [Render, Scene, World, Object, Data, Material, Physics, Modifier, Constraint, ViewLayer, Tool, Output, Collection]
+            [Render, Scene, World, Object, Data, Material, Particle, Physics, Modifier, Constraint, ViewLayer, Tool, Output, Collection]
                 .into_iter()
                 .find(|c| pathflag & c.bit() != 0)
                 .unwrap_or(user)
@@ -148,8 +151,8 @@ mod tests {
     fn startup_cube_has_the_default_strip() {
         let s = Scene::startup();
         let f = path_flags(&s);
-        /* Tool | Render Output Scene ViewLayer World | Collection | Object Modifier Physics Constraint Data Material */
-        assert_eq!(names(&tabs_list(f)), vec![14, -1, 0, 16, 1, 13, 2, -1, 17, -1, 3, 10, 8, 11, 4, 5, -1]);
+        /* Tool | Render Output Scene ViewLayer World | Collection | Object Modifier Particle Physics Constraint Data Material */
+        assert_eq!(names(&tabs_list(f)), vec![14, -1, 0, 16, 1, 13, 2, -1, 17, -1, 3, 10, 7, 8, 11, 4, 5, -1]);
     }
 
     #[test]

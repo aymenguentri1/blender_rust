@@ -56,7 +56,7 @@ mod tests {
         let nav = Rcti { xmin: 1580, xmax: 1608, ymin: 20, ymax: 700 };
         let tabs = tabs_list(path_flags(&Scene::startup()));
         let l = layout(&user, nav, &tabs);
-        assert_eq!(l.len(), 13);
+        assert_eq!(l.len(), 14);
         assert_eq!(l[0].0, Context::Tool);
         for w in l.windows(2) {
             assert!(w[1].1.ymax < w[0].1.ymin, "{:?} below {:?}", w[1].0, w[0].0);
