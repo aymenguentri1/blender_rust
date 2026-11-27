@@ -2,8 +2,8 @@
 //! `OBJECT_PT_transform`, `OBJECT_PT_delta_transform`, `OBJECT_PT_relations`, `OBJECT_PT_collections`
 //! and `OBJECT_PT_visibility` (scripts/startup/bl_ui/properties_object.py:36, :87, :133, :186, :413).
 //! Pure data, no drawing. Labels not given by `text=` come from RNA (rna_object.cc), e.g. use_camera_lock_parent (:3168).
-//! Not listed: the `lock_*` toggles (DECORATE_UNLOCKED icons) beside Location/Rotation/Scale and the
-//! `ANIM_MT_rotation_mode_convert` menu next to Mode. Panels of the Object tab with their `bl_order` (OBJECT_PT_motion_paths :374, OBJECT_PT_display :219 order 10,
+//! `transform_rows` adds the `lock_*` toggles (DECORATE_UNLOCKED icons, emboss=False) beside Location/Rotation/Scale
+//! and the `ANIM_MT_rotation_mode_convert` menu (DOWNARROW_HLT) next to Mode. Panels of the Object tab with their `bl_order` (OBJECT_PT_motion_paths :374, OBJECT_PT_display :219 order 10,
 //! OBJECT_PT_animation :632, OBJECT_PT_custom_props :636, rna_prop_ui.py:259 order 1000); only their headers are listed.
 //! Not modelled: Parent Inverse Transform, Instancing, Line Art, Shading, Light Linking.
 
@@ -71,6 +71,37 @@ pub fn transform_fields(mode: RotationMode) -> Vec<Field> {
         RotationMode::Euler => f("rotation_euler", "Rotation"),
     };
     vec![f("location", "Location"), rot, f("rotation_mode", "Mode"), f("scale", "Scale")]
+}
+
+/// A row of `OBJECT_PT_transform.draw` with the decorator buttons drawn after the field
+/// (`row.prop(ob, "lock_*", text="", emboss=False, icon='DECORATE_UNLOCKED')`, properties_object.py:46-82).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Row {
+    pub field: Field,
+    /// RNA identifiers of the lock toggles; stacked in a column when there are two (quaternion, axis-angle).
+    pub locks: Vec<&'static str>,
+    /// Menu button after the field (`ANIM_MT_rotation_mode_convert`, icon DOWNARROW_HLT).
+    pub menu: Option<&'static str>,
+}
+
+/// `OBJECT_PT_transform.draw` rows with their lock toggles and the convert menu.
+pub fn transform_rows(mode: RotationMode) -> Vec<Row> {
+    let locks = |mode: RotationMode, prop: &str| -> Vec<&'static str> {
+        match (prop, mode) {
+            ("location", _) => vec!["lock_location"],
+            ("scale", _) => vec!["lock_scale"],
+            ("rotation_mode", _) => vec![],
+            (_, RotationMode::Euler) => vec!["lock_rotation"],
+            (_, _) => vec!["lock_rotation_w", "lock_rotation"],
+        }
+    };
+    transform_fields(mode)
+        .into_iter()
+        .map(|field| {
+            let menu = (field.prop == "rotation_mode").then_some("ANIM_MT_rotation_mode_convert");
+            Row { field, locks: locks(mode, field.prop), menu }
+        })
+        .collect()
 }
 
 /// `OBJECT_PT_delta_transform.draw`: no rotation row in axis-angle mode.
@@ -147,6 +178,16 @@ mod tests {
         assert_eq!(transform_fields(RotationMode::Euler)[1].prop, "rotation_euler");
         assert_eq!(transform_fields(RotationMode::Quaternion)[1].prop, "rotation_quaternion");
         assert_eq!(transform_fields(RotationMode::AxisAngle)[1].prop, "rotation_axis_angle");
+    }
+
+    #[test]
+    fn rows_carry_lock_decorators_and_the_convert_menu() {
+        let r = transform_rows(RotationMode::Euler);
+        assert_eq!(r.iter().map(|r| r.locks.clone()).collect::<Vec<_>>(), [vec!["lock_location"], vec!["lock_rotation"], vec![], vec!["lock_scale"]]);
+        assert_eq!(r[2].menu, Some("ANIM_MT_rotation_mode_convert"));
+        assert!(r[0].menu.is_none());
+        assert_eq!(transform_rows(RotationMode::Quaternion)[1].locks, ["lock_rotation_w", "lock_rotation"]);
+        assert_eq!(transform_rows(RotationMode::AxisAngle)[1].locks, ["lock_rotation_w", "lock_rotation"]);
     }
 
     #[test]
