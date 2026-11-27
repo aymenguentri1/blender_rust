@@ -665,18 +665,20 @@ fn draw_mesh(target: &mut Target, rv3d: &RegionView3D, m: &Mat4, mesh: &Mesh, sm
     let nm = normal_matrix(m);
     let to_view = |n_local: V3| normal_to_view(rv3d, normalize(mat3_mul_v3(&nm, n_local)));
     let world: Vec<V3> = mesh.verts.iter().map(|&v| mat4_mul_point(m, v)).collect();
-    let vnormals = smooth.then(|| mesh.vertex_normals());
+    /* View space vertex normals, once per vertex instead of once per triangle corner. */
+    let vnormals: Option<Vec<V3>> = smooth.then(|| mesh.vertex_normals().iter().map(|&n| to_view(n)).collect());
     let p = &rv3d.persmat;
     let (rw, rh) = (target.rw as f32, target.rh as f32);
 
     for (f, face) in mesh.faces.iter().enumerate() {
-        let face_n = to_view(mesh.face_normal(f));
+        /* Only flat faces and triangles cut by the near plane or the clipping border need the face normal. */
+        let face_n = || to_view(mesh.face_normal(f));
         let Some(vn) = vnormals.as_ref() else {
             let poly: Vec<V3> = face.iter().map(|&i| world[i as usize]).collect();
             /* A flat face has one mask: the mean of its corners. */
             let mean = mask.map_or(0.0, |mk| face.iter().map(|&i| mk[i as usize]).sum::<f32>() / face.len() as f32);
             target.cur_mask = [mean; 3];
-            draw_flat_polygon(target, rv3d, &poly, face_n);
+            draw_flat_polygon(target, rv3d, &poly, face_n());
             target.cur_mask = [0.0; 3];
             continue;
         };
@@ -690,12 +692,12 @@ fn draw_mesh(target: &mut Target, rv3d: &RegionView3D, m: &Mat4, mesh: &Mesh, sm
             let inside = rv3d.clip.is_none() && clip.iter().all(|c| c[3] > 0.0 && c[2] + c[3] >= 0.0);
             if inside {
                 let screen = clip.map(|c| [((c[0] / c[3]) * 0.5 + 0.5) * rw, ((c[1] / c[3]) * 0.5 + 0.5) * rh, (c[2] / c[3]) * 0.5 + 0.5]);
-                let ns = tri.map(|i| to_view(vn[i as usize]));
+                let ns = tri.map(|i| vn[i as usize]);
                 target.triangle(screen, ns, rv3d);
             } else {
                 let mean = target.cur_mask.iter().sum::<f32>() / 3.0;
                 target.cur_mask = [mean; 3];
-                draw_flat_polygon(target, rv3d, &tri.map(|i| world[i as usize]), face_n);
+                draw_flat_polygon(target, rv3d, &tri.map(|i| world[i as usize]), face_n());
             }
         }
     }
@@ -961,6 +963,22 @@ mod tests {
             draw_scene(&mut buf, w, h, region, &rv3d, false, &scene);
         }
         println!("draw_scene: {:.2} ms/frame", t.elapsed().as_secs_f64() * 1000.0 / 30.0);
+    }
+
+    /// FNV-1a of the pixels of a smooth shaded, partly masked sphere next to the startup cube: pins `draw_mesh`
+    /// so that speeding it up cannot change the image.
+    #[test]
+    fn smooth_sphere_image_is_pinned() {
+        let mut scene = Scene::startup();
+        let id = scene.add_primitive(Primitive::UvSphere, [0.5, 0.0, 0.3]);
+        for o in scene.objects.iter_mut().filter(|o| o.id == id) {
+            o.smooth = true;
+            o.scale = [1.5; 3];
+        }
+        let (buf, _, _, _) = render_scene(&scene);
+        let hash = buf.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &p| (h ^ p as u64).wrapping_mul(0x100_0000_01b3));
+        println!("PINNED_HASH {hash:#x}");
+        assert_eq!(hash, 0xa50125ac6814a7d9);
     }
 
     /// The band split and the thread count do not change the image, the depth or the id buffer.
