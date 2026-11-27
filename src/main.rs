@@ -2558,6 +2558,9 @@ impl ApplicationHandler for App {
                     if let Some(user) = self.user.as_ref() {
                         if let Some(window) = modifier_panel::window_rect(user, layout.properties) {
                             let tp = object_tab_view::layout(user, window, &self.scene, self.field_edit.as_ref());
+                            if let (Some(rows), Some(o)) = (object_tab_context::layout(user, window), self.scene.active_object().filter(|o| !o.hidden)) {
+                                object_tab_context::draw(&mut buf, w, h, user, &rows, &o.name);
+                            }
                             modifier_panel::draw(&mut buf, w, h, user, &tp.widgets);
                             let below = area::Rcti { ymax: tp.bottom, ..window };
                             let widgets = modifier_panel::widgets(user, below, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open).with_edit(self.mod_edit.as_ref()));
