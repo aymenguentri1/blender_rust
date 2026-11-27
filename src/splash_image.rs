@@ -48,6 +48,14 @@ pub fn sample(u: f32, v: f32) -> u32 {
 
 static GIF: &[u8] = include_bytes!("../assets/splash.gif");
 
+/// The splash GIF looked up on disk first, so the artwork can be swapped without rebuilding.
+const DISK_GIF: &str = "assets/splash.gif";
+
+/// Decode the GIF at `path` when it exists and is a valid GIF, else the built-in one.
+fn load_gif(path: &std::path::Path) -> Option<Anim> {
+    std::fs::read(path).ok().and_then(|bytes| splash_anim::decode(&bytes)).or_else(|| splash_anim::decode(GIF))
+}
+
 struct State {
     anim: Anim,
     start: Instant,
@@ -66,7 +74,7 @@ fn with_state<R>(f: impl FnOnce(&mut State) -> R) -> R {
     STATE.with(|s| {
         let mut s = s.borrow_mut();
         let st = s.get_or_insert_with(|| {
-            let anim = splash_anim::decode(GIF).unwrap_or_else(|| {
+            let anim = load_gif(std::path::Path::new(DISK_GIF)).unwrap_or_else(|| {
                 let [w, h] = still_size();
                 Anim::still(w, h, DATA[8..].to_vec())
             });
@@ -164,5 +172,28 @@ mod tests {
         let mut buf = vec![0u32; w * h];
         draw(&mut buf, w, h, Rcti { xmin: 100, xmax: 594, ymin: 50, ymax: 296 });
         assert!(!needs_redraw(), "just drawn, same frame is still due");
+    }
+}
+
+#[cfg(test)]
+mod disk_tests {
+    use super::*;
+
+    #[test]
+    fn missing_or_invalid_file_falls_back_to_builtin() {
+        let builtin = splash_anim::decode(GIF).map(|a| (a.w, a.h, a.frames.len()));
+        let missing = load_gif(std::path::Path::new("assets/does_not_exist.gif")).map(|a| (a.w, a.h, a.frames.len()));
+        assert_eq!(missing, builtin);
+        let bad = std::env::temp_dir().join("blender_rust_bad_splash.gif");
+        std::fs::write(&bad, b"not a gif").unwrap();
+        let invalid = load_gif(&bad).map(|a| (a.w, a.h, a.frames.len()));
+        let _ = std::fs::remove_file(&bad);
+        assert_eq!(invalid, builtin);
+    }
+
+    #[test]
+    fn existing_file_is_used() {
+        let a = load_gif(std::path::Path::new("assets/splash.gif")).expect("decodes");
+        assert!(a.w > 0 && !a.frames.is_empty());
     }
 }
