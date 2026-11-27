@@ -6,7 +6,7 @@ A file counts as covered when a src/*.rs file names it (path or unique basename)
 ported scope: file count, not lines, and headers count as files."""
 import collections, glob, os, re, subprocess, sys
 
-START, END = "<!-- parity:start -->", "<!-- parity:end -->"
+START, END = "<!-- progress:start -->", "<!-- progress:end -->"
 EXT = r"\.(c|cc|cpp|h|hh|hpp|py)$"
 
 
@@ -38,10 +38,16 @@ def build():
     tot, hit = collections.Counter(map(mod, files)), collections.Counter(map(mod, got))
     rows = sorted(tot, key=lambda k: -tot[k])
     loc = sum(len(open(f, errors="ignore").read().splitlines()) for f in glob.glob("src/**/*.rs", recursive=True))
-    out = [f"**{len(got)} of {len(files)} Blender source files ({100 * len(got) / len(files):.1f} %)** are referenced by the Rust port "
-           f"(`{loc}` lines of Rust). Left: **{len(files) - len(got)}** files, i.e. about **{100 - 100 * len(got) / len(files):.0f} %** of `source/blender`.", "",
-           "| Blender module | Files referenced | Total | Covered |", "| --- | ---: | ---: | ---: |"]
-    out += [f"| `{k}` | {hit[k]} | {tot[k]} | {100 * hit[k] / tot[k]:.1f} % |" for k in rows]
+    pc = 100 * len(got) / len(files)
+    bar = "▰" * round(40 * pc / 100) + "▱" * (40 - round(40 * pc / 100))
+    out = ['<h2 align="center">Blender in Rust: my port vs Blender\'s source</h2>', '<p align="center">',
+           f'<img alt="covered" src="https://img.shields.io/badge/Blender%20files%20covered-{pc:.1f}%25-orange?style=for-the-badge&logo=blender&logoColor=white">',
+           f'<img alt="left" src="https://img.shields.io/badge/files%20left-{len(files) - len(got)}-red?style=for-the-badge">',
+           f'<img alt="rust" src="https://img.shields.io/badge/Rust%20lines-{loc}-blue?style=for-the-badge">', '</p>', '',
+           f"**`{bar}` {pc:.1f} %** of Blender is covered: **{len(got)} of {len(files)}** files of `source/blender` are referenced by the port "
+           f"(`{loc}` lines of Rust). **{len(files) - len(got)} files (about {100 - pc:.0f} %) are left** to clone Blender 100 %.", "",
+           "| Blender module | Progress | Referenced | Total | Covered |", "| --- | --- | ---: | ---: | ---: |"]
+    out += [f"| `{k}` | `{'▰' * round(12 * hit[k] / tot[k]) + '▱' * (12 - round(12 * hit[k] / tot[k]))}` | {hit[k]} | {tot[k]} | {100 * hit[k] / tot[k]:.1f} % |" for k in rows]
     out += ["", "<sub>File count, not lines: a lower bound of what is ported, and headers count as files. Regenerate with `python3 scripts/parity.py`.</sub>"]
     return "\n".join(out)
 
