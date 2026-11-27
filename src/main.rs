@@ -131,6 +131,7 @@ mod edit_overlay;
 mod mesh_extrude_faces;
 #[allow(dead_code)]
 mod mesh_flip;
+mod edit_bone;
 #[allow(dead_code)]
 mod mesh_dissolve_faces;
 #[allow(dead_code)]
