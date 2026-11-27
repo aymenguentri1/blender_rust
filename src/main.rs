@@ -2433,6 +2433,8 @@ impl ApplicationHandler for App {
                             outliner_draw::draw_row_stripes(&mut buf, w, h, user, window);
                             outliner_draw::draw_tree_rows(&mut buf, w, h, user, window, &outliner_draw::scene_rows(&self.scene));
                             outliner_draw::draw_restrict_buttons(&mut buf, w, h, user, window, &self.scene);
+                            outliner_draw::draw_expand_arrows(&mut buf, w, h, user, window, &self.scene);
+                            outliner_draw::draw_row_icons(&mut buf, w, h, user, window, &self.scene);
                             if let Some(edit) = self.outliner_rename.as_ref() {
                                 outliner_draw::draw_rename_field(&mut buf, w, h, user, window, &self.scene, edit);
                             }
