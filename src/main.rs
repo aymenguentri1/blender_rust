@@ -142,6 +142,7 @@ mod mesh_merge;
 mod mesh_delete_loose;
 mod sculpt_hide;
 mod sculpt_rotate;
+mod kelvinlet;
 mod sculpt_relax;
 mod sculpt_smooth_mask;
 mod sculpt_surface_smooth;
