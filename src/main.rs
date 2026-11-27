@@ -143,6 +143,7 @@ mod mesh_delete_loose;
 mod sculpt_hide;
 mod sculpt_rotate;
 mod sculpt_relax;
+mod sculpt_smooth_mask;
 mod sculpt_surface_smooth;
 mod sculpt_enhance;
 mod mesh_edgering;
