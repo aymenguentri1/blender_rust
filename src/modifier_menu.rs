@@ -4,10 +4,13 @@
 //! which have no counterpart here). It looks like the Add menu (`add_menu`): a dark panel with an outline and one
 //! row of `UI_UNIT_Y` per entry, highlighted under the cursor, but without a title. Entries that cannot run
 //! (Move to First on the first modifier, Apply on a modifier that is off in the viewport) are drawn dimmed and
-//! ignore clicks. Deviations: square corners, no separators or shortcut hints, and a click outside only closes it.
+//! ignore clicks. Entries, order, icons and the separators follow `modifier_ops_extra_draw` (MOD_ui_common.cc).
+//! Deviations: square corners, the separator is blank space, no Apply as Shape Key / Save as Shape Key (no shape
+//! keys yet), no Pin to Last, and a click outside only closes it.
 
 use crate::area::{fill_rect, Rcti};
 use crate::font;
+use crate::icons::{self, Icon};
 use crate::scene::Scene;
 use crate::theme::Rgba;
 use crate::userdef::UserDef;
@@ -30,6 +33,31 @@ pub enum Item {
 
 impl Item {
     pub const ALL: [Item; 5] = [Item::Apply, Item::Duplicate, Item::CopyToSelected, Item::MoveToFirst, Item::MoveToLast];
+
+    /// The icon of the entry (`ICON_CHECKMARK`, `ICON_DUPLICATE`, none for Copy to Selected, `ICON_TRIA_UP/DOWN`).
+    pub fn icon(self) -> Option<Icon> {
+        match self {
+            Item::Apply => Some(Icon::Checkmark),
+            Item::Duplicate => Some(Icon::Duplicate),
+            Item::CopyToSelected => None,
+            Item::MoveToFirst => Some(Icon::TriaUp),
+            Item::MoveToLast => Some(Icon::TriaDown),
+        }
+    }
+
+    /// The shortcut shown at the right (blender_default.py: `object.modifier_apply` Ctrl A, `modifier_copy` Shift D).
+    pub fn shortcut(self) -> Option<&'static str> {
+        match self {
+            Item::Apply => Some("Ctrl A"),
+            Item::Duplicate => Some("Shift D"),
+            _ => None,
+        }
+    }
+
+    /// A separator follows the entry (`layout->separator()` after Copy to Selected).
+    pub fn separator_after(self) -> bool {
+        self == Item::CopyToSelected
+    }
 
     pub fn label(self) -> &'static str {
         match self {
@@ -79,7 +107,10 @@ pub fn layout(user: &UserDef, scene: &Scene, modifier: usize, pos: [i32; 2], win
     let margin = (unit / 5).max(2);
     let widest = Item::ALL.iter().map(|p| font::label_width(user, p.label())).max().unwrap_or(0);
     let width = (widest + 2 * margin + unit).max(8 * unit);
-    let height = Item::ALL.len() as i32 * unit + 2 * margin;
+    /* `Layout::separator()` in a menu: `int(7 * UI_SCALE_FAC)`. */
+    let sep = (7.0 * user.scale_factor) as i32;
+    let seps = Item::ALL.iter().filter(|i| i.separator_after()).count() as i32;
+    let height = Item::ALL.len() as i32 * unit + seps * sep + 2 * margin;
     let mut xmin = pos[0];
     let mut ymax = pos[1];
     if xmin + width - 1 > win_w - 1 {
@@ -93,19 +124,13 @@ pub fn layout(user: &UserDef, scene: &Scene, modifier: usize, pos: [i32; 2], win
     }
     xmin = xmin.max(0);
     let panel = Rcti { xmin, xmax: xmin + width - 1, ymin: ymax - height + 1, ymax };
-    let items = Item::ALL
-        .iter()
-        .enumerate()
-        .map(|(i, &it)| {
-            let r = Rcti {
-                xmin: panel.xmin + margin,
-                xmax: panel.xmax - margin,
-                ymax: panel.ymax - margin - i as i32 * unit,
-                ymin: panel.ymax - margin - (i as i32 + 1) * unit + 1,
-            };
-            (r, it, it.enabled(scene, modifier))
-        })
-        .collect();
+    let mut top = panel.ymax - margin;
+    let mut items = Vec::new();
+    for &it in &Item::ALL {
+        let r = Rcti { xmin: panel.xmin + margin, xmax: panel.xmax - margin, ymax: top, ymin: top - unit + 1 };
+        items.push((r, it, it.enabled(scene, modifier)));
+        top -= unit + if it.separator_after() { sep } else { 0 };
+    }
     Layout { panel, items }
 }
 
@@ -115,6 +140,8 @@ pub fn item_at(layout: &Layout, cursor: [i32; 2]) -> Option<Item> {
 }
 
 pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, layout: &Layout, cursor: [i32; 2]) {
+    let unit = user.widget_unit;
+    let margin = (unit / 5).max(2);
     let b = user.pixelsize.max(1);
     fill_rect(buf, width, height, layout.panel, OUTLINE.to_xrgb());
     let inner = Rcti {
@@ -131,7 +158,17 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, layout
             fill_rect(buf, width, height, rect, INNER_SEL.to_xrgb());
         }
         let color = if !on { ITEM_TEXT_OFF } else if selected { ITEM_TEXT_SEL } else { ITEM_TEXT };
-        font::draw_label(buf, width, height, user, rect, item.label(), color);
+        let text = if let Some(icon) = item.icon() {
+            icons::draw_icon(buf, width, height, user, Rcti { xmax: rect.xmin + unit - 1, ..rect }, icon, color);
+            Rcti { xmin: rect.xmin + unit, ..rect }
+        } else {
+            rect
+        };
+        font::draw_label(buf, width, height, user, text, item.label(), color);
+        if let Some(key) = item.shortcut() {
+            let pad = (rect.size_x() + 1 - font::string_width(user, key) - margin).max(0);
+            font::draw_label_pad(buf, width, height, user, rect, key, if selected { ITEM_TEXT_SEL } else { ITEM_TEXT_OFF }, pad);
+        }
     }
 }
 
@@ -154,10 +191,21 @@ mod tests {
         let l = layout(&UserDef::from_window_scale(1.0), &s, 0, [300, 500], 1000, 800);
         assert_eq!(l.items.len(), 5);
         assert!(l.items.iter().all(|(r, _, _)| l.panel.isect_pt(r.xmin, r.ymin) && l.panel.isect_pt(r.xmax, r.ymax)));
-        assert!(l.items.windows(2).all(|w| w[0].0.ymin == w[1].0.ymax + 1));
+        assert!(l.items.windows(2).all(|w| w[0].0.ymin > w[1].0.ymax));
         /* Near the window edge the panel moves back in. */
         let edge = layout(&UserDef::from_window_scale(1.0), &s, 0, [995, 5], 1000, 800);
         assert!(edge.panel.xmax <= 999 && edge.panel.ymin >= 0);
+    }
+
+    #[test]
+    fn icons_shortcuts_and_the_separator_follow_modifier_ops_extra_draw() {
+        let icons: Vec<Option<Icon>> = Item::ALL.iter().map(|i| i.icon()).collect();
+        assert_eq!(icons, [Some(Icon::Checkmark), Some(Icon::Duplicate), None, Some(Icon::TriaUp), Some(Icon::TriaDown)]);
+        assert_eq!((Item::Apply.shortcut(), Item::Duplicate.shortcut(), Item::MoveToLast.shortcut()), (Some("Ctrl A"), Some("Shift D"), None));
+        let user = UserDef::from_window_scale(1.0);
+        let l = layout(&user, &scene_with(2), 0, [300, 500], 1000, 800);
+        let gap = |a: usize| l.items[a].0.ymin - l.items[a + 1].0.ymax - 1;
+        assert_eq!((gap(0), gap(1), gap(2), gap(3)), (0, 0, 7, 0), "one 7 px separator after Copy to Selected");
     }
 
     #[test]
