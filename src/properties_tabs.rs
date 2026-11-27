@@ -35,8 +35,9 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, nav: R
         if on {
             draw_round_box(buf, width, height, user, r, theme::WCOL_TAB_INNER_SEL, theme::WCOL_TAB_OUTLINE, theme::WCOL_TAB_ROUNDNESS);
         }
-        let col = if on { theme::WCOL_TAB_TEXT_SEL } else { theme::WCOL_TAB_TEXT };
-        icons::draw_icon(buf, width, height, user, r, tab_icon(c, data), col);
+        let icon = tab_icon(c, data);
+        let mono = if on { theme::WCOL_TAB_TEXT_SEL } else { theme::WCOL_TAB_TEXT };
+        icons::draw_icon(buf, width, height, user, r, icon, crate::icon_theme::theme_color(icon).unwrap_or(mono));
     }
 }
 

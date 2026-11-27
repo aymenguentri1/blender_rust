@@ -113,3 +113,5 @@ checkbox_hlt
 checkbox_dehlt
 decorate_unlocked
 decorate_locked
+outliner_collection.white
+outliner_collection.dark

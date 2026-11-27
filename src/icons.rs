@@ -322,9 +322,18 @@ impl Icon {
     }
 
     fn mask(self) -> &'static [u8] {
-        let k = MASK_NAMES.lines().position(|n| n == self.svg_name()).expect("icon without a mask");
-        &MASK_DATA[k * MASK * MASK..(k + 1) * MASK * MASK]
+        named_mask(self.svg_name())
     }
+
+    /// The black layer of a colour icon (`DEF_ICON_COLOR`), drawn over the themed one.
+    fn dark_layer(self) -> Option<&'static [u8]> {
+        (self == Icon::OutlinerCollection).then(|| named_mask("outliner_collection.dark"))
+    }
+}
+
+fn named_mask(name: &str) -> &'static [u8] {
+    let k = MASK_NAMES.lines().position(|n| n == name).expect("icon without a mask");
+    &MASK_DATA[k * MASK * MASK..(k + 1) * MASK * MASK]
 }
 
 pub fn icon_size(user: &UserDef) -> i32 {
@@ -333,14 +342,23 @@ pub fn icon_size(user: &UserDef) -> i32 {
 
 /// Draws `icon` centred in `rect` (window pixels, y up) with `color` (its alpha scales the mask).
 pub fn draw_icon(buf: &mut [u32], width: usize, height: usize, user: &UserDef, rect: Rcti, icon: Icon, color: Rgba) {
+    match icon.dark_layer() {
+        None => draw_mask(buf, width, height, user, rect, icon.mask(), icon == Icon::LeftArrow, color),
+        Some(dark) => {
+            draw_mask(buf, width, height, user, rect, named_mask("outliner_collection.white"), false, color);
+            draw_mask(buf, width, height, user, rect, dark, false, Rgba { r: 0, g: 0, b: 0, a: color.a });
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_mask(buf: &mut [u32], width: usize, height: usize, user: &UserDef, rect: Rcti, mask: &[u8], flip: bool, color: Rgba) {
     if width == 0 || height == 0 || buf.len() < width * height {
         return;
     }
     let size = icon_size(user);
     let x0 = rect.xmin + (rect.size_x() + 1 - size) / 2;
     let y0 = rect.ymin + (rect.size_y() + 1 - size) / 2;
-    let mask = icon.mask();
-    let flip = icon == Icon::LeftArrow;
     let base_a = color.a as f32 / 255.0;
     const N: usize = 4;
     let k = MASK as f32 / size as f32;
