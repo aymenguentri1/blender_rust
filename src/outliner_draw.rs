@@ -270,9 +270,22 @@ pub fn draw_expand_arrows(buf: &mut [u32], width: usize, height: usize, user: &U
     }
 }
 
+/// `icon_from_object_type()` (interface_icons.cc:2198) for the object kinds that exist: `ICON_OUTLINER_OB_MESH`,
+/// `_CAMERA`, `_LIGHT` and `_EMPTY`.
+pub fn object_icon(data: &crate::scene::ObjectData) -> crate::icons::Icon {
+    use crate::icons::Icon;
+    use crate::scene::ObjectData;
+    match data {
+        ObjectData::Mesh(_) => Icon::ObMesh,
+        ObjectData::Camera => Icon::ObCamera,
+        ObjectData::Light(_) => Icon::ObLight,
+        ObjectData::Empty(_) => Icon::ObEmpty,
+    }
+}
+
 /// The data-type icon of each outliner row (`tree_element_get_icon()`, outliner_draw.cc:2730-2740): every
-/// collection row (view collection base or layer collection) shows `ICON_OUTLINER_COLLECTION`. Object rows have
-/// their own icons, which are not drawn yet.
+/// collection row (view collection base or layer collection) shows `ICON_OUTLINER_COLLECTION`, an object row the
+/// icon of its type (`object_icon()`).
 pub fn row_icons(scene: &crate::scene::Scene) -> Vec<Option<crate::icons::Icon>> {
     use crate::icons::Icon;
     use crate::scene::RowKind;
@@ -281,7 +294,7 @@ pub fn row_icons(scene: &crate::scene::Scene) -> Vec<Option<crate::icons::Icon>>
         .iter()
         .map(|r| match r.kind {
             RowKind::SceneCollection | RowKind::ActiveCollection | RowKind::Collection => Some(Icon::OutlinerCollection),
-            RowKind::Object(_) => None,
+            RowKind::Object(id) => scene.index_of(id).map(|k| object_icon(&scene.objects[k].data)),
         })
         .collect()
 }
@@ -491,7 +504,10 @@ mod tests {
     fn collection_rows_get_the_collection_icon() {
         use crate::icons::Icon;
         let c = Some(Icon::OutlinerCollection);
-        assert_eq!(row_icons(&crate::scene::Scene::startup()), [c, c, None, None, None, c]);
+        assert_eq!(
+            row_icons(&crate::scene::Scene::startup()),
+            [c, c, Some(Icon::ObCamera), Some(Icon::ObMesh), Some(Icon::ObLight), c]
+        );
     }
 
     #[test]
@@ -507,5 +523,17 @@ mod tests {
         /* Scene Collection (level 0): slot [u, 2u); the expand slot [0, u) stays empty. */
         assert!(drawn(u, 2 * u));
         assert!(!drawn(0, u));
+    }
+
+    #[test]
+    fn object_icons_follow_the_object_type() {
+        use crate::icons::Icon;
+        use crate::scene::{EmptyKind, LightKind, ObjectData};
+        assert_eq!(object_icon(&ObjectData::Camera), Icon::ObCamera);
+        assert_eq!(object_icon(&ObjectData::Light(LightKind::Sun)), Icon::ObLight);
+        assert_eq!(object_icon(&ObjectData::Empty(EmptyKind::Arrows)), Icon::ObEmpty);
+        let s = crate::scene::Scene::startup();
+        let cube = s.objects.iter().find(|o| o.name == "Cube").unwrap();
+        assert_eq!(object_icon(&cube.data), Icon::ObMesh);
     }
 }
