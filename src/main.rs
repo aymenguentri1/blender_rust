@@ -167,6 +167,7 @@ mod panel_frame;
 mod splash_image;
 mod splash_layout;
 mod splash_popup;
+mod splash_quick_setup;
 mod outliner_highlight;
 mod outliner_lines;
 mod outliner_iconrow;
@@ -367,6 +368,8 @@ struct App {
     rename: Option<rename_popup::Rename>,
     /// The startup splash popup (`WM_OT_splash`) is open until a click or Escape closes it.
     splash_closed: bool,
+    /// The first-run Quick Setup menu shows in the splash until its Save / Continue button is clicked.
+    splash_quick_done: bool,
     /// The outliner's rename text field (`TSE_TEXTBUT`).
     outliner_rename: Option<outliner_rename::Rename>,
     /// The last click on an outliner object row, for the double-click that renames it.
@@ -924,7 +927,17 @@ impl ApplicationHandler for App {
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
                 /* The splash image button closes the popup; the click does not reach the editors. */
                 if !self.splash_closed {
-                    self.splash_closed = true;
+                    let size = gfx.window.inner_size();
+                    let save = self.user.as_ref().filter(|_| !self.splash_quick_done).and_then(|user| {
+                        let s = splash_popup::layout(user, size.width as i32, size.height as i32, splash_image::size(), true);
+                        s.quick.map(|q| q.save)
+                    });
+                    if save.is_some_and(|r| r.isect_pt_v(self.cursor)) {
+                        /* `wm.save_userpref` / Continue: the splash goes on with the normal menu. */
+                        self.splash_quick_done = true;
+                    } else {
+                        self.splash_closed = true;
+                    }
                     gfx.window.request_redraw();
                     return;
                 }
@@ -2725,7 +2738,7 @@ impl ApplicationHandler for App {
                     }
                     /* `wm_block_splash_create`: the splash popup is drawn above everything else. */
                     if let (false, Some(user)) = (self.splash_closed, self.user.as_ref()) {
-                        let s = splash_popup::layout(user, w as i32, h as i32, splash_image::size());
+                        let s = splash_popup::layout(user, w as i32, h as i32, splash_image::size(), !self.splash_quick_done);
                         splash_popup::draw(&mut buf, w, h, user, &s, self.cursor);
                     }
                     /* Popup menus are drawn above everything else. */

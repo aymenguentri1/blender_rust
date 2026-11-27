@@ -38,7 +38,14 @@ pub struct Splash {
     pub layout: SplashLayout,
     pub rows: Vec<Row>,
     pub line: Rcti,
+    /// The first-run menu (`WM_MT_splash_quick_setup`) instead of the rows.
+    pub quick: Option<crate::splash_quick_setup::QuickSetup>,
 }
+
+/// The first-run menu offers importing the 5.1 preferences, as in the reference screenshot of Blender 5.4 (a fresh
+/// clone has no previous version; Blender shows "Quick Setup" / "Continue" without one).
+const QUICK_CAN_IMPORT: bool = true;
+const QUICK_OLD_VERSION: [i32; 2] = [5, 1];
 
 /// Height of the menu column in pixels.
 pub fn menu_height(user: &UserDef) -> i32 {
@@ -48,7 +55,12 @@ pub fn menu_height(user: &UserDef) -> i32 {
     6 * u + 3 * sep + 2 * u + 2 * sep
 }
 
-pub fn layout(user: &UserDef, win_w: i32, win_h: i32, img: [i32; 2]) -> Splash {
+pub fn layout(user: &UserDef, win_w: i32, win_h: i32, img: [i32; 2], quick: bool) -> Splash {
+    if quick {
+        let l = splash_layout::layout(user, win_w, win_h, img, crate::splash_quick_setup::menu_height(user, QUICK_CAN_IMPORT));
+        let q = crate::splash_quick_setup::layout(user, l.menu, QUICK_CAN_IMPORT, QUICK_OLD_VERSION);
+        return Splash { layout: l, rows: Vec::new(), line: Rcti { xmin: 0, xmax: -1, ymin: 0, ymax: 0 }, quick: Some(q) };
+    }
     let l = splash_layout::layout(user, win_w, win_h, img, menu_height(user));
     let u = user.widget_unit;
     let sep = (SPACE_ROWS * u as f32) as i32;
@@ -73,7 +85,7 @@ pub fn layout(user: &UserDef, win_w: i32, win_h: i32, img: [i32; 2]) -> Splash {
         rows.push(col(lx, y, BOTTOM_LEFT[i], false));
         rows.push(col(rx, y, BOTTOM_RIGHT[i], false));
     }
-    Splash { layout: l, rows, line }
+    Splash { layout: l, rows, line, quick: None }
 }
 
 pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, s: &Splash, cursor: [i32; 2]) {
@@ -86,6 +98,13 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, s: &Sp
     let text = version::version_string();
     let v = Rcti { xmin: s.layout.version.xmax - font::string_width(user, &text), ..s.layout.version };
     font::draw_label_pad(buf, width, height, user, v, &text, white, 0);
+    if let Some(q) = &s.quick {
+        crate::modifier_panel::draw(buf, width, height, user, &q.widgets);
+        if let Some(line) = q.line {
+            crate::area::blend_rect(buf, width, height, line, LINE);
+        }
+        return;
+    }
     for r in &s.rows {
         if r.title {
             font::draw_label(buf, width, height, user, r.rect, r.text, TITLE_TEXT);
@@ -107,7 +126,7 @@ mod tests {
     #[test]
     fn rows_stay_inside_the_popup_and_the_menu() {
         let u = UserDef::from_window_scale(1.0);
-        let s = layout(&u, 1920, 1080, [1000, 500]);
+        let s = layout(&u, 1920, 1080, [1000, 500], false);
         assert_eq!(s.rows.len(), 16);
         for r in &s.rows {
             assert!(s.layout.popup.isect_pt(r.rect.xmin, r.rect.ymin) && s.layout.popup.isect_pt(r.rect.xmax, r.rect.ymax));
@@ -118,7 +137,7 @@ mod tests {
     #[test]
     fn the_popup_is_centred() {
         let u = UserDef::from_window_scale(1.0);
-        let s = layout(&u, 1920, 1080, [1000, 500]);
+        let s = layout(&u, 1920, 1080, [1000, 500], false);
         assert!((s.layout.popup.cent_x() - 960).abs() <= 1);
     }
 }
