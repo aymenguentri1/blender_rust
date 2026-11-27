@@ -198,6 +198,7 @@ mod view3d_axis_gizmo;
 mod toolbar;
 mod view3d_navigate;
 mod view3d_view_camera;
+mod view3d_walk;
 mod view3d_fly;
 mod modifier_menu;
 #[allow(dead_code)]
