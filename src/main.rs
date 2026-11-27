@@ -192,6 +192,7 @@ mod widget_hover;
 mod curve_forward_diff;
 #[allow(dead_code)]
 mod curve_knots;
+mod curve_nurb;
 #[allow(dead_code)]
 mod widget_radius;
 #[allow(dead_code)]
