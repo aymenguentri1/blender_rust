@@ -138,6 +138,8 @@ mod edit_bone;
 #[allow(dead_code)]
 mod menu_submenu;
 #[allow(dead_code)]
+mod topbar_menu_bar;
+#[allow(dead_code)]
 mod mesh_dissolve_faces;
 #[allow(dead_code)]
 mod mesh_poke;
