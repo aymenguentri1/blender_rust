@@ -358,24 +358,7 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
                 mesh.verts[i] = add(mesh.verts[i], scale(area, push * f * dir));
             }
         }
-        Brush::Smooth => {
-            let moved: Vec<(usize, V3)> = hit
-                .iter()
-                .filter(|&&(i, _)| !adj.adj[i].is_empty())
-                .map(|&(i, f)| {
-                    let mut sum = [0.0f32; 3];
-                    for &n in &adj.adj[i] {
-                        sum = add(sum, mesh.verts[n as usize]);
-                    }
-                    let avg = scale(sum, 1.0 / adj.adj[i].len() as f32);
-                    let v = mesh.verts[i];
-                    (i, add(v, scale(sub(avg, v), (f * strength).min(1.0))))
-                })
-                .collect();
-            for (i, p) in moved {
-                mesh.verts[i] = p;
-            }
-        }
+        Brush::Smooth => crate::sculpt_smooth::smooth(&mut mesh.verts, &adj.adj, &hit, crate::sculpt_smooth::brush_strength(strength)),
         Brush::Flatten => {
             let (mut sum, mut wsum) = ([0.0f32; 3], 0.0f32);
             for &(i, f) in &hit {
