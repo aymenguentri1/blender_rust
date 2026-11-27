@@ -17,7 +17,7 @@ mod_decim mod_remesh outliner_collection outliner_ob_mesh outliner_ob_camera out
 outliner_ob_empty mesh_plane mesh_cube mesh_circle mesh_uvsphere mesh_icosphere mesh_cylinder mesh_cone
 mesh_torus mesh_grid empty_axis empty_arrows empty_single_arrow cube sphere cone light_point light_sun
 light_spot light_area rightarrow view_zoom view_pan view_camera_unselected view_camera
-view_perspective view_ortho outliner properties time filter viewzoom collection_new mouse_mmb_drag mouse_rmb tool_settings scene output scene_data render_result world object_data constraint physics mesh_data camera_data outliner_data_light empty_data radiobut_off rew frame_prev prev_keyframe play_reverse play pause next_keyframe frame_next ff time gizmo add restrict_view_on restrict_render_on x select_set select_extend select_subtract select_difference select_intersect checkmark duplicate tria_up tria_down""".split()
+view_perspective view_ortho outliner properties time filter viewzoom collection_new mouse_mmb_drag mouse_rmb tool_settings scene output scene_data render_result world object_data constraint physics mesh_data camera_data outliner_data_light empty_data radiobut_off rew frame_prev prev_keyframe play_reverse play pause next_keyframe frame_next ff time gizmo add restrict_view_on restrict_render_on x select_set select_extend select_subtract select_difference select_intersect checkmark duplicate tria_up tria_down checkbox_hlt checkbox_dehlt""".split()
 
 
 def main():

@@ -109,3 +109,5 @@ checkmark
 duplicate
 tria_up
 tria_down
+checkbox_hlt
+checkbox_dehlt
