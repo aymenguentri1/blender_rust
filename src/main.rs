@@ -201,6 +201,7 @@ mod view3d_navigate;
 mod view3d_view_camera;
 mod view3d_walk;
 mod sculpt_scene_project;
+mod view3d_ruler;
 mod sculpt_curves_grow_shrink;
 mod sculpt_curves_puff;
 mod sculpt_curves_pinch;
