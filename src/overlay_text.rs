@@ -25,6 +25,7 @@ use crate::theme;
 use crate::userdef::UserDef;
 use crate::overlay_grid::grid_unit_name;
 use crate::scene::Scene;
+use crate::scene_fps::{self, FpsState};
 use crate::view3d::{RegionView3D, View, View3D};
 
 /// What the info text shows about the active object.
@@ -39,6 +40,8 @@ pub struct ObjectInfo {
     pub stats: Vec<String>,
     /// The transform pivot point when it is not the default Median Point.
     pub pivot: Option<String>,
+    /// The playback frame rate, appended to the frame number (`draw_frame_info()`).
+    pub fps: Option<FpsState>,
 }
 
 impl ObjectInfo {
@@ -71,7 +74,7 @@ impl ObjectInfo {
                     modifiers.push(format!("Subdivision Surface {}", o.subsurf));
                 }
                 let active = o.active_modifier.min(o.modifiers.len().saturating_sub(1));
-                ObjectInfo { name: Some(o.name.clone()), modifiers, active, stats: Vec::new(), pivot: None }
+                ObjectInfo { name: Some(o.name.clone()), modifiers, active, stats: Vec::new(), pivot: None, fps: None }
             }
         }
     }
@@ -114,6 +117,14 @@ fn viewport_name(rv3d: &RegionView3D) -> String {
     name
 }
 
+/// `draw_frame_info()`: `7`, or `7 | 24 fps` during playback.
+fn frame_line(frame: i32, fps: Option<FpsState>) -> String {
+    match fps {
+        Some(fps) => format!("{frame} | {}", fps.string()),
+        None => frame.to_string(),
+    }
+}
+
 /// The lines of the info text, top to bottom.
 fn lines(v3d: &View3D, rv3d: &RegionView3D, frame: i32, object: &ObjectInfo) -> Vec<String> {
     let mut lines = vec![viewport_name(rv3d)];
@@ -123,7 +134,7 @@ fn lines(v3d: &View3D, rv3d: &RegionView3D, frame: i32, object: &ObjectInfo) -> 
         Some(name) => format!("Collection | {name}"),
         None => "Collection".to_string(),
     });
-    lines.push(frame.to_string());
+    lines.push(frame_line(frame, object.fps));
     lines.extend(object.modifiers.iter().enumerate().map(|(i, m)| format!("{} {m}", if i == object.active { '>' } else { '+' })));
     lines.extend(object.pivot.iter().map(|p| format!("Pivot: {p}")));
     lines.extend(object.stats.iter().cloned());
@@ -136,9 +147,12 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, region: Rcti, user: &U
     let line_height = font::UI_DEFAULT_TEXT_POINTS * user.scale_factor * 1.6;
     let x = region.xmin + (0.5 * user.widget_unit as f32) as i32;
     let mut y = region.ymax - (0.1 * user.widget_unit as f32) as i32;
+    /* A low frame rate tints the whole frame line. */
+    let alert = object.fps.filter(FpsState::is_low).map(|fps| frame_line(frame, Some(fps)));
     for line in lines(v3d, rv3d, frame, object) {
         y = (y as f32 - line_height) as i32;
-        font::draw_text(buf, width, height, user, x, y, &line, theme::SPACE_VIEW3D_TEXT_HI);
+        let color = if alert.as_ref() == Some(&line) { scene_fps::low_fps_color() } else { theme::SPACE_VIEW3D_TEXT_HI };
+        font::draw_text(buf, width, height, user, x, y, &line, color);
     }
 }
 
@@ -149,8 +163,15 @@ mod tests {
     #[test]
     fn default_view_lines() {
         let rv3d = RegionView3D::default();
-        let cube = ObjectInfo { name: Some("Cube".to_string()), modifiers: vec![], active: 0, stats: vec![], pivot: None };
+        let cube = ObjectInfo { name: Some("Cube".to_string()), modifiers: vec![], active: 0, stats: vec![], pivot: None, fps: None };
         assert_eq!(lines(&View3D::default(), &rv3d, 1, &cube), ["User Perspective", "Collection | Cube", "1"]);
+    }
+
+    #[test]
+    fn the_playback_rate_follows_the_frame_number() {
+        let fps = FpsState { fps_average: 24.0, fps_target: 24.0, fps_target_is_fractional: false };
+        let info = ObjectInfo { fps: Some(fps), ..ObjectInfo::default() };
+        assert_eq!(lines(&View3D::default(), &RegionView3D::default(), 7, &info)[2], "7 | 24 fps");
     }
 
     #[test]
@@ -176,7 +197,7 @@ mod tests {
         let rv3d = RegionView3D::default();
         let none = lines(&View3D::default(), &rv3d, 1, &ObjectInfo::default());
         assert_eq!(none, ["User Perspective", "Collection", "1"]);
-        let info = ObjectInfo { name: Some("Torus".to_string()), modifiers: vec!["Mirror X".to_string(), "Subdivision Surface 2".to_string()], active: 0, stats: vec![], pivot: None };
+        let info = ObjectInfo { name: Some("Torus".to_string()), modifiers: vec!["Mirror X".to_string(), "Subdivision Surface 2".to_string()], active: 0, stats: vec![], pivot: None, fps: None };
         let l = lines(&View3D::default(), &rv3d, 1, &info);
         assert_eq!(l[1], "Collection | Torus");
         assert_eq!(&l[3..], ["> Mirror X", "+ Subdivision Surface 2"]);
