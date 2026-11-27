@@ -227,6 +227,16 @@ fn multiplane_scrape(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radi
     }
 }
 
+/// `do_inflate_brush()` with every mirror of it; `strength` is the brush alpha.
+#[allow(clippy::too_many_arguments)]
+fn inflate_brush(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
+    for s in mirror_signs(symmetry) {
+        let c = mirrored(center, s);
+        let area: Vec<(usize, V3)> = affected(mesh, &[], c, radius).iter().map(|&(i, _)| (i, vertex_normal(mesh, adj, i))).collect();
+        crate::sculpt_inflate::dab(&mut mesh.verts, mask, &area, c, radius, crate::sculpt_inflate::brush_strength(strength, invert), |d| falloff(d, 1.0));
+    }
+}
+
 /// `do_pinch_brush()` with every mirror of it; `dir` is the stroke direction, `strength` the brush alpha.
 #[allow(clippy::too_many_arguments)]
 fn pinch_brush(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radius: f32, strength: f32, dir: V3, invert: bool, symmetry: [bool; 3]) {
@@ -290,7 +300,7 @@ pub fn dab(mesh: &mut Mesh, adj: &Topo, brush: Brush, center: V3, radius: f32, s
 /// `dab()` on a mesh with a mask (one value per vertex); the Mask brush paints it, the others are scaled by it.
 #[allow(clippy::too_many_arguments)]
 pub fn dab_masked(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
-    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide | Brush::Pinch) {
+    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide | Brush::Pinch | Brush::Inflate) {
         return;
     }
     for s in mirror_signs(symmetry) {
@@ -328,11 +338,6 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
         Brush::Draw => {
             for &(i, f) in &hit {
                 mesh.verts[i] = add(mesh.verts[i], scale(area, push * f * dir));
-            }
-        }
-        Brush::Inflate => {
-            for (k, &(i, f)) in hit.iter().enumerate() {
-                mesh.verts[i] = add(mesh.verts[i], scale(normals[k], push * f * dir));
             }
         }
         Brush::Smooth => {
@@ -398,7 +403,7 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
                 mesh.verts[i] = add(mesh.verts[i], scale(d, push * BLOB_FACTOR * f * dir));
             }
         }
-        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide | Brush::Pinch => {}
+        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide | Brush::Pinch | Brush::Inflate => {}
     }
 }
 
@@ -877,6 +882,10 @@ impl Session {
         }
         if a.brush == Brush::Clay {
             clay_strips(mesh, mask, &a.adj, hit.local, radius, self.settings.strength, a.dir, a.invert, sym);
+            return true;
+        }
+        if a.brush == Brush::Inflate {
+            inflate_brush(mesh, mask, &a.adj, hit.local, radius, self.settings.strength, a.invert, sym);
             return true;
         }
         if a.brush == Brush::Pinch {
