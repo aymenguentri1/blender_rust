@@ -165,6 +165,7 @@ mod modifier_menu;
 #[allow(dead_code)]
 mod modifier_panel;
 mod panel_frame;
+mod splash_anim;
 mod splash_image;
 mod splash_layout;
 mod splash_popup;
@@ -369,6 +370,10 @@ struct App {
     rename: Option<rename_popup::Rename>,
     /// The startup splash popup (`WM_OT_splash`) is open until a click or Escape closes it.
     splash_closed: bool,
+    /* Finished window frame while the splash is open, so a GIF frame change only repaints the popup. */
+    splash_snapshot: Vec<u32>,
+    /* Anything but the splash animation asked for a redraw: the snapshot is stale. */
+    full_dirty: bool,
     /// The first-run Quick Setup menu shows in the splash until its Save / Continue button is clicked.
     splash_quick_done: bool,
     /// The outliner's rename text field (`TSE_TEXTBUT`).
@@ -552,8 +557,18 @@ impl ApplicationHandler for App {
 
     /* `screen.animation_play` timer: one frame per `1 / fps`, wrapping at the scene range ends. */
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        /* The splash artwork is an animated GIF: redraw only when its frame changes, and only while it is shown. */
+        let splash_wake = (!self.splash_closed && splash_image::is_animated()).then(|| {
+            let wake = std::time::Instant::now() + splash_image::next_change();
+            if splash_image::needs_redraw() {
+                if let Some(gfx) = self.gfx.as_ref() {
+                    gfx.window.request_redraw();
+                }
+            }
+            wake
+        });
         let Some(play) = self.playing.as_mut() else {
-            event_loop.set_control_flow(ControlFlow::Wait);
+            event_loop.set_control_flow(splash_wake.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
             return;
         };
         let interval = std::time::Duration::from_secs_f64(1.0 / PLAY_FPS);
@@ -567,6 +582,7 @@ impl ApplicationHandler for App {
                 frame = efra;
             }
             self.frame = Some(frame);
+            self.full_dirty = true;
             play.next += interval;
             if play.next < now {
                 play.next = now + interval;
@@ -575,9 +591,12 @@ impl ApplicationHandler for App {
                 gfx.window.request_redraw();
             }
         }
-        event_loop.set_control_flow(ControlFlow::WaitUntil(play.next));
+        event_loop.set_control_flow(ControlFlow::WaitUntil(splash_wake.map_or(play.next, |w| w.min(play.next))));
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if !matches!(event, WindowEvent::RedrawRequested) {
+            self.full_dirty = true;
+        }
         let Some(gfx) = self.gfx.as_mut() else { return };
 
         match event {
@@ -2447,6 +2466,18 @@ impl ApplicationHandler for App {
                 };
                 gfx.surface.resize(w, h).expect("resize surface");
                 let mut buf = gfx.surface.buffer_mut().expect("surface buffer");
+                let menus = self.add_menu.is_some() || self.mod_menu.is_some() || self.brush_menu.is_some() || self.add_mod_menu.is_some() || self.rename.is_some();
+                /* Only the splash GIF moved on: restore the last finished frame and repaint just the popup. */
+                if let (false, false, false, Some(user), Some(_)) = (self.full_dirty, self.splash_closed, menus, self.user.as_ref(), self.layout.as_ref()) {
+                    if self.splash_snapshot.len() == buf.len() {
+                        buf.copy_from_slice(&self.splash_snapshot);
+                        let (w, h) = (width as usize, height as usize);
+                        let s = splash_popup::layout(user, w as i32, h as i32, splash_image::size(), !self.splash_quick_done);
+                        splash_popup::draw(&mut buf, w, h, user, &s, self.cursor);
+                        buf.present().expect("present");
+                        return;
+                    }
+                }
                 buf.fill(theme::EDITOR_BORDER.to_xrgb());
                 if let Some(layout) = self.layout.as_ref() {
                     let (w, h) = (width as usize, height as usize);
@@ -2781,6 +2812,11 @@ impl ApplicationHandler for App {
                         add_menu::draw(&mut buf, w, h, user, &menu, self.cursor);
                     }
                 }
+                if !self.splash_closed && !menus {
+                    self.splash_snapshot.clear();
+                    self.splash_snapshot.extend_from_slice(&buf);
+                }
+                self.full_dirty = false;
                 buf.present().expect("present");
             }
 
