@@ -16,6 +16,8 @@ mod topbar_id_fields;
 mod topbar_menu;
 #[allow(dead_code)]
 mod popup_geometry;
+#[allow(dead_code)]
+mod popup_draw;
 mod properties_tabs;
 mod timeline_header;
 #[allow(dead_code)]
@@ -23,6 +25,7 @@ mod blend_header;
 mod screen;
 mod object_mode;
 mod sculpt;
+mod sculpt_clay_strips;
 mod sculpt_header;
 mod select_header;
 mod screen_draw;
@@ -81,6 +84,7 @@ mod transform_trackball;
 mod transform_constraint_proj;
 #[allow(dead_code)]
 mod playback;
+mod scene_fps;
 mod transform_snap;
 #[allow(dead_code)]
 mod blend_reader;
@@ -137,6 +141,7 @@ mod mesh_merge;
 mod mesh_delete_loose;
 mod sculpt_hide;
 mod sculpt_rotate;
+mod sculpt_enhance;
 mod mesh_edgering;
 mod mesh_loopcut;
 mod mesh_ops;
@@ -319,6 +324,9 @@ struct PlayState {
     reverse: bool,
     start_frame: i32,
     next: std::time::Instant,
+    /// Time origin of the frame rate stamps; dropped with the playback (`ED_scene_fps_average_clear()`).
+    epoch: std::time::Instant,
+    fps: scene_fps::FrameRateInfo,
 }
 
 
@@ -588,6 +596,7 @@ impl ApplicationHandler for App {
             }
             self.frame = Some(frame);
             self.full_dirty = true;
+            play.fps.accumulate(PLAY_FPS, scene_fps::PLAYBACK_FPS_SAMPLES, (now - play.epoch).as_secs_f64());
             play.next += interval;
             if play.next < now {
                 play.next = now + interval;
@@ -2153,6 +2162,8 @@ impl ApplicationHandler for App {
                             reverse: shift_k && ctrl_k,
                             start_frame: self.frame.unwrap_or(1),
                             next: std::time::Instant::now() + interval,
+                            epoch: std::time::Instant::now(),
+                            fps: Default::default(),
                         });
                     }
                     gfx.window.request_redraw();
@@ -2649,6 +2660,7 @@ impl ApplicationHandler for App {
                             overlay_extra::draw_extras(&mut buf, w, h, layout.main, user, &self.rv3d, &self.scene);
                             overlay_cursor::draw_cursor(&mut buf, w, h, layout.main, user, &self.rv3d, self.cursor3d, self.cursor3d_quat);
                             overlay_text::draw(&mut buf, w, h, { let v = area::view3d_visible_rect(user, layout.main); area::view3d_toolbar_rect(user, layout.main).map_or(v, |tb| area::Rcti { xmin: tb.xmax + 1, ..v }) }, user, &self.v3d, &self.rv3d, self.frame.unwrap_or(1), &{ let mut info = overlay_text::ObjectInfo::of(&self.scene); if self.pivot_point != transform::PivotPoint::Median { info.pivot = Some(self.pivot_point.label().to_string()); }
+                            info.fps = self.playing.as_ref().and_then(|p| p.fps.calc());
                             if self.show_stats { info.with_stats(&self.scene) } else { info } });
                         }
                     }
