@@ -157,6 +157,7 @@ mod sculpt_rotate;
 mod kelvinlet;
 mod sculpt_elastic;
 mod sculpt_clay_thumb;
+mod sculpt_mask;
 mod sculpt_multiplane;
 mod sculpt_slide;
 mod sculpt_relax;

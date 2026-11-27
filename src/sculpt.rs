@@ -119,8 +119,6 @@ impl Brush {
 const DRAW_FACTOR: f32 = 0.06;
 /// Part of the distance to the target (plane, neighbour average, centre) a dab closes at full strength.
 const BLEND_FACTOR: f32 = 0.3;
-/// Mask painted by a Mask dab at full strength and falloff.
-const MASK_FACTOR: f32 = 0.25;
 /// Distance a Nudge dab drags the surface along the stroke, in brush radii at full strength and falloff.
 const NUDGE_FACTOR: f32 = 0.15;
 /// Displacement of a Blob dab, relative to a Draw dab.
@@ -337,12 +335,7 @@ pub fn dab_masked(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, c
 fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool) {
     if brush == Brush::Mask {
         /* `do_mask_brush()`: paints the mask up (Ctrl: erases it) under the brush, the mask itself is not masked. */
-        let amount = strength * MASK_FACTOR * if invert { -1.0 } else { 1.0 };
-        for (i, f) in affected(mesh, &[], center, radius) {
-            if let Some(m) = mask.get_mut(i) {
-                *m = (*m + f * amount).clamp(0.0, 1.0);
-            }
-        }
+        crate::sculpt_mask::dab(mask, &affected(mesh, &[], center, radius), crate::sculpt_mask::brush_strength(strength, invert));
         return;
     }
     let hit = affected(mesh, mask, center, radius);
