@@ -19,6 +19,7 @@ use crate::area::Rcti;
 use crate::font;
 use crate::mesh::{add, cross, dot, normalized, scale, sub, Mesh, V3};
 use crate::overlay_cursor::draw_segment;
+use crate::sculpt_elastic;
 use crate::sculpt_rotate::{flip_sign, translation as rotate_translation, vertex_rotation, Dial, DIAL_THRESHOLD_PX};
 use crate::scene::{mat4_mul_dir, mat4_mul_point, ray_triangle, Object, Scene};
 use crate::theme::Rgba;
@@ -47,11 +48,12 @@ pub enum Brush {
     Thumb,
     DrawSharp,
     Rotate,
+    ElasticDeform,
 }
 
 impl Brush {
     #[allow(dead_code)]
-    pub const ALL: [Brush; 18] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask, Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob, Brush::Thumb, Brush::DrawSharp, Brush::Rotate];
+    pub const ALL: [Brush; 19] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask, Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob, Brush::Thumb, Brush::DrawSharp, Brush::Rotate, Brush::ElasticDeform];
 
     /// The key of the brush in Sculpt Mode, as the brush popup lists it (`Shift X` for `Shift + X`).
     pub fn key_label(self) -> &'static str {
@@ -74,6 +76,7 @@ impl Brush {
             Brush::Thumb | Brush::DrawSharp => "",
             /* The default keymap has no key for Rotate. */
             Brush::Rotate => "",
+            Brush::ElasticDeform => "",
         }
     }
 
@@ -97,6 +100,7 @@ impl Brush {
             Brush::Thumb => "Thumb",
             Brush::DrawSharp => "Draw Sharp",
             Brush::Rotate => "Rotate",
+            Brush::ElasticDeform => "Elastic Deform",
         }
     }
 }
@@ -149,7 +153,7 @@ impl Default for Settings {
 }
 
 /// The mask of vertex `i` (0 where the mask is shorter than the mesh, i.e. absent).
-fn mask_at(mask: &[f32], i: usize) -> f32 {
+pub(crate) fn mask_at(mask: &[f32], i: usize) -> f32 {
     mask.get(i).copied().unwrap_or(0.0)
 }
 
@@ -248,7 +252,7 @@ pub fn dab(mesh: &mut Mesh, adj: &Topo, brush: Brush, center: V3, radius: f32, s
 /// `dab()` on a mesh with a mask (one value per vertex); the Mask brush paints it, the others are scaled by it.
 #[allow(clippy::too_many_arguments)]
 pub fn dab_masked(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
-    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate) {
+    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform) {
         return;
     }
     for s in mirror_signs(symmetry) {
@@ -357,7 +361,7 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
                 mesh.verts[i] = add(mesh.verts[i], scale(d, push * BLOB_FACTOR * f * dir));
             }
         }
-        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate => {}
+        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform => {}
     }
 }
 
@@ -638,6 +642,7 @@ struct Active {
     carry: f32,
     grab: Option<Grab>,
     rotate: Option<Rotate>,
+    elastic: Option<sculpt_elastic::Elastic>,
     layer: Option<Layer>,
     sharp: Option<Sharp>,
     hook: Option<Hook>,
@@ -752,11 +757,17 @@ impl Session {
         scene.push_undo();
         let depth = window_depth(rv3d, hit.world);
         let invert = invert != self.settings.subtract;
-        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, rotate: None, layer: None, sharp: None, hook: None, orig: None, details: None, dir: [0.0; 3], depth, inv };
+        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, rotate: None, elastic: None, layer: None, sharp: None, hook: None, orig: None, details: None, dir: [0.0; 3], depth, inv };
         let changed = if brush == Brush::Grab {
             let radius = self.local_radius(rv3d, &active, hit.world);
             if let Some((mesh, mask)) = scene.sculpt_mesh_mask_mut(id) {
                 active.grab = Some(Grab::begin(mesh, mask, hit.local, radius, self.settings.symmetry, px, active.depth));
+            }
+            true
+        } else if brush == Brush::ElasticDeform {
+            let radius = self.local_radius(rv3d, &active, hit.world);
+            if let Some((mesh, mask)) = scene.sculpt_mesh_mask_mut(id) {
+                active.elastic = Some(sculpt_elastic::Elastic::begin(mesh, mask, hit.local, radius, self.settings.symmetry, px, active.depth));
             }
             true
         } else if brush == Brush::Rotate {
@@ -843,6 +854,17 @@ impl Session {
                 let delta = mat4_mul_dir(&a.inv, sub(p1, p0));
                 if let Some(mesh) = scene.sculpt_mesh_mut(a.id) {
                     grab.apply(mesh, delta);
+                    changed = true;
+                }
+            }
+            a.last = cur;
+        } else if let Some(el) = a.elastic.as_ref() {
+            let p0 = rv3d.unproject_v3(rw, rh, el.start_px[0], el.start_px[1], el.depth);
+            let p1 = rv3d.unproject_v3(rw, rh, cur[0], cur[1], el.depth);
+            if let (Some(p0), Some(p1)) = (p0, p1) {
+                let delta = mat4_mul_dir(&a.inv, sub(p1, p0));
+                if let Some(mesh) = scene.sculpt_mesh_mut(a.id) {
+                    el.apply(mesh, self.settings.strength, delta);
                     changed = true;
                 }
             }
