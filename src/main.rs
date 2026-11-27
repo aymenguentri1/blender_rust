@@ -31,6 +31,7 @@ mod frame_range;
 mod buttons_context;
 mod object_tab_layout;
 mod outliner_draw;
+mod outliner_lines;
 #[allow(dead_code)]
 mod face_set;
 mod blend_sdna;
@@ -2461,6 +2462,7 @@ impl ApplicationHandler for App {
                     if let Some(user) = self.user.as_ref() {
                         if let Some(window) = outliner_draw::window_rect(user, layout.outliner) {
                             outliner_draw::draw_row_stripes(&mut buf, w, h, user, window);
+                            outliner_lines::draw(&mut buf, w, h, window, &outliner_lines::hierarchy_lines(user, &self.scene.outliner_rows()));
                             let hover = if window.isect_pt_v(self.cursor) { outliner_draw::row_at(user, window, self.cursor[1]) } else { None };
                             outliner_highlight::draw(&mut buf, w, h, user, window, &outliner_highlight::highlights(user, window, &self.scene, hover));
                             outliner_draw::draw_tree_rows(&mut buf, w, h, user, window, &outliner_draw::scene_rows(&self.scene));
