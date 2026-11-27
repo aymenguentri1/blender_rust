@@ -466,6 +466,141 @@ impl Mesh {
         let nv = self.verts.len();
         let face_points: Vec<V3> = (0..self.faces.len()).map(|f| self.face_center(f)).collect();
 
+        /* Edge table in first-seen order: end points, the first two faces and the face count. `corner_edge` holds
+        the edge of every face corner (corner `i` of a face runs from vertex `i` to `i + 1`), so the quads below need
+        no second lookup. */
+        let corners: usize = self.faces.iter().map(|f| f.len()).sum();
+        let mut edge_index: std::collections::HashMap<u64, u32, FastHash> =
+            std::collections::HashMap::with_capacity_and_hasher(corners / 2 + 1, FastHash);
+        let mut edges: Vec<EdgeUse> = Vec::with_capacity(corners / 2 + 1);
+        let mut corner_edge: Vec<u32> = Vec::with_capacity(corners);
+        for (f, face) in self.faces.iter().enumerate() {
+            for i in 0..face.len() {
+                let (a, b) = (face[i], face[(i + 1) % face.len()]);
+                let (lo, hi) = (a.min(b), a.max(b));
+                let e = *edge_index.entry(((lo as u64) << 32) | hi as u64).or_insert_with(|| {
+                    edges.push(EdgeUse { a: lo, b: hi, faces: [0; 2], n: 0 });
+                    (edges.len() - 1) as u32
+                });
+                let u = &mut edges[e as usize];
+                if u.n < 2 {
+                    u.faces[u.n as usize] = f as u32;
+                }
+                u.n += 1;
+                corner_edge.push(e);
+            }
+        }
+        let ne = edges.len();
+
+        /* Edge points: the average of the end points and of the two face points; boundary edges keep the midpoint. */
+        let mut edge_points = Vec::with_capacity(ne);
+        for e in &edges {
+            let (pa, pb) = (self.verts[e.a as usize], self.verts[e.b as usize]);
+            edge_points.push(if e.n == 2 {
+                scale(add(add(pa, pb), add(face_points[e.faces[0] as usize], face_points[e.faces[1] as usize])), 0.25)
+            } else {
+                scale(add(pa, pb), 0.5)
+            });
+        }
+
+        /* New positions of the original vertices. */
+        let mut sum_f = vec![[0.0f32; 3]; nv];
+        let mut sum_r = vec![[0.0f32; 3]; nv];
+        let mut face_count = vec![0u32; nv];
+        let mut edge_count = vec![0u32; nv];
+        let mut boundary_sum = vec![[0.0f32; 3]; nv];
+        let mut boundary_count = vec![0u32; nv];
+        for (f, face) in self.faces.iter().enumerate() {
+            for &v in face {
+                face_count[v as usize] += 1;
+                sum_f[v as usize] = add(sum_f[v as usize], face_points[f]);
+            }
+        }
+        for e in &edges {
+            let (a, b) = (e.a, e.b);
+            let mid = scale(add(self.verts[a as usize], self.verts[b as usize]), 0.5);
+            for (v, other) in [(a, b), (b, a)] {
+                sum_r[v as usize] = add(sum_r[v as usize], mid);
+                edge_count[v as usize] += 1;
+                if e.n == 1 {
+                    boundary_sum[v as usize] = add(boundary_sum[v as usize], self.verts[other as usize]);
+                    boundary_count[v as usize] += 1;
+                }
+            }
+        }
+        let mut verts = Vec::with_capacity(nv + ne + self.faces.len());
+        for v in 0..nv {
+            let p = self.verts[v];
+            if edge_count[v] == 0 {
+                verts.push(p);
+            } else if boundary_count[v] > 0 {
+                /* Boundary (crease) rule: 3/4 the vertex and 1/8 of each of the two boundary neighbours. */
+                verts.push(scale(add(scale(p, 6.0), boundary_sum[v]), 1.0 / 8.0));
+            } else {
+                let n = face_count[v] as f32;
+                let f = scale(sum_f[v], 1.0 / n);
+                let r = scale(sum_r[v], 1.0 / edge_count[v] as f32);
+                verts.push(scale(add(add(f, scale(r, 2.0)), scale(p, n - 3.0)), 1.0 / n));
+            }
+        }
+        verts.extend(edge_points);
+        verts.extend(face_points);
+
+        let mut faces = Vec::with_capacity(corners);
+        let mut c = 0;
+        for (f, face) in self.faces.iter().enumerate() {
+            let k = face.len();
+            for i in 0..k {
+                let (cur, prev_edge, next_edge) = (face[i], corner_edge[c + (i + k - 1) % k], corner_edge[c + i]);
+                faces.push(vec![cur, nv as u32 + next_edge, (nv + ne + f) as u32, nv as u32 + prev_edge]);
+            }
+            c += k;
+        }
+        Mesh { verts, faces }
+    }
+}
+
+/// An edge of the subdivision table: its (sorted) end points and the first two faces using it.
+struct EdgeUse {
+    a: u32,
+    b: u32,
+    faces: [u32; 2],
+    n: u32,
+}
+
+/// Multiplicative hasher for the packed edge key (the std SipHash costs more than the subdivision itself).
+#[derive(Clone, Copy, Default)]
+struct FastHash;
+struct FastHasher(u64);
+impl std::hash::BuildHasher for FastHash {
+    type Hasher = FastHasher;
+    fn build_hasher(&self) -> FastHasher {
+        FastHasher(0)
+    }
+}
+impl std::hash::Hasher for FastHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0.rotate_left(5) ^ b as u64).wrapping_mul(0x517c_c1b7_2722_0a95);
+        }
+    }
+    fn write_u64(&mut self, n: u64) {
+        self.0 = (self.0.rotate_left(5) ^ n).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    impl Mesh {
+    fn catmull_clark_reference(&self) -> Mesh {
+        let nv = self.verts.len();
+        let face_points: Vec<V3> = (0..self.faces.len()).map(|f| self.face_center(f)).collect();
+
         /* Edge table: the faces on both sides of every edge. */
         let mut edge_index = std::collections::HashMap::new();
         let mut edge_faces: Vec<(u32, u32, Vec<usize>)> = Vec::new();
@@ -550,11 +685,27 @@ impl Mesh {
         }
         Mesh { verts, faces }
     }
-}
+    }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    fn sphere_like() -> Mesh {
+        let mut m = Mesh::cube(2.0).subdivided(2);
+        for v in m.verts.iter_mut() {
+            let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+            *v = [v[0] / l, v[1] / l * 1.3, v[2] / l];
+        }
+        m
+    }
+
+    #[test]
+    fn catmull_clark_matches_the_reference() {
+        let mut open = Mesh::cube(2.0);
+        open.faces.pop(); /* boundary edges */
+        for m in [Mesh::cube(2.0), open, sphere_like()] {
+            let (a, b) = (m.catmull_clark(), m.catmull_clark_reference());
+            assert_eq!(a.faces, b.faces);
+            assert_eq!(a.verts, b.verts);
+        }
+    }
 
     fn faces_point_outward(m: &Mesh) -> bool {
         (0..m.faces.len()).all(|f| dot(m.face_normal(f), m.face_center(f)) > 0.0)
