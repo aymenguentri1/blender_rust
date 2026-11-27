@@ -539,15 +539,17 @@ struct Hook {
 }
 
 impl Hook {
-    /// Moves the brush by `delta` (local space), dragging the vertices under its previous position with it.
-    fn apply(&mut self, mesh: &mut Mesh, mask: &[f32], delta: V3, symmetry: [bool; 3]) {
+    /// Moves the brush by `delta` (local space), dragging the vertices under its previous position with it
+    /// (`sculpt_snake_hook`); `strength` is the brush alpha.
+    fn apply(&mut self, mesh: &mut Mesh, mask: &[f32], delta: V3, strength: f32, symmetry: [bool; 3]) {
         let mut taken = vec![false; mesh.verts.len()];
         for s in mirror_signs(symmetry) {
             let d = mirrored(delta, s);
-            for (i, f) in affected(mesh, mask, mirrored(self.center, s), self.radius) {
+            let moves = crate::sculpt_snake_hook::translations(&mesh.verts, mask, mirrored(self.center, s), self.radius, strength, d, crate::sculpt_crease::CREASE_PINCH_FACTOR, |x| falloff(x, 1.0));
+            for (i, t) in moves {
                 /* A vertex that two mirrors both reach (on the plane) moves with the first. */
                 if !std::mem::replace(&mut taken[i], true) {
-                    mesh.verts[i] = add(mesh.verts[i], scale(d, f));
+                    mesh.verts[i] = add(mesh.verts[i], t);
                 }
             }
         }
@@ -931,7 +933,7 @@ impl Session {
                 let delta = mat4_mul_dir(&a.inv, sub(p1, p0));
                 let sym = self.settings.symmetry;
                 if let (Some(hook), Some((mesh, mask))) = (a.hook.as_mut(), scene.sculpt_mesh_mask_mut(a.id)) {
-                    hook.apply(mesh, mask, delta, sym);
+                    hook.apply(mesh, mask, delta, self.settings.strength, sym);
                     changed = true;
                 }
             }
@@ -1519,7 +1521,7 @@ mod tests {
         let near = m.verts.iter().position(|v| (v[0] - 0.3).abs() < 1e-3 && v[1].abs() < 1e-3).unwrap();
         let mut hook = Hook { center: [0.0; 3], radius: 0.5 };
         for _ in 0..5 {
-            hook.apply(&mut m, &[], [0.0, 0.0, 0.1], [false; 3]);
+            hook.apply(&mut m, &[], [0.0, 0.0, 0.1], 1.0, [false; 3]);
         }
         assert!((m.verts[i][2] - 0.5).abs() < 1e-4, "the centre follows the brush exactly, got {}", m.verts[i][2]);
         assert!(m.verts[near][2] > 0.0 && m.verts[near][2] < m.verts[i][2]);
@@ -1532,7 +1534,7 @@ mod tests {
         let mut m = grid();
         let i = centre_vertex(&m);
         let mut hook = Hook { center: [0.0; 3], radius: 0.5 };
-        hook.apply(&mut m, &[], [0.0, 0.0, 0.1], [true, false, false]);
+        hook.apply(&mut m, &[], [0.0, 0.0, 0.1], 1.0, [true, false, false]);
         assert!((m.verts[i][2] - 0.1).abs() < 1e-5, "{}", m.verts[i][2]);
     }
 
