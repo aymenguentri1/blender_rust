@@ -2451,7 +2451,6 @@ impl Scene {
                 rows.push(OutlinerRow { level: 2, name: self.objects[i].name.clone(), kind: RowKind::Object(self.objects[i].id) });
             }
         }
-        rows.push(OutlinerRow { level: 1, name: "XGen Guides".into(), kind: RowKind::Collection });
         rows
     }
 }
@@ -2692,7 +2691,7 @@ mod tests {
         let names: Vec<(i32, &str)> = rows.iter().map(|r| (r.level, r.name.as_str())).collect();
         assert_eq!(
             names,
-            [(0, "Scene Collection"), (1, "Collection"), (2, "Camera"), (2, "Cube"), (2, "Light"), (1, "XGen Guides")]
+            [(0, "Scene Collection"), (1, "Collection"), (2, "Camera"), (2, "Cube"), (2, "Light")]
         );
     }
 

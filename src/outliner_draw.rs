@@ -56,13 +56,12 @@ pub fn draw_row_stripes(buf: &mut [u32], width: usize, height: usize, user: &Use
 /// `TH_TEXT`, `TH_TEXT_HI` for the active layer collection (`tree_element_type_active_state_get()`) and
 /// `TH_ACTIVE_OBJECT` for the selected, active object. Collections and objects are sorted by name.
 #[allow(dead_code)]
-const TREE: [(i32, &str, theme::Rgba); 6] = [
+const TREE: [(i32, &str, theme::Rgba); 5] = [
     (0, "Scene Collection", theme::SPACE_OUTLINER_TEXT),
     (1, "Collection", theme::SPACE_OUTLINER_TEXT_HI),
     (2, "Camera", theme::SPACE_OUTLINER_TEXT),
     (2, "Cube", theme::SPACE_OUTLINER_ACTIVE_OBJECT),
     (2, "Light", theme::SPACE_OUTLINER_TEXT),
-    (1, "XGen Guides", theme::SPACE_OUTLINER_TEXT),
 ];
 
 /// The names of `outliner_draw_tree()` for the window `region` (inclusive Blender rect, y up) of the
@@ -452,7 +451,7 @@ mod tests {
 
     /* With the font file present, in a 200x163 region at 1x (rh = 163): the Cube row (index 3) has
      * starty = -2 - 80 = -82, so its baseline is y = 163 - 82 + 5 = 86 and its text starts at x = 40 + 44 =
-     * 84 in the active object colour (red well above blue); the rows end above y = 40 (XGen Guides baseline 46). */
+     * 84 in the active object colour (red well above blue); the rows end above y = 40 (the Light row baseline is 66). */
     #[test]
     fn tree_names_are_drawn() {
         let user = UserDef::from_window_scale(1.0);
@@ -471,17 +470,17 @@ mod tests {
             ((p >> 16) & 0xff) > (p & 0xff) + 60
         }));
         assert!(orange);
-        assert!((0..w).all(|x| (0..40).all(|y| at(x, y) == bg)));
+        assert!((0..w).all(|x| (0..60).all(|y| at(x, y) == bg)));
     }
 
     #[test]
     fn expand_arrows_follow_the_row_tree() {
         use crate::icons::Icon;
         let s = crate::scene::Scene::startup();
-        /* Scene Collection, Collection, Camera, Cube, Light, XGen Guides. */
+        /* Scene Collection, Collection, Camera, Cube, Light. */
         assert_eq!(
             row_arrows(&s),
-            [None, Some(Icon::DownArrow), Some(Icon::ChevronRight), Some(Icon::ChevronRight), Some(Icon::ChevronRight), None]
+            [None, Some(Icon::DownArrow), Some(Icon::ChevronRight), Some(Icon::ChevronRight), Some(Icon::ChevronRight)]
         );
     }
 
@@ -506,7 +505,7 @@ mod tests {
         let c = Some(Icon::OutlinerCollection);
         assert_eq!(
             row_icons(&crate::scene::Scene::startup()),
-            [c, c, Some(Icon::ObCamera), Some(Icon::ObMesh), Some(Icon::ObLight), c]
+            [c, c, Some(Icon::ObCamera), Some(Icon::ObMesh), Some(Icon::ObLight)]
         );
     }
 
