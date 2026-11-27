@@ -2619,7 +2619,21 @@ impl ApplicationHandler for App {
                          * sample is drawn per redraw until the 8 samples of `U.viewport_aa` are accumulated;
                          * the depth is that of sample 0 (`sample0_depth_tx_`), which has no jitter. */
                         let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
-                        let sample = if self.wire { taa::SAMPLES_LEN } else { self.taa.begin(self.rv3d.persmat, rw, rh, self.xray) };
+                        /* `SceneState::init()`: while navigating only one sample without AA is drawn and the TAA
+                         * is reset, so no accumulation work is done per navigation frame. */
+                        let navigating = self.nav_init.is_some() && !self.wire && rw > 0 && rh > 0;
+                        if navigating {
+                            self.taa.reset_for_navigation();
+                            let mut tmp = self.taa.take_scratch((rw * rh) as usize, theme::SPACE_VIEW3D_BACK.to_xrgb());
+                            let tmp_region = area::Rcti { xmin: 0, xmax: rw - 1, ymin: 0, ymax: rh - 1 };
+                            self.scene.update_eval();
+                            let render = workbench::draw_scene(&mut tmp, rw as usize, rh as usize, tmp_region, &self.rv3d, self.xray, &self.scene);
+                            self.scene_depth = render.depth;
+                            self.scene_ids = render.ids;
+                            taa::TaaState::blit_sample(&tmp, rw as usize, rh as usize, &mut buf, w, h, layout.main);
+                            self.taa.put_scratch(tmp);
+                        }
+                        let sample = if self.wire || navigating { taa::SAMPLES_LEN } else { self.taa.begin(self.rv3d.persmat, rw, rh, self.xray) };
                         if sample < taa::SAMPLES_LEN && rw > 0 && rh > 0 {
                             let offset = self.taa.offset(sample);
                             let jittered = self.rv3d.taa_jittered(offset, rw, rh);
@@ -2641,7 +2655,7 @@ impl ApplicationHandler for App {
                             if let Some(user) = self.user.as_ref() {
                                 overlay_wireframe::draw_scene_wire(&mut buf, w, h, layout.main, user, &self.rv3d, &self.scene);
                             }
-                        } else {
+                        } else if !navigating {
                             self.taa.resolve(&mut buf, w, h, layout.main);
                             /* Overlay outline of the selected objects (hidden with the overlays). */
                             if let Some(user) = self.user.as_ref().filter(|_| !self.overlays_hidden) {
