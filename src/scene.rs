@@ -3061,6 +3061,17 @@ mod tests {
     }
 
     #[test]
+    fn panel_apply_subsurf_modifier() {
+        let mut s = Scene::startup();
+        let m = Modifier::subsurf();
+        assert!(s.edit_active_object_impl(|o| { o.modifiers.push(m.clone()); o.mod_flags.push(Default::default()); true }, false));
+        assert!(s.panel_apply_modifier(0));
+        let o = s.active_object().unwrap();
+        assert!(o.modifiers.is_empty());
+        assert_eq!(o.mesh().unwrap().faces.len(), 24);
+    }
+
+    #[test]
     fn apply_modifiers_bakes_them_in() {
         let mut s = Scene::startup();
         s.set_array(2);
