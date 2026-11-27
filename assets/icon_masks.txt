@@ -117,3 +117,4 @@ outliner_collection.white
 outliner_collection.dark
 renderlayers
 unpinned
+group

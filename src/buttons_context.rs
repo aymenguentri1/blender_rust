@@ -1,7 +1,7 @@
 //! The tab strip of the properties editor: `ED_buttons_tabs_list()` (space_buttons.cc:211) over the paths of
 //! `buttons_context_path()` / `buttons_context_compute()` (buttons_context.cc:632, :802), `eSpaceButtons_Context`
 //! (DNA_space_enums.h:95). Not modelled yet (their paths need data this port lacks): Particles, Bone, Bone
-//! Constraints, Texture, Collection (Line Art), Compositor, Strip, Strip Modifier, Shader Effects.
+//! Constraints, Texture, Compositor, Strip, Strip Modifier, Shader Effects.
 
 use crate::icons::Icon;
 use crate::scene::{ObjectData, Scene};
@@ -20,6 +20,7 @@ pub enum Context {
     ViewLayer = 13,
     Tool = 14,
     Output = 16,
+    Collection = 17,
 }
 
 /// One entry of the strip: a tab or `BCONTEXT_SEPARATOR`.
@@ -41,6 +42,9 @@ impl Context {
 pub fn path_flags(scene: &Scene) -> u32 {
     use Context::*;
     let mut f = Tool.bit() | Render.bit() | Output.bit() | Scene.bit() | ViewLayer.bit() | World.bit();
+    /* `buttons_context_path_collection`: the active layer collection, unless it is the master collection. Here it is
+     * always `Collection`. */
+    f |= Collection.bit();
     if let Some(o) = scene.active_object() {
         f |= Object.bit() | Physics.bit() | Constraint.bit() | Data.bit();
         if matches!(o.data, ObjectData::Mesh(_) | ObjectData::Empty(_)) {
@@ -73,10 +77,12 @@ pub fn tabs_list(pathflag: u32) -> Vec<Tab> {
         add(&mut tabs, c);
     }
     spacer(&mut tabs);
+    add(&mut tabs, Collection);
+    spacer(&mut tabs);
     for c in [Object, Modifier, Physics, Constraint, Data, Material] {
         add(&mut tabs, c);
     }
-    /* `add_spacer()` after Collection, Material and Texture: the unmodelled groups add nothing, the dedupe keeps one. */
+    /* `add_spacer()` after Material and Texture: the unmodelled group adds nothing, the dedupe keeps one. */
     spacer(&mut tabs);
     tabs
 }
@@ -87,6 +93,7 @@ pub fn tabs_list(pathflag: u32) -> Vec<Tab> {
 pub fn tab_icon(c: Context, active: Option<&ObjectData>) -> Icon {
     match c {
         Context::Tool => Icon::ToolSettings,
+        Context::Collection => Icon::Group,
         Context::Render => Icon::TabScene,
         Context::Output => Icon::Output,
         Context::Scene => Icon::SceneData,
@@ -117,7 +124,7 @@ pub fn effective_tab(pathflag: u32, user: Context) -> Context {
         mainb = if pathflag & 3 != 0 {
             Object
         } else {
-            [Render, Scene, World, Object, Data, Material, Physics, Modifier, Constraint, ViewLayer, Tool, Output]
+            [Render, Scene, World, Object, Data, Material, Physics, Modifier, Constraint, ViewLayer, Tool, Output, Collection]
                 .into_iter()
                 .find(|c| pathflag & c.bit() != 0)
                 .unwrap_or(user)
@@ -141,8 +148,8 @@ mod tests {
     fn startup_cube_has_the_default_strip() {
         let s = Scene::startup();
         let f = path_flags(&s);
-        /* Tool | Render Output Scene ViewLayer World | Object Modifier Physics Constraint Data Material */
-        assert_eq!(names(&tabs_list(f)), vec![14, -1, 0, 16, 1, 13, 2, -1, 3, 10, 8, 11, 4, 5, -1]);
+        /* Tool | Render Output Scene ViewLayer World | Collection | Object Modifier Physics Constraint Data Material */
+        assert_eq!(names(&tabs_list(f)), vec![14, -1, 0, 16, 1, 13, 2, -1, 17, -1, 3, 10, 8, 11, 4, 5, -1]);
     }
 
     #[test]
@@ -150,8 +157,8 @@ mod tests {
         let mut s = Scene::startup();
         s.active = None;
         let t = tabs_list(path_flags(&s));
-        /* The spacers after the scene and object groups run even when nothing follows, so one trailing separator stays. */
-        assert_eq!(names(&t), vec![14, -1, 0, 16, 1, 13, 2, -1]);
+        /* The spacers after the scene and object groups run even when nothing follows, so one trailing separator stays (after Collection here). */
+        assert_eq!(names(&t), vec![14, -1, 0, 16, 1, 13, 2, -1, 17, -1]);
     }
 
     #[test]
