@@ -113,14 +113,20 @@ impl Corners {
     }
 }
 
+/// A rect of `frame()` is in Blender's continuous coordinates (the far edge belongs to the next pixel); the pixel
+/// box that covers it ends one pixel earlier. A closed panel is `PNL_HEADER` = 25 pixel rows, as measured in Blender.
+fn pixels(r: Rcti) -> Rcti {
+    Rcti { xmax: r.xmax - 1, ymax: r.ymax - 1, ..r }
+}
+
 /// Draws `frame()`: the backdrop and header boxes, then the outline over them (`panel_draw_border`).
 pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, f: &Frame) {
     let none = Rgba::hex(0x00000000);
     let roundness = f.border.radius / user.widget_unit as f32;
     for b in &f.boxes {
-        draw_round_box_corners(buf, width, height, user, b.rect, b.color, none, roundness, b.corners.flags());
+        draw_round_box_corners(buf, width, height, user, pixels(b.rect), b.color, none, roundness, b.corners.flags());
     }
-    draw_round_box_corners(buf, width, height, user, f.border.rect, none, f.border.color, roundness, f.border.corners.flags());
+    draw_round_box_corners(buf, width, height, user, pixels(f.border.rect), none, f.border.color, roundness, f.border.corners.flags());
 }
 
 #[cfg(test)]
@@ -161,6 +167,21 @@ mod tests {
         assert_eq!(f.border.rect, f.header_rect);
         assert_eq!(f.border.color, PANEL_ACTIVE);
         assert_eq!(f.arrow.y, 199.0 + 25.0 * 0.17);
+    }
+
+    #[test]
+    fn a_closed_panel_covers_25_rows_and_the_outline_hugs_its_edges() {
+        let user = user();
+        let (w, h) = (330usize, 60usize);
+        let mut buf = vec![0u32; w * h];
+        /* Continuous body rect of a closed panel under a header whose top edge is 40. */
+        let body = Rcti { xmin: 36, xmax: 330, ymin: 15, ymax: 15 };
+        draw(&mut buf, w, h, &user, &frame(&user, body, false, false));
+        let rows: Vec<usize> = (0..h).filter(|&r| buf[r * w + 100] != 0).collect();
+        /* y-up rows 15..39 are buffer rows 20..44. */
+        assert_eq!((rows.first(), rows.last(), rows.len()), (Some(&20), Some(&44), 25));
+        let cols: Vec<usize> = (0..w).filter(|&c| buf[30 * w + c] != 0).collect();
+        assert_eq!((cols.first(), cols.last()), (Some(&36), Some(&329)));
     }
 
     #[test]
