@@ -3,7 +3,9 @@
 //! and `OBJECT_PT_visibility` (scripts/startup/bl_ui/properties_object.py:36, :87, :133, :186, :413).
 //! Pure data, no drawing. Labels not given by `text=` come from RNA (rna_object.cc), e.g. use_camera_lock_parent (:3168).
 //! Not listed: the `lock_*` toggles (DECORATE_UNLOCKED icons) beside Location/Rotation/Scale and the
-//! `ANIM_MT_rotation_mode_convert` menu next to Mode. Not modelled: Parent Inverse Transform, Instancing, Line Art, Motion Paths, Shading, Light Linking.
+//! `ANIM_MT_rotation_mode_convert` menu next to Mode. Panels of the Object tab with their `bl_order` (OBJECT_PT_motion_paths :374, OBJECT_PT_display :219 order 10,
+//! OBJECT_PT_animation :632, OBJECT_PT_custom_props :636, rna_prop_ui.py:259 order 1000); only their headers are listed.
+//! Not modelled: Parent Inverse Transform, Instancing, Line Art, Shading, Light Linking.
 
 #![allow(dead_code)]
 
@@ -20,7 +22,11 @@ pub enum PanelId {
     DeltaTransform,
     Relations,
     Collections,
+    MotionPaths,
     Visibility,
+    Display,
+    Animation,
+    CustomProps,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,15 +35,21 @@ pub struct Panel {
     pub label: &'static str,
     pub parent: Option<PanelId>,
     pub default_closed: bool,
+    /// `bl_order`: panels are sorted by it, ties keep registration order.
+    pub order: i32,
 }
 
 /// Registration order of the panels in the file (children follow their parent in the UI).
-pub const PANELS: [Panel; 5] = [
-    Panel { id: PanelId::Transform, label: "Transform", parent: None, default_closed: false },
-    Panel { id: PanelId::DeltaTransform, label: "Delta Transform", parent: Some(PanelId::Transform), default_closed: true },
-    Panel { id: PanelId::Relations, label: "Relations", parent: None, default_closed: true },
-    Panel { id: PanelId::Collections, label: "Collections", parent: None, default_closed: true },
-    Panel { id: PanelId::Visibility, label: "Visibility", parent: None, default_closed: true },
+pub const PANELS: [Panel; 9] = [
+    Panel { id: PanelId::Transform, label: "Transform", parent: None, default_closed: false, order: 0 },
+    Panel { id: PanelId::DeltaTransform, label: "Delta Transform", parent: Some(PanelId::Transform), default_closed: true, order: 0 },
+    Panel { id: PanelId::Relations, label: "Relations", parent: None, default_closed: true, order: 0 },
+    Panel { id: PanelId::Collections, label: "Collections", parent: None, default_closed: true, order: 0 },
+    Panel { id: PanelId::MotionPaths, label: "Motion Paths", parent: None, default_closed: true, order: 0 },
+    Panel { id: PanelId::Visibility, label: "Visibility", parent: None, default_closed: true, order: 0 },
+    Panel { id: PanelId::Display, label: "Viewport Display", parent: None, default_closed: true, order: 10 },
+    Panel { id: PanelId::Animation, label: "Animation", parent: None, default_closed: true, order: 999 },
+    Panel { id: PanelId::CustomProps, label: "Custom Properties", parent: None, default_closed: true, order: 1000 },
 ];
 
 /// A property row: RNA identifier and the label Blender shows (`text=` or the RNA name).
@@ -120,9 +132,14 @@ mod tests {
     #[test]
     fn panel_order_and_labels() {
         let l: Vec<_> = PANELS.iter().map(|p| p.label).collect();
-        assert_eq!(l, ["Transform", "Delta Transform", "Relations", "Collections", "Visibility"]);
+        assert_eq!(l, ["Transform", "Delta Transform", "Relations", "Collections", "Motion Paths", "Visibility", "Viewport Display", "Animation", "Custom Properties"]);
         assert!(!PANELS[0].default_closed && PANELS[1..].iter().all(|p| p.default_closed));
         assert_eq!(PANELS[1].parent, Some(PanelId::Transform));
+    }
+
+    #[test]
+    fn the_list_is_already_sorted_by_bl_order() {
+        assert!(PANELS.windows(2).all(|w| w[0].order <= w[1].order));
     }
 
     #[test]
