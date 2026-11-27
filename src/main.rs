@@ -197,6 +197,7 @@ mod view3d_header;
 mod view3d_axis_gizmo;
 mod toolbar;
 mod view3d_navigate;
+mod view3d_view_camera;
 mod modifier_menu;
 #[allow(dead_code)]
 mod modifier_panel;
