@@ -185,6 +185,8 @@ mod uvedit_minmax;
 #[allow(dead_code)]
 mod widget_colors;
 #[allow(dead_code)]
+mod theme_widgets;
+#[allow(dead_code)]
 mod widget_radius;
 #[allow(dead_code)]
 mod widget_state_blend;
