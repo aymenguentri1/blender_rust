@@ -107,10 +107,12 @@ pub enum Icon {
     LightSun,
     LightSpot,
     LightArea,
+    /// `ICON_RIGHTARROW`: the thin chevron of a collapsed outliner row (`ICON_DOWNARROW_HLT` is the open one).
+    ChevronRight,
 }
 
 impl Icon {
-    pub const ALL: &'static [Icon] = &[Icon::View3D, Icon::ObjectMode, Icon::SculptMode, Icon::DownArrow, Icon::OrientationGlobal, Icon::PivotMedian, Icon::PivotCursor, Icon::PivotIndividual, Icon::Snap, Icon::Proportional, Icon::Overlays, Icon::Xray, Icon::ShadingWire, Icon::ShadingSolid, Icon::ShadingMaterial, Icon::ShadingRendered, Icon::RightArrow, Icon::LeftArrow, Icon::Monitor, Icon::Camera, Icon::Eye, Icon::Grip, Icon::EditMode, Icon::ModWrench, Icon::ModArray, Icon::ModMirror, Icon::ModSolidify, Icon::ModBevel, Icon::ModSmooth, Icon::ModDeform, Icon::ModTriangulate, Icon::ModBoolean, Icon::ModWireframe, Icon::ModDecimate, Icon::ModRemesh, Icon::OutlinerCollection, Icon::ObMesh, Icon::ObCamera, Icon::ObLight, Icon::ObEmpty, Icon::MeshPlane, Icon::MeshCube, Icon::MeshCircle, Icon::MeshUvSphere, Icon::MeshIcoSphere, Icon::MeshCylinder, Icon::MeshCone, Icon::MeshTorus, Icon::MeshGrid, Icon::EmptyAxis, Icon::EmptyArrows, Icon::EmptySingleArrow, Icon::Cube, Icon::Sphere, Icon::Cone, Icon::LightPoint, Icon::LightSun, Icon::LightSpot, Icon::LightArea];
+    pub const ALL: &'static [Icon] = &[Icon::View3D, Icon::ObjectMode, Icon::SculptMode, Icon::DownArrow, Icon::OrientationGlobal, Icon::PivotMedian, Icon::PivotCursor, Icon::PivotIndividual, Icon::Snap, Icon::Proportional, Icon::Overlays, Icon::Xray, Icon::ShadingWire, Icon::ShadingSolid, Icon::ShadingMaterial, Icon::ShadingRendered, Icon::RightArrow, Icon::LeftArrow, Icon::Monitor, Icon::Camera, Icon::Eye, Icon::Grip, Icon::EditMode, Icon::ModWrench, Icon::ModArray, Icon::ModMirror, Icon::ModSolidify, Icon::ModBevel, Icon::ModSmooth, Icon::ModDeform, Icon::ModTriangulate, Icon::ModBoolean, Icon::ModWireframe, Icon::ModDecimate, Icon::ModRemesh, Icon::OutlinerCollection, Icon::ObMesh, Icon::ObCamera, Icon::ObLight, Icon::ObEmpty, Icon::MeshPlane, Icon::MeshCube, Icon::MeshCircle, Icon::MeshUvSphere, Icon::MeshIcoSphere, Icon::MeshCylinder, Icon::MeshCone, Icon::MeshTorus, Icon::MeshGrid, Icon::EmptyAxis, Icon::EmptyArrows, Icon::EmptySingleArrow, Icon::Cube, Icon::Sphere, Icon::Cone, Icon::LightPoint, Icon::LightSun, Icon::LightSpot, Icon::LightArea, Icon::ChevronRight];
 
     /// The file name (without `.svg`) of the icon in `release/datafiles/icons_svg`.
     pub fn svg_name(self) -> &'static str {
@@ -174,6 +176,7 @@ impl Icon {
             Icon::LightSun => "light_sun",
             Icon::LightSpot => "light_spot",
             Icon::LightArea => "light_area",
+            Icon::ChevronRight => "rightarrow",
         }
     }
 
@@ -297,5 +300,16 @@ mod tests {
                 assert_eq!(l[y * 20 + x], r[y * 20 + 19 - x]);
             }
         }
+    }
+
+    /* The chevron's svg canvas is 7 x 11 design pixels: it keeps that shape (taller than wide), centred. */
+    #[test]
+    fn small_icons_are_not_stretched_to_the_grid() {
+        let m = Icon::ChevronRight.mask();
+        let cols: Vec<usize> = (0..MASK).filter(|&x| (0..MASK).any(|y| m[y * MASK + x] > 0)).collect();
+        let rows: Vec<usize> = (0..MASK).filter(|&y| (0..MASK).any(|x| m[y * MASK + x] > 0)).collect();
+        let (w, h) = (cols.last().unwrap() - cols[0] + 1, rows.last().unwrap() - rows[0] + 1);
+        assert!(w < h, "{w}x{h}");
+        assert!(w <= 7 * MASK / 16 && h <= 11 * MASK / 16 + 1);
     }
 }
