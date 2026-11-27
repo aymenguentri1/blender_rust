@@ -153,9 +153,11 @@ mod add_menu;
 mod brush_menu;
 #[allow(dead_code)]
 mod add_modifier_menu;
+mod icon_geom;
 mod icons;
 mod view3d_header;
 mod view3d_axis_gizmo;
+mod toolbar;
 mod view3d_navigate;
 mod modifier_menu;
 #[allow(dead_code)]
