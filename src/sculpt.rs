@@ -117,8 +117,6 @@ const DRAW_FACTOR: f32 = 0.06;
 const BLEND_FACTOR: f32 = 0.3;
 /// Mask painted by a Mask dab at full strength and falloff.
 const MASK_FACTOR: f32 = 0.25;
-/// Height a Layer stroke raises the surface to, in brush radii at full strength.
-const LAYER_HEIGHT: f32 = 0.25;
 /// Distance a Nudge dab drags the surface along the stroke, in brush radii at full strength and falloff.
 const NUDGE_FACTOR: f32 = 0.15;
 /// Displacement of a Blob dab, relative to a Draw dab.
@@ -482,20 +480,12 @@ impl Layer {
         Layer { orig: mesh.verts.clone(), normals: mesh.vertex_normals(), disp: vec![0.0; mesh.verts.len()] }
     }
 
-    /// One Layer dab (`do_layer_brush()`); the inverted brush digs a layer instead.
+    /// One Layer dab (`do_layer_brush()`, see `sculpt_layer`); the inverted brush digs a layer instead.
     #[allow(clippy::too_many_arguments)]
     fn dab(&mut self, mesh: &mut Mesh, mask: &[f32], center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
-        let dir = if invert { -1.0 } else { 1.0 };
-        let max = radius * strength * LAYER_HEIGHT;
-        let step = radius * strength * DRAW_FACTOR;
+        let bstrength = crate::sculpt_layer::brush_strength(strength, invert);
         for s in mirror_signs(symmetry) {
-            for (i, f) in affected(mesh, mask, mirrored(center, s), radius) {
-                let d = (self.disp[i] + step * f * dir).clamp(-max, max);
-                /* A vertex only ever moves one way during a stroke (the other direction cannot undo it). */
-                let d = if invert { d.min(0.0).min(self.disp[i]) } else { d.max(0.0).max(self.disp[i]) };
-                self.disp[i] = d;
-                mesh.verts[i] = add(self.orig[i], scale(self.normals[i], d));
-            }
+            crate::sculpt_layer::dab(&mut mesh.verts, &self.orig, &self.normals, &mut self.disp, mask, mirrored(center, s), radius, bstrength, crate::sculpt_layer::HEIGHT, |d| falloff(d, 1.0));
         }
     }
 }
@@ -1485,7 +1475,7 @@ mod tests {
             assert!(h >= last - 1e-6, "never lowers");
             last = h;
         }
-        let cap = radius * strength * LAYER_HEIGHT;
+        let cap = crate::sculpt_layer::HEIGHT;
         assert!((last - cap).abs() < 1e-4, "height {last} cap {cap}");
         /* Dabbing on a vertex that is already at the cap does not go on raising it. */
         layer.dab(&mut m, &[], [0.0; 3], radius, strength, false, [false; 3]);
