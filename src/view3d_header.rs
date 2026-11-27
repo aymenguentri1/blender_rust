@@ -33,6 +33,9 @@ pub enum Action {
     SnapOptions,
     Proportional,
     ProportionalOptions,
+    Visibility,
+    Gizmo,
+    GizmoOptions,
     Overlays,
     OverlaysOptions,
     Xray,
@@ -147,7 +150,8 @@ pub fn layout(user: &UserDef, header: Rcti, state: &HeaderState) -> Vec<Item> {
     let arrow_w = u * 3 / 4;
     let pair_w = toggle_w + arrow_w;
     let shade_w = 4 * toggle_w + arrow_w;
-    let right_total = pair_w + space + toggle_w + space + shade_w;
+    let vis_w = dropdown_width(user, None);
+    let right_total = vis_w + space + pair_w + space + pair_w + space + toggle_w + space + shade_w;
     let right_x = header.xmax + 1 - offset - right_total;
 
     /* Middle: the transform cluster, only when it fits between the two. */
@@ -167,6 +171,11 @@ pub fn layout(user: &UserDef, header: Rcti, state: &HeaderState) -> Vec<Item> {
     }
 
     let mut c = Cursor { x: right_x, y0, y1, space };
+    /* `popover(VIEW3D_PT_object_type_visibility, icon_value=icon_from_show_object_viewport)` and the `show_gizmo`
+     * toggle with its `VIEW3D_PT_gizmo_display` popover (space_view3d.py:1103). */
+    items.push(Item { action: Action::Visibility, rect: c.place(vis_w, true), look: Look::Dropdown { icon: Icon::Eye, label: None } });
+    items.push(Item { action: Action::Gizmo, rect: c.place(toggle_w, false), look: Look::Toggle { icon: Icon::Gizmo, on: true, dim: false, left: false, right: true } });
+    items.push(Item { action: Action::GizmoOptions, rect: c.place(arrow_w, true), look: Look::Arrow { left: true, right: false } });
     items.push(Item { action: Action::Overlays, rect: c.place(toggle_w, false), look: Look::Toggle { icon: Icon::Overlays, on: state.overlays, dim: false, left: false, right: true } });
     items.push(Item { action: Action::OverlaysOptions, rect: c.place(arrow_w, true), look: Look::Arrow { left: true, right: false } });
     /* In wire shading `V3D_SHADING_XRAY_WIREFRAME` is not modelled: dimmed and inert. */
@@ -345,6 +354,18 @@ mod tests {
         s.wire = true;
         assert_eq!(on(&s, Action::ShadeSolid), Some(false));
         assert_eq!(on(&s, Action::ShadeWire), Some(true));
+    }
+
+    /* Right cluster: visibility, gizmo, overlays, x-ray, shading (VIEW3D_HT_header.draw()). */
+    #[test]
+    fn right_cluster_order() {
+        let user = UserDef::from_window_scale(1.0);
+        let items = layout(&user, header(), &state());
+        let x = |a| rect_of(&items, a).unwrap().xmin;
+        assert!(x(Action::Visibility) < x(Action::Gizmo));
+        assert!(x(Action::Gizmo) < x(Action::GizmoOptions));
+        assert!(x(Action::GizmoOptions) < x(Action::Overlays));
+        assert!(x(Action::Overlays) < x(Action::Xray));
     }
 
     #[test]
