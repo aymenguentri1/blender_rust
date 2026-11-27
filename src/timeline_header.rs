@@ -108,19 +108,30 @@ pub fn layout(user: &UserDef, header: Rcti, x_start: i32, playing: bool, frame: 
     items
 }
 
-/// Width of a `popover(text=...)` button with a label: the text plus one unit for the dropdown arrow (measured from
-/// Blender 5.1.1: `Playback` is 70 px wide at 1x).
+/// Left text margin and arrow slot of a `popover(text=...)` button (0.35 and 0.7 units; `Playback` is 70 px wide at
+/// 1x in Blender 5.4: 7 px margin, 49 px text, 14 px arrow).
+fn popover_parts(user: &UserDef) -> (i32, i32) {
+    ((user.widget_unit as f32 * 0.35) as i32, (user.widget_unit as f32 * 0.7) as i32)
+}
+
 pub fn popover_width(user: &UserDef, text: &str) -> i32 {
-    font::string_width(user, text) + user.widget_unit
+    let (pad, slot) = popover_parts(user);
+    pad + font::string_width(user, text) + slot
+}
+
+/// The rect of the arrow of a popover button `r` (an icon cell centred in the arrow slot).
+pub fn popover_arrow(user: &UserDef, r: Rcti) -> Rcti {
+    let (_, slot) = popover_parts(user);
+    let xmin = r.xmax - slot / 2 - user.widget_unit / 2 + 1;
+    Rcti { xmin, xmax: xmin + user.widget_unit - 1, ..r }
 }
 
 /// Draws a labelled popover button (`Playback`): rounded box, left aligned text and the arrow at the right end.
 pub fn draw_popover(buf: &mut [u32], width: usize, height: usize, user: &UserDef, r: Rcti, text: &str) {
     let (inner, color) = crate::hover::colors(r, theme::WCOL_TOOL_INNER, ICON_COLOR);
     draw_round_box_sides(buf, width, height, user, r, inner, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS, true, true);
-    font::draw_label(buf, width, height, user, r, text, theme::WCOL_MENU_TEXT);
-    let arrow = Rcti { xmin: r.xmax + 1 - user.widget_unit, ..r };
-    icons::draw_icon(buf, width, height, user, arrow, Icon::DownArrow, color);
+    font::draw_label_pad(buf, width, height, user, r, text, theme::WCOL_MENU_TEXT, popover_parts(user).0);
+    icons::draw_icon(buf, width, height, user, popover_arrow(user, r), Icon::DownArrow, color);
 }
 
 pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, items: &[Item]) {
@@ -188,10 +199,14 @@ mod tests {
     }
 
     #[test]
-    fn playback_popover_is_wider_than_its_label() {
+    fn playback_popover_is_70_wide_with_the_arrow_clear_of_the_text() {
         let user = UserDef::from_window_scale(1.0);
-        assert_eq!(popover_width(&user, "Playback"), font::string_width(&user, "Playback") + user.widget_unit);
-        assert!(popover_width(&user, "Playback") > font::label_width(&user, "Playback") - user.widget_unit);
+        let w = popover_width(&user, "Playback");
+        let r = Rcti { xmin: 145, xmax: 145 + w - 1, ymin: 0, ymax: 19 };
+        let text_end = r.xmin + popover_parts(&user).0 + font::string_width(&user, "Playback");
+        assert!(popover_arrow(&user, r).xmin + user.widget_unit / 4 > text_end - user.widget_unit / 2);
+        assert!(r.xmax + 1 - popover_parts(&user).1 >= text_end);
+        assert!((w - 70).abs() <= 3, "{w}");
     }
 
     #[test]
