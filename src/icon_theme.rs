@@ -14,6 +14,8 @@ pub const OBJECT: Rgba = Rgba::hex(0xe19658ff);
 pub const OBJECT_DATA: Rgba = Rgba::hex(0x00d4a3ff);
 pub const MODIFIER: Rgba = Rgba::hex(0x74a2ffff);
 pub const SHADING: Rgba = Rgba::hex(0xcc6670ff);
+/// `.icon_collection` (`DEF_ICON_COLLECTION`, TH_ICON_COLLECTION).
+pub const COLLECTION: Rgba = Rgba::hex(0xffffffff);
 
 /// The colour of `icon` where theme icon colours apply; `None` for the monochrome ones.
 pub fn theme_color(icon: Icon) -> Option<Rgba> {
@@ -25,6 +27,7 @@ pub fn theme_color(icon: Icon) -> Option<Rgba> {
         ModWrench | ModArray | ModMirror | ModSolidify | ModBevel | ModSmooth | ModDeform | ModTriangulate | ModBoolean
         | ModWireframe | ModDecimate | ModRemesh | Constraint | Physics => Some(MODIFIER),
         ShadingMaterial | World => Some(SHADING),
+        Group => Some(COLLECTION),
         _ => None,
     }
 }
