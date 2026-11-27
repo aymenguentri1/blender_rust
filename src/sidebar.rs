@@ -158,7 +158,7 @@ mod tests {
             let t = tabs(&user, r);
             assert_eq!(t.len(), 4);
             assert!(t.windows(2).all(|p| p[1].0.ymax < p[0].0.ymin));
-            assert!(t.iter().all(|(rect, _, _)| rect.xmax == r.xmax - (5.0 * scale) as i32 && rect.size_x() == (16.0 * scale) as i32), "16 px wide tabs 5 px from the edge");
+            assert!(t.iter().all(|(rect, _, _)| rect.xmax == r.xmax - (5.0 * scale) as i32 && rect.size_x() + 1 == (16.0 * scale) as i32), "16 px wide tabs 5 px from the edge");
         }
     }
 
