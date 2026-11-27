@@ -167,6 +167,8 @@ mod panel_frame;
 mod splash_layout;
 mod outliner_highlight;
 mod outliner_lines;
+mod outliner_iconrow;
+mod icon_theme;
 mod object_tab_context;
 mod object_tab_panels;
 mod transform_panel;
@@ -2472,7 +2474,9 @@ impl ApplicationHandler for App {
                             outliner_draw::draw_tree_rows(&mut buf, w, h, user, window, &outliner_draw::scene_rows(&self.scene));
                             outliner_draw::draw_restrict_buttons(&mut buf, w, h, user, window, &self.scene);
                             outliner_draw::draw_expand_arrows(&mut buf, w, h, user, window, &self.scene);
+                            outliner_iconrow::draw_active(&mut buf, w, h, user, window, &self.scene);
                             outliner_draw::draw_row_icons(&mut buf, w, h, user, window, &self.scene);
+                            outliner_iconrow::draw(&mut buf, w, h, user, window, &self.scene);
                             if let Some(edit) = self.outliner_rename.as_ref() {
                                 outliner_draw::draw_rename_field(&mut buf, w, h, user, window, &self.scene, edit);
                             }

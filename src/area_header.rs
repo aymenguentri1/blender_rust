@@ -27,7 +27,7 @@ pub enum Look {
     DisplayMode(Icon),
     /// `prop(space, "filter_text", icon='VIEWZOOM')` with the placeholder text.
     Search,
-    /// `row.popover(panel="OUTLINER_PT_filter", text="")`: the filter icon with the arrow.
+    /// `row.popover(panel="OUTLINER_PT_filter", text="")`: no icon, only the popover arrow.
     Filter,
     /// `operator("outliner.collection_new", text="", icon='COLLECTION_NEW')`.
     Button(Icon),
@@ -73,8 +73,8 @@ pub fn layout(user: &UserDef, header: Rcti, kind: Kind) -> Vec<Item> {
     if kind == Kind::Outliner {
         right -= u * 3 / 2;
         items.push(item(right, u * 3 / 2, Look::Button(Icon::CollectionNew)));
-        right -= space + u + u * 3 / 4;
-        items.push(item(right, u + u * 3 / 4, Look::Filter));
+        right -= space + u;
+        items.push(item(right, u, Look::Filter));
         right -= space;
     }
     let w = (right - x).min(u * 6);
@@ -89,14 +89,14 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, items:
     for it in items {
         let r = it.rect;
         match it.look {
-            Look::EditorType(_) | Look::DisplayMode(_) | Look::Filter => {
-                let icon = match it.look {
-                    Look::EditorType(i) | Look::DisplayMode(i) => i,
-                    _ => Icon::Filter,
-                };
+            Look::EditorType(icon) | Look::DisplayMode(icon) => {
                 draw_round_box(buf, width, height, user, r, theme::WCOL_TOOL_INNER, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS);
                 icons::draw_icon(buf, width, height, user, Rcti { xmax: r.xmin + u - 1, ..r }, icon, ICON_COLOR);
                 icons::draw_icon(buf, width, height, user, Rcti { xmin: r.xmax + 1 - u * 3 / 4, ..r }, Icon::DownArrow, ICON_COLOR);
+            }
+            Look::Filter => {
+                draw_round_box(buf, width, height, user, r, theme::WCOL_TOOL_INNER, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS);
+                icons::draw_icon(buf, width, height, user, r, Icon::DownArrow, ICON_COLOR);
             }
             Look::Button(icon) => {
                 draw_round_box_sides(buf, width, height, user, r, theme::WCOL_TOOL_INNER, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS, true, true);

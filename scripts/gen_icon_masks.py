@@ -17,16 +17,24 @@ mod_decim mod_remesh outliner_collection outliner_ob_mesh outliner_ob_camera out
 outliner_ob_empty mesh_plane mesh_cube mesh_circle mesh_uvsphere mesh_icosphere mesh_cylinder mesh_cone
 mesh_torus mesh_grid empty_axis empty_arrows empty_single_arrow cube sphere cone light_point light_sun
 light_spot light_area rightarrow view_zoom view_pan view_camera_unselected view_camera
-view_perspective view_ortho outliner properties time filter viewzoom collection_new mouse_mmb_drag mouse_rmb tool_settings scene output scene_data render_result world object_data constraint physics mesh_data camera_data outliner_data_light empty_data radiobut_off rew frame_prev prev_keyframe play_reverse play pause next_keyframe frame_next ff time gizmo add restrict_view_on restrict_render_on x select_set select_extend select_subtract select_difference select_intersect checkmark duplicate tria_up tria_down checkbox_hlt checkbox_dehlt decorate_unlocked decorate_locked""".split()
+view_perspective view_ortho outliner properties time filter viewzoom collection_new mouse_mmb_drag mouse_rmb tool_settings scene output scene_data render_result world object_data constraint physics mesh_data camera_data outliner_data_light empty_data radiobut_off rew frame_prev prev_keyframe play_reverse play pause next_keyframe frame_next ff time gizmo add restrict_view_on restrict_render_on x select_set select_extend select_subtract select_difference select_intersect checkmark duplicate tria_up tria_down checkbox_hlt checkbox_dehlt decorate_unlocked decorate_locked outliner_collection.white outliner_collection.dark""".split()
 
 
 def main():
     out = bytearray()
     for n in NAMES:
-        svg = subprocess.run(["scripts/blender_ref.sh", "show", f"release/datafiles/icons_svg/{n}.svg"],
+        # A colour icon (`DEF_ICON_COLOR`) is stored as two layers: the themed `<g id="blender_...">` group
+        # (`.white`) and the black shapes on top of it (`.dark`).
+        name, _, layer = n.partition(".")
+        svg = subprocess.run(["scripts/blender_ref.sh", "show", f"release/datafiles/icons_svg/{name}.svg"],
                              check=True, capture_output=True, env={"LIMIT": "100000", "PATH": "/usr/bin:/bin"}).stdout
         if b"<svg" not in svg:
             sys.exit(f"{n}: not an svg")
+        group = re.search(rb'<g id="blender_[^"]*".*?</g>', svg, re.S)
+        if layer == "white":
+            svg = svg[:svg.index(b">", svg.index(b"<svg")) + 1] + group.group(0).replace(b'fill="fff"', b'fill="#fff"') + b"</svg>"
+        elif layer == "dark":
+            svg = svg.replace(group.group(0), b"")
         # Blender's icons are drawn on a 16 x 16 grid (100 svg units per pixel); an icon whose canvas is smaller
         # (the arrows, the eye, the grip) keeps its size and is centred, it is not stretched to the grid.
         m = re.search(rb'viewBox="0 0 ([\d.]+) ([\d.]+)"', svg)

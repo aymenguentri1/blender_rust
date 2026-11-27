@@ -323,7 +323,7 @@ pub fn draw_row_icons(buf: &mut [u32], width: usize, height: usize, user: &UserD
         let x0 = region.xmin + rows[i].level * unit + unit;
         let ymin = region.ymin + rh + starty;
         let rect = Rcti { xmin: x0, xmax: x0 + unit - 1, ymin, ymax: ymin + unit - 1 };
-        crate::icons::draw_icon(buf, width, height, user, rect, icon, theme::SPACE_OUTLINER_TEXT);
+        crate::icons::draw_icon(buf, width, height, user, rect, icon, crate::icon_theme::theme_color(icon).unwrap_or(theme::SPACE_OUTLINER_TEXT));
     }
 }
 
