@@ -97,6 +97,19 @@ pub const WCOL_TOOL_ROUNDNESS: f32 = 0.2;
 /// `.wcol_toggle.inner_sel` (userdef_default_theme.c:82-90); the other toggle values equal `wcol_tool`'s.
 pub const WCOL_TOGGLE_INNER_SEL: Rgba = Rgba::hex(0x4772b3ff);
 
+/// `.wcol_num` (userdef_default_theme.c:92-101): the number field of a property row. `.wcol_menu` (:132) is the
+/// dropdown (`rotation_mode`). Roundness of both is 0.2.
+pub const WCOL_NUM_OUTLINE: Rgba = Rgba::hex(0x3d3d3dff);
+pub const WCOL_NUM_INNER: Rgba = Rgba::hex(0x545454ff);
+pub const WCOL_NUM_INNER_SEL: Rgba = Rgba::hex(0x222222ff);
+pub const WCOL_NUM_ITEM: Rgba = Rgba::hex(0x4772b3ff);
+pub const WCOL_NUM_TEXT: Rgba = Rgba::hex(0xe6e6e6ff);
+pub const WCOL_NUM_TEXT_SEL: Rgba = Rgba::hex(0xffffffff);
+pub const WCOL_NUM_ROUNDNESS: f32 = 0.2;
+pub const WCOL_MENU_ITEM: Rgba = Rgba::hex(0xd9d9d9ff);
+pub const WCOL_MENU_INNER_SEL: Rgba = Rgba::hex(0x4772b3b3);
+pub const WCOL_MENU_TEXT_SEL: Rgba = Rgba::hex(0xffffffff);
+
 /// `.space_outliner.back` (userdef_default_theme.c:606), `.space_properties.back` (:356) and
 /// `.space_action.back` (:477), the timeline: window region clear colours (alpha is ignored).
 pub const SPACE_OUTLINER_BACK: Rgba = Rgba::hex(0x28282800);
