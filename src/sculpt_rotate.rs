@@ -3,9 +3,6 @@
 //! A vertex under the brush turns around the area normal through the brush centre by `angle * falloff`, where
 //! `angle` is the dial angle of the mouse around the stroke start (`vertex_rotation = -dial_angle * strength`).
 
-// Wired into the stroke in the next step.
-#![allow(dead_code)]
-
 use crate::mesh::{add, cross, dot, normalized, scale, sub, V3};
 
 /// `flip[mirror_symmetry_pass]` of `do_rotate_brush`; the pass is the bit mask of mirrored axes (X 1, Y 2, Z 4).
