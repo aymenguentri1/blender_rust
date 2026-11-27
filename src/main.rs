@@ -2560,13 +2560,14 @@ impl ApplicationHandler for App {
                             overlay_grid_draw::draw_grid(&mut buf, w, h, layout.main, &self.v3d, &self.rv3d, &self.scene_depth);
                         }
                         if let Some(user) = self.user.as_ref() {
+                            if let Some(tb) = area::view3d_toolbar_rect(user, layout.main) { toolbar::draw_cells(&mut buf, w, h, user, &toolbar::layout(user, tb, "builtin.select_box")); }
                             view3d_navigate::draw(&mut buf, w, h, user, area::view3d_visible_rect(user, layout.main), self.rv3d.ortho, false);
                             { let q = view3d::quat_to_mat4(self.rv3d.viewquat); view3d_axis_gizmo::draw(&mut buf, w, h, user, area::view3d_visible_rect(user, layout.main), [[q[0][0], q[0][1], q[0][2]], [q[1][0], q[1][1], q[1][2]], [q[2][0], q[2][1], q[2][2]]]); }
                         }
                         if let Some(user) = self.user.as_ref().filter(|_| !self.overlays_hidden) {
                             overlay_extra::draw_extras(&mut buf, w, h, layout.main, user, &self.rv3d, &self.scene);
                             overlay_cursor::draw_cursor(&mut buf, w, h, layout.main, user, &self.rv3d, self.cursor3d, self.cursor3d_quat);
-                            overlay_text::draw(&mut buf, w, h, area::view3d_visible_rect(user, layout.main), user, &self.v3d, &self.rv3d, self.frame.unwrap_or(1), &{ let mut info = overlay_text::ObjectInfo::of(&self.scene); if self.pivot_point != transform::PivotPoint::Median { info.pivot = Some(self.pivot_point.label().to_string()); }
+                            overlay_text::draw(&mut buf, w, h, { let v = area::view3d_visible_rect(user, layout.main); area::view3d_toolbar_rect(user, layout.main).map_or(v, |tb| area::Rcti { xmin: tb.xmax + 1, ..v }) }, user, &self.v3d, &self.rv3d, self.frame.unwrap_or(1), &{ let mut info = overlay_text::ObjectInfo::of(&self.scene); if self.pivot_point != transform::PivotPoint::Median { info.pivot = Some(self.pivot_point.label().to_string()); }
                             if self.show_stats { info.with_stats(&self.scene) } else { info } });
                         }
                     }
