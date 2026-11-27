@@ -11,6 +11,7 @@
 #[allow(dead_code)]
 mod area;
 mod area_header;
+mod properties_tabs;
 #[allow(dead_code)]
 mod blend_header;
 mod screen;
@@ -2404,6 +2405,8 @@ impl ApplicationHandler for App {
                     if let Some(user) = self.user.as_ref() {
                         if let Some(nav) = area::properties_nav_bar_rect(user, layout.properties) {
                             area::fill_rect(&mut buf, w, h, nav, theme::SIDEBARS_TAB_BACK.to_xrgb());
+                            let flags = buttons_context::path_flags(&self.scene);
+                            properties_tabs::draw(&mut buf, w, h, user, nav, &buttons_context::tabs_list(flags), buttons_context::effective_tab(flags, buttons_context::Context::Object), self.scene.active_object().map(|o| &o.data));
                         }
                     }
                     /* Non-overlapping header regions (`RGN_TYPE_HEADER`, `RGN_ALIGN_TOP`) of the outliner,

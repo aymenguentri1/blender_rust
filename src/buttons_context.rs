@@ -3,6 +3,7 @@
 //! (DNA_space_enums.h:95). Not modelled yet (their paths need data this port lacks): Particles, Bone, Bone
 //! Constraints, Texture, Collection (Line Art), Compositor, Strip, Strip Modifier, Shader Effects.
 
+use crate::icons::Icon;
 use crate::scene::{ObjectData, Scene};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,6 +81,31 @@ pub fn tabs_list(pathflag: u32) -> Vec<Tab> {
     tabs
 }
 
+/// The icon of a tab: `buttons_context_items` (rna_space.cc:603). The Data tab takes `sbuts->dataicon`
+/// (buttons_context.cc:826): lights `ICON_OUTLINER_DATA_LIGHT`, otherwise the icon of the data type's RNA struct
+/// (`ICON_MESH_DATA`, `ICON_CAMERA_DATA`), an empty `ICON_EMPTY_DATA`.
+pub fn tab_icon(c: Context, active: Option<&ObjectData>) -> Icon {
+    match c {
+        Context::Tool => Icon::ToolSettings,
+        Context::Render => Icon::TabScene,
+        Context::Output => Icon::Output,
+        Context::Scene => Icon::SceneData,
+        Context::ViewLayer => Icon::RenderResult,
+        Context::World => Icon::World,
+        Context::Object => Icon::ObjectData,
+        Context::Constraint => Icon::Constraint,
+        Context::Modifier => Icon::ModWrench,
+        Context::Physics => Icon::Physics,
+        Context::Material => Icon::ShadingMaterial,
+        Context::Data => match active {
+            Some(ObjectData::Mesh(_)) => Icon::MeshData,
+            Some(ObjectData::Camera) => Icon::CameraData,
+            Some(ObjectData::Light(_)) => Icon::LightData,
+            _ => Icon::EmptyData,
+        },
+    }
+}
+
 /// The tab shown, given the one the user picked (`mainbuser`): it stays while its path exists; otherwise Object,
 /// else the first available context. As in `buttons_context_compute`, the test is `flag & BCONTEXT_OBJECT`, a
 /// bitmask with the value 3 (Render or Scene), which is true whenever those exist, so Object is chosen even
@@ -139,6 +165,16 @@ mod tests {
         /* The first fallback picks Object (`flag & BCONTEXT_OBJECT` is a bitmask), the final check finds no path. */
         assert_eq!(effective_tab(g, Context::Material), Context::Scene);
         assert_eq!(effective_tab(g, Context::Scene), Context::Scene);
+    }
+
+    #[test]
+    fn data_tab_icon_follows_the_object_data() {
+        let s = Scene::startup();
+        let o = s.active_object().map(|o| &o.data);
+        assert_eq!(tab_icon(Context::Data, o), Icon::MeshData);
+        assert_eq!(tab_icon(Context::Data, Some(&ObjectData::Camera)), Icon::CameraData);
+        assert_eq!(tab_icon(Context::Data, None), Icon::EmptyData);
+        assert_eq!(tab_icon(Context::ViewLayer, None), Icon::RenderResult);
     }
 
     #[test]

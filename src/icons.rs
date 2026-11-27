@@ -128,10 +128,27 @@ pub enum Icon {
     /// `ICON_MOUSE_MMB_DRAG`, `ICON_MOUSE_RMB`: the keymap hints of the status bar.
     MouseMmbDrag,
     MouseRmb,
+    /// The tab icons of the properties editor (`buttons_context_items`, rna_space.cc:603) and the data tab's
+    /// `sbuts->dataicon` (buttons_context.cc:830): `ICON_TOOL_SETTINGS`, `ICON_SCENE`, `ICON_OUTPUT`, `ICON_SCENE_DATA`,
+    /// `ICON_RENDER_RESULT`, `ICON_WORLD`, `ICON_OBJECT_DATA`, `ICON_CONSTRAINT`, `ICON_PHYSICS`, `ICON_MESH_DATA`,
+    /// `ICON_CAMERA_DATA`, `ICON_OUTLINER_DATA_LIGHT`, `ICON_EMPTY_DATA`.
+    ToolSettings,
+    TabScene,
+    Output,
+    SceneData,
+    RenderResult,
+    World,
+    ObjectData,
+    Constraint,
+    Physics,
+    MeshData,
+    CameraData,
+    LightData,
+    EmptyData,
 }
 
 impl Icon {
-    pub const ALL: &'static [Icon] = &[Icon::View3D, Icon::ObjectMode, Icon::SculptMode, Icon::DownArrow, Icon::OrientationGlobal, Icon::PivotMedian, Icon::PivotCursor, Icon::PivotIndividual, Icon::Snap, Icon::Proportional, Icon::Overlays, Icon::Xray, Icon::ShadingWire, Icon::ShadingSolid, Icon::ShadingMaterial, Icon::ShadingRendered, Icon::RightArrow, Icon::LeftArrow, Icon::Monitor, Icon::Camera, Icon::Eye, Icon::Grip, Icon::EditMode, Icon::ModWrench, Icon::ModArray, Icon::ModMirror, Icon::ModSolidify, Icon::ModBevel, Icon::ModSmooth, Icon::ModDeform, Icon::ModTriangulate, Icon::ModBoolean, Icon::ModWireframe, Icon::ModDecimate, Icon::ModRemesh, Icon::OutlinerCollection, Icon::ObMesh, Icon::ObCamera, Icon::ObLight, Icon::ObEmpty, Icon::MeshPlane, Icon::MeshCube, Icon::MeshCircle, Icon::MeshUvSphere, Icon::MeshIcoSphere, Icon::MeshCylinder, Icon::MeshCone, Icon::MeshTorus, Icon::MeshGrid, Icon::EmptyAxis, Icon::EmptyArrows, Icon::EmptySingleArrow, Icon::Cube, Icon::Sphere, Icon::Cone, Icon::LightPoint, Icon::LightSun, Icon::LightSpot, Icon::LightArea, Icon::ChevronRight, Icon::ViewZoom, Icon::ViewPan, Icon::ViewCameraUnselected, Icon::ViewCamera, Icon::ViewPerspective, Icon::ViewOrtho, Icon::EditorOutliner, Icon::EditorProperties, Icon::EditorTimeline, Icon::Filter, Icon::Search, Icon::CollectionNew, Icon::MouseMmbDrag, Icon::MouseRmb];
+    pub const ALL: &'static [Icon] = &[Icon::View3D, Icon::ObjectMode, Icon::SculptMode, Icon::DownArrow, Icon::OrientationGlobal, Icon::PivotMedian, Icon::PivotCursor, Icon::PivotIndividual, Icon::Snap, Icon::Proportional, Icon::Overlays, Icon::Xray, Icon::ShadingWire, Icon::ShadingSolid, Icon::ShadingMaterial, Icon::ShadingRendered, Icon::RightArrow, Icon::LeftArrow, Icon::Monitor, Icon::Camera, Icon::Eye, Icon::Grip, Icon::EditMode, Icon::ModWrench, Icon::ModArray, Icon::ModMirror, Icon::ModSolidify, Icon::ModBevel, Icon::ModSmooth, Icon::ModDeform, Icon::ModTriangulate, Icon::ModBoolean, Icon::ModWireframe, Icon::ModDecimate, Icon::ModRemesh, Icon::OutlinerCollection, Icon::ObMesh, Icon::ObCamera, Icon::ObLight, Icon::ObEmpty, Icon::MeshPlane, Icon::MeshCube, Icon::MeshCircle, Icon::MeshUvSphere, Icon::MeshIcoSphere, Icon::MeshCylinder, Icon::MeshCone, Icon::MeshTorus, Icon::MeshGrid, Icon::EmptyAxis, Icon::EmptyArrows, Icon::EmptySingleArrow, Icon::Cube, Icon::Sphere, Icon::Cone, Icon::LightPoint, Icon::LightSun, Icon::LightSpot, Icon::LightArea, Icon::ChevronRight, Icon::ViewZoom, Icon::ViewPan, Icon::ViewCameraUnselected, Icon::ViewCamera, Icon::ViewPerspective, Icon::ViewOrtho, Icon::EditorOutliner, Icon::EditorProperties, Icon::EditorTimeline, Icon::Filter, Icon::Search, Icon::CollectionNew, Icon::MouseMmbDrag, Icon::MouseRmb, Icon::ToolSettings, Icon::TabScene, Icon::Output, Icon::SceneData, Icon::RenderResult, Icon::World, Icon::ObjectData, Icon::Constraint, Icon::Physics, Icon::MeshData, Icon::CameraData, Icon::LightData, Icon::EmptyData];
 
     /// The file name (without `.svg`) of the icon in `release/datafiles/icons_svg`.
     pub fn svg_name(self) -> &'static str {
@@ -210,6 +227,19 @@ impl Icon {
             Icon::CollectionNew => "collection_new",
             Icon::MouseMmbDrag => "mouse_mmb_drag",
             Icon::MouseRmb => "mouse_rmb",
+            Icon::ToolSettings => "tool_settings",
+            Icon::TabScene => "scene",
+            Icon::Output => "output",
+            Icon::SceneData => "scene_data",
+            Icon::RenderResult => "render_result",
+            Icon::World => "world",
+            Icon::ObjectData => "object_data",
+            Icon::Constraint => "constraint",
+            Icon::Physics => "physics",
+            Icon::MeshData => "mesh_data",
+            Icon::CameraData => "camera_data",
+            Icon::LightData => "outliner_data_light",
+            Icon::EmptyData => "empty_data",
         }
     }
 
