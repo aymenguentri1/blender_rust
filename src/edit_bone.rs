@@ -1,7 +1,8 @@
 //! Port of `ED_armature_ebone_find_name()`, `ED_armature_ebone_get_mirrored()`,
 //! `ED_armature_ebone_is_child_recursive()` and `ED_armature_ebone_find_shared_parent()`
 //! (source/blender/editors/armature/armature_utils.cc), and `editbone_unique_check()` and
-//! `ED_armature_ebone_unique_name()` (armature_naming.cc). The edit-bone list is a plain `Vec`.
+//! `ED_armature_ebone_unique_name()`, the edit-mode part of `ED_armature_bone_rename()` and
+//! `ED_armature_bones_flip_names()` (armature_naming.cc). The edit-bone list is a plain `Vec`.
 
 use crate::scene::ops::flip_side_name;
 
@@ -120,6 +121,50 @@ pub fn unique_name(edbo: &[EditBone], name: &str, bone: Option<usize>) -> String
     }
 }
 
+/// `ED_armature_bone_rename()` in edit mode: the first bone named `old` gets `new`, made unique against every bone
+/// (the renamed one included, so a taken name gets a suffix). Nothing happens for equal names or an unknown `old`.
+pub fn rename(edbo: &mut [EditBone], old: &str, new: &str) {
+    if old == new {
+        return;
+    }
+    let Some(i) = edbo.iter().position(|b| b.name == old) else { return };
+    let unique = unique_name(edbo, new, None);
+    edbo[i].name = unique;
+}
+
+/// `BLI_string_flip_side_name()` for a bone: the name itself when it has no side token or is shorter than 3
+/// characters; `strip_number` drops a trailing `.001` style number first. Uses `flip_side_name()`'s tokens.
+pub fn flip_name(name: &str, strip_number: bool) -> String {
+    if name.len() < 3 {
+        return name.to_string();
+    }
+    let base = match name.rfind('.') {
+        Some(i) if strip_number && name.ends_with(|c: char| c.is_ascii_digit()) && name[i + 1..].starts_with(|c: char| c.is_ascii_digit()) => &name[..i],
+        _ => name,
+    };
+    flip_side_name(base).unwrap_or_else(|| base.to_string())
+}
+
+/// `ED_armature_bones_flip_names()`: flips the names of the bones `selected` (indices, in order; Blender's list holds
+/// the live name buffers, so a bone is always renamed from its current name). The first pass renames blindly; a bone
+/// that was renamed, whatever came out, is renamed again to the flipped name in a second pass, once the others have
+/// moved out of the way.
+pub fn flip_names(edbo: &mut [EditBone], selected: &[usize], strip_number: bool) {
+    let mut conflicts: Vec<(usize, String)> = Vec::new();
+    for &i in selected {
+        let name = edbo[i].name.clone();
+        let flipped = flip_name(&name, strip_number);
+        rename(edbo, &name, &flipped);
+        if name != flipped {
+            conflicts.push((i, flipped));
+        }
+    }
+    for (i, flipped) in conflicts {
+        let name = edbo[i].name.clone();
+        rename(edbo, &name, &flipped);
+    }
+}
+
 /// `ED_armature_ebone_find_name()`: first bone whose name equals `name` (BLI_findstring).
 pub fn find_name<'a>(edbo: &'a [EditBone], name: &str) -> Option<&'a EditBone> {
     edbo.iter().find(|b| b.name == name)
@@ -227,5 +272,48 @@ mod tests {
         let u = unique_name(&l, &long, None);
         assert_eq!(u.len(), 63);
         assert!(u.ends_with(".001"));
+    }
+
+    #[test]
+    fn flip_name_sides_and_untouched() {
+        assert_eq!(flip_name("Arm.L", false), "Arm.R");
+        assert_eq!(flip_name("Arm.R", false), "Arm.L");
+        assert_eq!(flip_name("Spine", false), "Spine");
+        assert_eq!(flip_name(".L", false), ".L"); // shorter than 3 characters
+        assert_eq!(flip_name("Arm.L.001", false), "Arm.R.001");
+        assert_eq!(flip_name("Arm.L.001", true), "Arm.R");
+        assert_eq!(flip_name("Spine.001", true), "Spine"); // the number is stripped even without a side
+    }
+
+    #[test]
+    fn flip_names_swaps_a_selected_pair() {
+        let mut l = named(&["Arm.L", "Arm.R", "Spine"]);
+        flip_names(&mut l, &[0, 1], false);
+        assert_eq!(l.iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["Arm.R", "Arm.L", "Spine"]);
+    }
+
+    #[test]
+    fn flip_names_keeps_names_unique_and_leaves_no_side_alone() {
+        /* Only .L is selected and .R exists: the flipped name is taken, so it gets a suffix. The second pass asks for
+         * .R again without ignoring the bone (`ED_armature_bone_rename()` passes no bone), so its own .001 counts as
+         * taken and it ends on .002. */
+        let mut l = named(&["Arm.L", "Arm.R", "Spine"]);
+        flip_names(&mut l, &[0, 2], false);
+        assert_eq!(l[0].name, "Arm.R.002");
+        assert_eq!(l[1].name, "Arm.R");
+        assert_eq!(l[2].name, "Spine");
+        let mut all: Vec<_> = l.iter().map(|b| b.name.clone()).collect();
+        all.sort();
+        all.dedup();
+        assert_eq!(all.len(), 3);
+    }
+
+    #[test]
+    fn rename_ignores_equal_and_unknown() {
+        let mut l = named(&["A", "B"]);
+        rename(&mut l, "A", "A");
+        rename(&mut l, "Z", "Q");
+        rename(&mut l, "A", "B");
+        assert_eq!((l[0].name.as_str(), l[1].name.as_str()), ("B.001", "B"));
     }
 }
