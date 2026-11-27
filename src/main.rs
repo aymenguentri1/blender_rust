@@ -16,6 +16,8 @@ mod topbar_id_fields;
 mod topbar_menu;
 #[allow(dead_code)]
 mod popup_geometry;
+#[allow(dead_code)]
+mod popup_draw;
 mod properties_tabs;
 mod timeline_header;
 #[allow(dead_code)]
@@ -138,6 +140,7 @@ mod mesh_merge;
 #[allow(dead_code)]
 mod mesh_delete_loose;
 mod sculpt_hide;
+mod sculpt_enhance;
 mod mesh_edgering;
 mod mesh_loopcut;
 mod mesh_ops;
