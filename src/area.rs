@@ -325,6 +325,15 @@ pub fn tool_header_rect(user: &UserDef, totrct: Rcti) -> Option<Rcti> {
     (r.ymin >= totrct.ymin).then_some(r)
 }
 
+/// `ED_region_visible_rect()` of the 3D viewport window region: what the overlap header regions leave uncovered.
+/// Overlay text and the navigation gizmos are placed inside it.
+pub fn view3d_visible_rect(user: &UserDef, main: Rcti) -> Rcti {
+    match tool_header_rect(user, main).or_else(|| view3d_header_rect(user, main)) {
+        Some(header) => Rcti { ymax: header.ymin - 1, ..main },
+        None => main,
+    }
+}
+
 /// Composites an overlap region over the buffer: `ED_region_clear()` clears it to the
 /// premultiplied colour `(a*rgb, a)` and the region is blended with `GPU_BLEND_ALPHA_PREMULT`,
 /// i.e. `out = src_premultiplied + dst * (1 - a)`. Same inclusive y-up rect as `fill_rect`.
@@ -389,5 +398,18 @@ mod rcti_ops_tests {
         assert_eq!(a.isect(&b), Some(Rcti { xmin: 5, xmax: 9, ymin: 5, ymax: 9 }));
         assert_eq!(a.isect(&Rcti { xmin: 20, xmax: 30, ymin: 0, ymax: 9 }), None);
         assert_eq!(Rcti::init_pt_radius(10, 20, 3), Rcti { xmin: 7, xmax: 13, ymin: 17, ymax: 23 });
+    }
+}
+
+#[cfg(test)]
+mod visible_rect_tests {
+    use super::*;
+
+    #[test]
+    fn overlays_start_below_both_headers() {
+        let user = UserDef::from_window_scale(1.0);
+        let main = Rcti { xmin: 0, xmax: 999, ymin: 0, ymax: 799 };
+        let tool = tool_header_rect(&user, main).unwrap();
+        assert_eq!(view3d_visible_rect(&user, main), Rcti { ymax: tool.ymin - 1, ..main });
     }
 }

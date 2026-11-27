@@ -35,6 +35,10 @@ pub const STARTUP_VIEWQUAT: [f32; 4] = [
     -0.46412292,
 ];
 
+/// `RegionView3D::dist` of the factory startup.blend. The file is not readable in the reference checkout (Git LFS),
+/// so the value is checked against a screenshot of Blender 5.4: the cube corners and the light project within 4 px.
+pub const STARTUP_DIST: f32 = 17.986562;
+
 /// `DEFAULT_SENSOR_WIDTH` / `DEFAULT_SENSOR_HEIGHT` (makesdna/DNA_camera_types.h:88).
 const DEFAULT_SENSOR_WIDTH: f32 = 36.0;
 /// Used only for the sensor fit, which is `CAMERA_SENSOR_FIT_AUTO` here (width is the size).
