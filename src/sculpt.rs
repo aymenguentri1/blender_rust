@@ -44,11 +44,12 @@ pub enum Brush {
     Nudge,
     Blob,
     Thumb,
+    DrawSharp,
 }
 
 impl Brush {
     #[allow(dead_code)]
-    pub const ALL: [Brush; 16] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask, Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob, Brush::Thumb];
+    pub const ALL: [Brush; 17] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask, Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob, Brush::Thumb, Brush::DrawSharp];
 
     /// The key of the brush in Sculpt Mode, as the brush popup lists it (`Shift X` for `Shift + X`).
     pub fn key_label(self) -> &'static str {
@@ -68,7 +69,7 @@ impl Brush {
             Brush::SnakeHook => "K",
             Brush::Nudge => "N",
             Brush::Blob => "Shift B",
-            Brush::Thumb => "",
+            Brush::Thumb | Brush::DrawSharp => "",
         }
     }
 
@@ -90,6 +91,7 @@ impl Brush {
             Brush::Nudge => "Nudge",
             Brush::Blob => "Blob",
             Brush::Thumb => "Thumb",
+            Brush::DrawSharp => "Draw Sharp",
         }
     }
 }
@@ -231,7 +233,7 @@ pub fn dab(mesh: &mut Mesh, adj: &Topo, brush: Brush, center: V3, radius: f32, s
 /// `dab()` on a mesh with a mask (one value per vertex); the Mask brush paints it, the others are scaled by it.
 #[allow(clippy::too_many_arguments)]
 pub fn dab_masked(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
-    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb) {
+    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::DrawSharp) {
         return;
     }
     for s in mirror_signs(symmetry) {
@@ -356,7 +358,7 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
                 mesh.verts[i] = add(mesh.verts[i], scale(d, push * BLOB_FACTOR * f * dir));
             }
         }
-        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb => {}
+        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::DrawSharp => {}
     }
 }
 
@@ -445,6 +447,46 @@ impl Layer {
                 let d = if invert { d.min(0.0).min(self.disp[i]) } else { d.max(0.0).max(self.disp[i]) };
                 self.disp[i] = d;
                 mesh.verts[i] = add(self.orig[i], scale(self.normals[i], d));
+            }
+        }
+    }
+}
+
+/// The surface when a Draw Sharp stroke began (`do_draw_sharp_brush()`, `orig_position_data`).
+#[derive(Clone, Debug)]
+struct Sharp {
+    orig: Vec<V3>,
+    normals: Vec<V3>,
+}
+
+impl Sharp {
+    fn begin(mesh: &Mesh) -> Sharp {
+        Sharp { orig: mesh.verts.clone(), normals: mesh.vertex_normals() }
+    }
+
+    /// Draw whose falloff and normal come from the stroke start surface, so the crease stays sharp however far the
+    /// surface has moved. Dabs still add up, as in Blender.
+    #[allow(clippy::too_many_arguments)]
+    fn dab(&self, mesh: &mut Mesh, mask: &[f32], center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
+        let push = radius * strength * DRAW_FACTOR * if invert { -1.0 } else { 1.0 };
+        for s in mirror_signs(symmetry) {
+            let c = mirrored(center, s);
+            let mut hit = Vec::new();
+            let mut area = [0.0f32; 3];
+            for (i, &v) in self.orig.iter().enumerate().take(mesh.verts.len()) {
+                let d = sub(v, c);
+                let d2 = dot(d, d);
+                if d2 < radius * radius {
+                    let f = falloff(d2.sqrt(), radius) * (1.0 - mask_at(mask, i)).clamp(0.0, 1.0);
+                    if f > 0.0 {
+                        area = add(area, scale(self.normals[i], f));
+                        hit.push((i, f));
+                    }
+                }
+            }
+            let offset = scale(normalized(area), push);
+            for (i, f) in hit {
+                mesh.verts[i] = add(mesh.verts[i], scale(offset, f));
             }
         }
     }
@@ -559,6 +601,7 @@ struct Active {
     carry: f32,
     grab: Option<Grab>,
     layer: Option<Layer>,
+    sharp: Option<Sharp>,
     hook: Option<Hook>,
     /// The surface when a Thumb stroke began.
     orig: Option<Vec<V3>>,
@@ -671,7 +714,7 @@ impl Session {
         scene.push_undo();
         let depth = window_depth(rv3d, hit.world);
         let invert = invert != self.settings.subtract;
-        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, layer: None, hook: None, orig: None, details: None, dir: [0.0; 3], depth, inv };
+        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, layer: None, sharp: None, hook: None, orig: None, details: None, dir: [0.0; 3], depth, inv };
         let changed = if brush == Brush::Grab {
             let radius = self.local_radius(rv3d, &active, hit.world);
             if let Some((mesh, mask)) = scene.sculpt_mesh_mask_mut(id) {
@@ -688,6 +731,9 @@ impl Session {
             }
             if brush == Brush::Smooth && active.invert {
                 active.details = scene.sculpt_mesh_mut(id).map(|m| sculpt_enhance::detail_directions(m, &active.adj));
+            }
+            if brush == Brush::DrawSharp {
+                active.sharp = scene.sculpt_mesh_mut(id).map(|m| Sharp::begin(m));
             }
             if brush == Brush::Layer {
                 active.layer = scene.sculpt_mesh_mut(id).map(|m| Layer::begin(m));
@@ -715,6 +761,10 @@ impl Session {
         let sym = self.settings.symmetry;
         if let Some(layer) = a.layer.as_mut() {
             layer.dab(mesh, mask, hit.local, radius, self.settings.strength, a.invert, sym);
+            return true;
+        }
+        if let Some(sharp) = a.sharp.as_ref() {
+            sharp.dab(mesh, mask, hit.local, radius, self.settings.strength, a.invert, sym);
             return true;
         }
         if let Some(details) = a.details.as_ref() {
@@ -1346,7 +1396,7 @@ mod tests {
 
     #[test]
     fn new_brushes_stroke_through_the_scene_and_undo_in_one_step() {
-        for brush in [Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob, Brush::Thumb] {
+        for brush in [Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob, Brush::Thumb, Brush::DrawSharp] {
             let (mut scene, rv3d, w, h) = sphere_scene();
             let before = scene.active_object().unwrap().mesh().unwrap().clone();
             let mut session = Session::new();
@@ -1382,6 +1432,23 @@ mod tests {
         let (smooth, enhanced) = (run(&mut scene, false), run(&mut scene, true));
         assert_ne!(enhanced, before);
         assert_ne!(enhanced, smooth);
+    }
+
+    #[test]
+    fn draw_sharp_takes_falloff_from_the_stroke_start() {
+        let mut m = grid();
+        let c = centre_vertex(&m);
+        let sharp = Sharp::begin(&m);
+        sharp.dab(&mut m, &[], [0.0; 3], 0.5, 1.0, false, [false; 3]);
+        let once = m.verts.clone();
+        assert!((once[c][2] - 0.5 * DRAW_FACTOR).abs() < 1e-5);
+        /* The second dab adds the same amounts although the surface has moved. */
+        sharp.dab(&mut m, &[], [0.0; 3], 0.5, 1.0, false, [false; 3]);
+        assert!(m.verts.iter().zip(&once).all(|(a, b)| (a[2] - 2.0 * b[2]).abs() < 1e-5));
+        assert!(once.iter().any(|v| v[2] > 0.0 && v[2] < once[c][2]), "falloff weighted");
+        let mut dug = grid();
+        Sharp::begin(&dug).dab(&mut dug, &[], [0.0; 3], 0.5, 1.0, true, [false; 3]);
+        assert!((dug.verts[c][2] + once[c][2]).abs() < 1e-6);
     }
 
     #[test]
