@@ -6,6 +6,15 @@
 
 use crate::scene::ops::flip_side_name;
 
+/// `eBone_Flag` bits used so far (DNA_armature_types.h).
+pub const BONE_SELECTED: u32 = 1 << 0;
+pub const BONE_ROOTSEL: u32 = 1 << 1;
+pub const BONE_TIPSEL: u32 = 1 << 2;
+pub const BONE_CONNECTED: u32 = 1 << 4;
+pub const BONE_DONE: u32 = 1 << 7;
+pub const BONE_HIDDEN_A: u32 = 1 << 10;
+pub const BONE_UNSELECTABLE: u32 = 1 << 21;
+
 /// `MAXBONENAME` in DNA_armature_types.h.
 pub const MAXBONENAME: usize = 64;
 
@@ -16,11 +25,15 @@ pub struct EditBone {
     pub tail: [f32; 3],
     /// `EditBone::parent` as an index into the edit-bone list.
     pub parent: Option<usize>,
+    /// `EditBone::flag` (`BONE_*` bits below).
+    pub flag: u32,
+    /// `EditBone::temp.i`, scratch space for operators.
+    pub temp: i32,
 }
 
 impl EditBone {
     pub fn new(name: &str, head: [f32; 3], tail: [f32; 3]) -> Self {
-        Self { name: name.to_string(), head, tail, parent: None }
+        Self { name: name.to_string(), head, tail, parent: None, flag: 0, temp: 0 }
     }
 }
 
