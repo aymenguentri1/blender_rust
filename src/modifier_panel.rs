@@ -62,8 +62,10 @@ pub enum Style {
     Button,
     Selected,
     Field,
-    /// No box, only the icon (the disclosure triangle).
-    Flat,
+    /// No box, only the icon: the disclosure triangle, `ICON_DOWNARROW_HLT` when the panel is open.
+    DisclosureOpen,
+    /// The same, `ICON_RIGHTARROW` when the panel is collapsed.
+    DisclosureClosed,
     /// The number field of a value row (`Count: 2`, text centred between the arrows): the box covers the whole row,
     /// the arrow widgets at its ends are drawn on top of it.
     NumField,
@@ -287,11 +289,8 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
         *top -= unit + gap;
         true
     };
-    let title = match &st.object {
-        Some(n) => format!("Modifiers  ({n})"),
-        None => "Modifiers: no mesh object active".to_string(),
-    };
-    row(&mut out, &mut top, vec![(x0, x1, title, Style::Title, None, false)]);
+    /* `DATA_PT_modifiers.poll`: the panel needs an object; it has no title row, the first item is the Add Modifier
+     * operator button (`wm.call_menu`, `icon='ADD'`). */
     if st.object.is_none() {
         return out;
     }
@@ -315,14 +314,14 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
         let edit_style = if *editmode { Style::Selected } else { Style::Button };
         let cam_style = if *render { Style::Selected } else { Style::Button };
         let head = vec![
-            (x0, x0 + hb - 1, if *collapsed { ">" } else { "v" }.into(), Style::Flat, Some(Action::ToggleCollapse(i)), true),
+            (x0, x0 + hb - 1, String::new(), if *collapsed { Style::DisclosureClosed } else { Style::DisclosureOpen }, Some(Action::ToggleCollapse(i)), true),
             (x0 + hb + gap, x0 + 2 * hb + gap - 1, kind.to_string(), Style::ModIcon, Some(Action::Select(i)), true),
             (x0 + 2 * hb + 2 * gap, slot(5) - gap - 1, name.clone(), style, Some(Action::Select(i)), false),
             (slot(5), slot(5) + hb - 1, String::new(), edit_style, Some(Action::ToggleEditMode(i)), true),
             (slot(4), slot(4) + hb - 1, String::new(), eye_style, Some(Action::ToggleViewport(i)), true),
             (slot(3), slot(3) + hb - 1, String::new(), cam_style, Some(Action::ToggleRender(i)), true),
             (slot(2), slot(2) + hb - 1, String::new(), Style::Button, Some(Action::OpenMenu(i)), true),
-            (slot(1), slot(1) + hb - 1, "x".into(), Style::Button, Some(Action::Remove(i)), true),
+            (slot(1), slot(1) + hb - 1, String::new(), Style::Button, Some(Action::Remove(i)), true),
             (slot(0), x1, String::new(), Style::Handle, Some(Action::DragStart(i)), true),
         ];
         row(&mut out, &mut top, head);
@@ -434,12 +433,26 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
                 icons::draw_icon(buf, width, height, user, w.rect, type_icon(&w.label), MODIFIER_ICON);
                 continue;
             }
-            Style::Flat => {
-                let icon = if w.label == ">" { Icon::RightArrow } else { Icon::DownArrow };
+            Style::DisclosureOpen | Style::DisclosureClosed => {
+                let icon = if w.style == Style::DisclosureClosed { Icon::RightArrow } else { Icon::DownArrow };
                 icons::draw_icon(buf, width, height, user, w.rect, icon, theme::WCOL_PULLDOWN_TEXT);
                 continue;
             }
         };
+        /* `show_viewport` / `show_render` are `PROP_ICONS_CONSECUTIVE` icon toggles (`ButtonType::IconToggle`, `iconadd` =
+         * selected): no box, the icon itself changes (`RESTRICT_*_OFF` on, `RESTRICT_*_ON` off). The remove button is
+         * `emboss_set(None)` with `ICON_X`. */
+        let on = w.style == Style::Selected;
+        let flat = match w.action {
+            Some(Action::ToggleViewport(_)) => Some(if on { Icon::Monitor } else { Icon::RestrictViewOn }),
+            Some(Action::ToggleRender(_)) => Some(if on { Icon::Camera } else { Icon::RestrictRenderOn }),
+            Some(Action::Remove(_)) => Some(Icon::X),
+            _ => None,
+        };
+        if let Some(icon) = flat {
+            icons::draw_icon(buf, width, height, user, w.rect, icon, theme::WCOL_PULLDOWN_TEXT);
+            continue;
+        }
         draw_round_box(buf, width, height, user, w.rect, inner, theme::WCOL_TOOL_OUTLINE, round);
         if w.action.is_some_and(|a| matches!(a, Action::OpenMenu(_))) {
             icons::draw_icon(buf, width, height, user, w.rect, Icon::DownArrow, theme::WCOL_PULLDOWN_TEXT);
@@ -449,6 +462,16 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
             icons::draw_icon(buf, width, height, user, w.rect, Icon::EditMode, theme::WCOL_PULLDOWN_TEXT);
         } else if w.action.is_some_and(|a| matches!(a, Action::ToggleRender(_))) {
             icons::draw_icon(buf, width, height, user, w.rect, Icon::Camera, theme::WCOL_PULLDOWN_TEXT);
+        } else if w.action == Some(Action::ToggleAddList) {
+            /* `widget_draw_text_icon()`: with text the icon sits `4 * scale` px from the left (`BUT_ICON_LEFT`), the
+             * text is centred in the rest of the button, after the icon and `2 * scale` px of padding. */
+            let s = user.scale_factor;
+            let size = icons::icon_size(user);
+            let cell = Rcti { xmax: w.rect.xmin + (4.0 * s) as i32 + size - 1, ..w.rect };
+            icons::draw_icon(buf, width, height, user, Rcti { xmin: w.rect.xmin + (4.0 * s) as i32, ..cell }, Icon::Add, theme::WCOL_PULLDOWN_TEXT);
+            let rest = Rcti { xmin: cell.xmax + 1 + (2.0 * s).round() as i32, ..w.rect };
+            let pad = ((rest.size_x() + 1 - font::string_width(user, &w.label)) / 2).max(0);
+            font::draw_label_pad(buf, width, height, user, rest, &w.label, theme::WCOL_PULLDOWN_TEXT, pad);
         } else if w.centered {
             let pad = ((w.rect.size_x() + 1 - font::string_width(user, &w.label)) / 2).max(0);
             font::draw_label_pad(buf, width, height, user, w.rect, &w.label, theme::WCOL_PULLDOWN_TEXT, pad);
@@ -519,11 +542,19 @@ mod tests {
     }
 
     #[test]
-    fn without_a_mesh_there_is_only_the_title() {
+    fn without_an_object_there_is_nothing() {
         let user = UserDef::from_window_scale(1.0);
-        let w = widgets(&user, window(), &PanelState::default());
+        assert!(widgets(&user, window(), &PanelState::default()).is_empty());
+    }
+
+    #[test]
+    fn the_first_item_is_the_add_modifier_button_and_there_is_no_title() {
+        let user = UserDef::from_window_scale(1.0);
+        let st = PanelState { object: Some("Cube".into()), ..PanelState::default() };
+        let w = widgets(&user, window(), &st);
         assert_eq!(w.len(), 1);
-        assert_eq!(w[0].style, Style::Title);
+        assert_eq!((w[0].label.as_str(), w[0].action), ("Add Modifier", Some(Action::ToggleAddList)));
+        assert!(w.iter().all(|x| x.style != Style::Title));
     }
 
     #[test]
@@ -537,8 +568,8 @@ mod tests {
             editing: None,
         };
         let ws = widgets(&user, window(), &st);
-        /* title, add, then 2 x (9 header + 3 value) widgets */
-        assert_eq!(ws.len(), 2 + 2 * 12);
+        /* add, then 2 x (9 header + 3 value) widgets */
+        assert_eq!(ws.len(), 1 + 2 * 12);
         assert!(ws.iter().all(|w| window().isect(&w.rect) == Some(w.rect)));
         assert!(ws[1].rect.ymax < ws[0].rect.ymin);
         /* The active modifier's name is the one highlighted name; the monitor toggles are lit too (shown). */
@@ -565,7 +596,7 @@ mod tests {
             ..Default::default()
         };
         let ws = widgets(&user, window(), &st);
-        assert_eq!(ws.len(), 2 + 9 + 3 + 1);
+        assert_eq!(ws.len(), 1 + 9 + 3 + 1);
         let t = ws.iter().find(|w| w.action == Some(Action::CycleTarget(0))).unwrap();
         assert_eq!(t.label, "Target: (none)");
         assert_eq!(t.rect.xmin, ws[0].rect.xmin, "full width");
@@ -870,6 +901,36 @@ mod tests {
     }
 
     #[test]
+    fn header_items_follow_modifier_panel_header_with_no_glyph_labels() {
+        /* MOD_ui_common.cc `modifier_panel_header`: type icon, name, show_in_editmode, show_viewport, show_render,
+         * the DOWNARROW_HLT menu, the ICON_X remove button; then the panel's drag handle. */
+        let user = UserDef::from_window_scale(1.0);
+        let mut s = Scene::startup();
+        let mut open = false;
+        assert!(apply(&mut s, &mut open, Action::Add(1)));
+        let ws = widgets(&user, window(), &PanelState::of(&s, false));
+        let head: Vec<&Widget> = ws.iter().filter(|w| w.rect.ymax == ws.iter().find(|w| w.action == Some(Action::ToggleCollapse(0))).unwrap().rect.ymax).collect();
+        let order: Vec<Option<Action>> = head.iter().map(|w| w.action).collect();
+        assert_eq!(
+            order,
+            vec![
+                Some(Action::ToggleCollapse(0)),
+                Some(Action::Select(0)),
+                Some(Action::Select(0)),
+                Some(Action::ToggleEditMode(0)),
+                Some(Action::ToggleViewport(0)),
+                Some(Action::ToggleRender(0)),
+                Some(Action::OpenMenu(0)),
+                Some(Action::Remove(0)),
+                Some(Action::DragStart(0)),
+            ]
+        );
+        assert!(head.windows(2).all(|p| p[0].rect.xmax < p[1].rect.xmin), "left to right, no overlap");
+        assert!(head.iter().all(|w| !matches!(w.label.as_str(), "x" | ">" | "v")), "icons, not glyphs");
+        assert_eq!(head[1].style, Style::ModIcon);
+    }
+
+    #[test]
     fn a_collapsed_modifier_shows_only_its_header() {
         let user = UserDef::from_window_scale(1.0);
         let mut s = Scene::startup();
@@ -886,7 +947,7 @@ mod tests {
         let weld = |w: &[Widget]| w.iter().find(|w| w.action == Some(Action::Select(1))).unwrap().rect.ymax;
         assert!(weld(&ws) > weld(&full), "the next modifier moves up");
         let arrow = ws.iter().find(|w| w.action == Some(Action::ToggleCollapse(0))).unwrap();
-        assert_eq!((arrow.label.as_str(), arrow.style), (">", Style::Flat));
+        assert_eq!((arrow.label.as_str(), arrow.style), ("", Style::DisclosureClosed));
         assert!(!apply(&mut s, &mut open, Action::ToggleCollapse(9)), "no such modifier");
         /* The state moves with the modifier and survives removing another one; it is not an undo step. */
         assert!(apply(&mut s, &mut open, Action::MoveDown(0)));
@@ -968,5 +1029,21 @@ mod tests {
         assert_eq!(s.active_object().unwrap().modifiers.len(), 2);
         assert!(s.duplicate_active_modifier(), "the chord copies the active one");
         assert_eq!(s.active_object().unwrap().modifiers.len(), 3);
+    }
+
+    #[test]
+    fn viewport_toggle_is_a_boxless_icon_that_changes_with_its_state() {
+        let user = UserDef::from_window_scale(1.0);
+        let rect = Rcti { xmin: 2, xmax: 21, ymin: 2, ymax: 21 };
+        let draw_with = |style| {
+            let mut buf = vec![0xff101010u32; 24 * 24];
+            let w = Widget { rect, label: String::new(), style, action: Some(Action::ToggleViewport(0)), centered: true };
+            draw(&mut buf, 24, 24, &user, &[w]);
+            buf
+        };
+        let (on, off) = (draw_with(Style::Selected), draw_with(Style::Button));
+        assert_ne!(on, off, "RESTRICT_VIEW_OFF and RESTRICT_VIEW_ON differ");
+        /* No box: the corner of the rect keeps the background. */
+        assert_eq!(on[(24 - 1 - 2) * 24 + 2], 0xff101010);
     }
 }

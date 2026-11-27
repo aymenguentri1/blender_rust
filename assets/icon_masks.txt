@@ -96,3 +96,7 @@ frame_next
 ff
 time
 gizmo
+add
+restrict_view_on
+restrict_render_on
+x
