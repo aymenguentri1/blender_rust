@@ -49,11 +49,12 @@ pub enum Brush {
     DrawSharp,
     Rotate,
     ElasticDeform,
+    MultiplaneScrape,
 }
 
 impl Brush {
     #[allow(dead_code)]
-    pub const ALL: [Brush; 19] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask, Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob, Brush::Thumb, Brush::DrawSharp, Brush::Rotate, Brush::ElasticDeform];
+    pub const ALL: [Brush; 20] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask, Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob, Brush::Thumb, Brush::DrawSharp, Brush::Rotate, Brush::ElasticDeform, Brush::MultiplaneScrape];
 
     /// The key of the brush in Sculpt Mode, as the brush popup lists it (`Shift X` for `Shift + X`).
     pub fn key_label(self) -> &'static str {
@@ -77,6 +78,7 @@ impl Brush {
             /* The default keymap has no key for Rotate. */
             Brush::Rotate => "",
             Brush::ElasticDeform => "",
+            Brush::MultiplaneScrape => "",
         }
     }
 
@@ -101,6 +103,7 @@ impl Brush {
             Brush::DrawSharp => "Draw Sharp",
             Brush::Rotate => "Rotate",
             Brush::ElasticDeform => "Elastic Deform",
+            Brush::MultiplaneScrape => "Multi-plane Scrape",
         }
     }
 }
@@ -210,6 +213,17 @@ fn vertex_normal(mesh: &Mesh, topo: &Topo, i: usize) -> V3 {
     normalized(n)
 }
 
+/// `do_multiplane_scrape_brush()` (standard mode) with every mirror of it; `dir` is the stroke direction.
+#[allow(clippy::too_many_arguments)]
+fn multiplane_scrape(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radius: f32, strength: f32, dir: V3, invert: bool, symmetry: [bool; 3]) {
+    for s in mirror_signs(symmetry) {
+        let c = mirrored(center, s);
+        let hit = affected(mesh, mask, c, radius);
+        let n = area_normal(mesh, adj, &hit);
+        crate::sculpt_multiplane::dab(&mut mesh.verts, mask, n, c, mirrored(dir, s), radius, strength, crate::sculpt_multiplane::DEFAULT_ANGLE, invert, |d| falloff(d, 1.0));
+    }
+}
+
 /// `do_clay_strips_brush()` with every mirror of it; `dir` is the stroke direction.
 #[allow(clippy::too_many_arguments)]
 fn clay_strips(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radius: f32, strength: f32, dir: V3, invert: bool, symmetry: [bool; 3]) {
@@ -252,7 +266,7 @@ pub fn dab(mesh: &mut Mesh, adj: &Topo, brush: Brush, center: V3, radius: f32, s
 /// `dab()` on a mesh with a mask (one value per vertex); the Mask brush paints it, the others are scaled by it.
 #[allow(clippy::too_many_arguments)]
 pub fn dab_masked(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
-    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform) {
+    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape) {
         return;
     }
     for s in mirror_signs(symmetry) {
@@ -361,7 +375,7 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
                 mesh.verts[i] = add(mesh.verts[i], scale(d, push * BLOB_FACTOR * f * dir));
             }
         }
-        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform => {}
+        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape => {}
     }
 }
 
@@ -830,6 +844,10 @@ impl Session {
             thumb(mesh, orig, mask, &a.adj, hit.local, radius, self.settings.strength, a.dir, sym);
             return true;
         }
+        if a.brush == Brush::MultiplaneScrape {
+            multiplane_scrape(mesh, mask, &a.adj, hit.local, radius, self.settings.strength, a.dir, a.invert, sym);
+            return true;
+        }
         if a.brush == Brush::Clay {
             clay_strips(mesh, mask, &a.adj, hit.local, radius, self.settings.strength, a.dir, a.invert, sym);
             return true;
@@ -890,7 +908,7 @@ impl Session {
             }
             a.last = cur;
         } else {
-            if matches!(a.brush, Brush::Nudge | Brush::Thumb | Brush::Clay) {
+            if matches!(a.brush, Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::MultiplaneScrape) {
                 let p0 = rv3d.unproject_v3(rw, rh, a.last[0], a.last[1], a.depth);
                 let p1 = rv3d.unproject_v3(rw, rh, cur[0], cur[1], a.depth);
                 if let (Some(p0), Some(p1)) = (p0, p1) {
