@@ -1,7 +1,7 @@
 //! Headers of the outliner, properties editor and timeline: the editor type button
 //! (`layout.template_header()`), the `filter_text` search field (`OUTLINER_HT_header`, space_outliner.py;
-//! `PROPERTIES_HT_header`) and, in the outliner, the filter popover and `outliner.collection_new`.
-//! Visual only. Deviations: no display mode dropdown, the search field has a fixed width.
+//! `PROPERTIES_HT_header`) and, in the outliner, the `display_mode` dropdown, the filter popover and `outliner.collection_new`.
+//! Visual only. Deviations: the display mode dropdown is always VIEW_LAYER, the search field has a fixed width.
 
 use crate::area::{global_header_layout_start, Rcti};
 use crate::font;
@@ -21,6 +21,8 @@ pub enum Kind {
 pub enum Look {
     /// Editor type: the icon of the space and the arrow.
     EditorType(Icon),
+    /// `layout.prop(space, "display_mode", icon_only=True)`: the icon of the current mode and the arrow.
+    DisplayMode(Icon),
     /// `prop(space, "filter_text", icon='VIEWZOOM')` with the placeholder text.
     Search,
     /// `row.popover(panel="OUTLINER_PT_filter", text="")`: the filter icon with the arrow.
@@ -61,6 +63,13 @@ pub fn layout(user: &UserDef, header: Rcti, kind: Kind) -> Vec<Item> {
     if kind == Kind::Timeline {
         return items;
     }
+    if kind == Kind::Outliner {
+        // `item_rna_size`: icon-only enum = `text_icon_width("", ICON_BLANK1)` + 0.6 * UI_UNIT_X.
+        let w = (u as f32 + 0.6 * u as f32) as i32;
+        // rna_space.cc display_mode_items: VIEW_LAYER (the default) uses ICON_RENDER_RESULT.
+        items.push(item(x, w, Look::DisplayMode(Icon::RenderResult)));
+        x += w + space;
+    }
     let mut right = header.xmax + 1 - offset;
     if kind == Kind::Outliner {
         right -= u * 3 / 2;
@@ -81,8 +90,11 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, items:
     for it in items {
         let r = it.rect;
         match it.look {
-            Look::EditorType(_) | Look::Filter => {
-                let icon = if let Look::EditorType(i) = it.look { i } else { Icon::Filter };
+            Look::EditorType(_) | Look::DisplayMode(_) | Look::Filter => {
+                let icon = match it.look {
+                    Look::EditorType(i) | Look::DisplayMode(i) => i,
+                    _ => Icon::Filter,
+                };
                 draw_round_box(buf, width, height, user, r, theme::WCOL_TOOL_INNER, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS);
                 icons::draw_icon(buf, width, height, user, Rcti { xmax: r.xmin + u - 1, ..r }, icon, ICON_COLOR);
                 icons::draw_icon(buf, width, height, user, Rcti { xmin: r.xmax + 1 - u * 3 / 4, ..r }, Icon::DownArrow, ICON_COLOR);
@@ -130,6 +142,17 @@ mod tests {
         assert!(looks(Kind::Properties).contains(&Look::Search));
         assert!(!looks(Kind::Properties).contains(&Look::Filter));
         assert!(looks(Kind::Outliner).contains(&Look::Button(Icon::CollectionNew)));
+        assert!(looks(Kind::Outliner).contains(&Look::DisplayMode(Icon::RenderResult)));
+        assert!(!looks(Kind::Properties).contains(&Look::DisplayMode(Icon::RenderResult)));
+    }
+
+    #[test]
+    fn display_mode_is_1_6_units_wide_after_editor_type() {
+        let user = UserDef::from_window_scale(1.0);
+        let items = layout(&user, header(), Kind::Outliner);
+        let dm = items.iter().find(|i| matches!(i.look, Look::DisplayMode(_))).unwrap();
+        assert_eq!(dm.rect.size_x() + 1, (user.widget_unit as f32 * 1.6) as i32);
+        assert!(dm.rect.xmin > items[0].rect.xmax);
     }
 
     #[test]
