@@ -53,11 +53,12 @@ pub enum Brush {
     MultiplaneScrape,
     Slide,
     ClayThumb,
+    Plane,
 }
 
 impl Brush {
     #[allow(dead_code)]
-    pub const ALL: [Brush; 22] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask, Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob, Brush::Thumb, Brush::DrawSharp, Brush::Rotate, Brush::ElasticDeform, Brush::MultiplaneScrape, Brush::Slide, Brush::ClayThumb];
+    pub const ALL: [Brush; 23] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask, Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob, Brush::Thumb, Brush::DrawSharp, Brush::Rotate, Brush::ElasticDeform, Brush::MultiplaneScrape, Brush::Slide, Brush::ClayThumb, Brush::Plane];
 
     /// The key of the brush in Sculpt Mode, as the brush popup lists it (`Shift X` for `Shift + X`).
     pub fn key_label(self) -> &'static str {
@@ -84,6 +85,7 @@ impl Brush {
             Brush::MultiplaneScrape => "",
             Brush::Slide => "",
             Brush::ClayThumb => "",
+            Brush::Plane => "",
         }
     }
 
@@ -111,6 +113,7 @@ impl Brush {
             Brush::MultiplaneScrape => "Multi-plane Scrape",
             Brush::Slide => "Slide",
             Brush::ClayThumb => "Clay Thumb",
+            Brush::Plane => "Plane",
         }
     }
 }
@@ -268,6 +271,27 @@ fn topology_slide(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radius:
     }
 }
 
+/// `do_plane_brush()` with every mirror of it; `dir` is the stroke direction (nothing moves without one). The brush asset
+/// values are height 1, depth 1, roundness 1 and Invert Displacement.
+#[allow(clippy::too_many_arguments)]
+fn plane_brush(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radius: f32, strength: f32, dir: V3, invert: bool, symmetry: [bool; 3]) {
+    use crate::sculpt_plane::{apply_inversion, brush_strength, dab, InversionMode};
+    let mode = InversionMode::InvertDisplacement;
+    let (st, height, depth) = apply_inversion(brush_strength(strength, invert, mode, crate::sculpt_draw::DEFAULT_OVERLAP), 1.0, 1.0, invert, mode);
+    for s in mirror_signs(symmetry) {
+        let c = mirrored(center, s);
+        let d = mirrored(dir, s);
+        let hit = affected(mesh, mask, c, radius);
+        let n = area_normal(mesh, adj, &hit);
+        let x = cross(n, d);
+        if dot(x, x) < 1e-24 {
+            continue;
+        }
+        let x = normalized(x);
+        dab(&mut mesh.verts, mask, c, &[x, cross(n, x), n], radius, st, height, depth, 1.0, |t| falloff(t, 1.0));
+    }
+}
+
 /// `do_clay_thumb_brush()` with every mirror of it; `dir` is the stroke direction, `angle` the stroke's `front_angle`.
 #[allow(clippy::too_many_arguments)]
 fn clay_thumb(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radius: f32, strength: f32, dir: V3, invert: bool, angle: f32, symmetry: [bool; 3]) {
@@ -323,7 +347,7 @@ pub fn dab(mesh: &mut Mesh, adj: &Topo, brush: Brush, center: V3, radius: f32, s
 /// `dab()` on a mesh with a mask (one value per vertex); the Mask brush paints it, the others are scaled by it.
 #[allow(clippy::too_many_arguments)]
 pub fn dab_masked(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
-    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide | Brush::ClayThumb | Brush::Pinch | Brush::Inflate | Brush::Crease) {
+    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide | Brush::ClayThumb | Brush::Plane | Brush::Pinch | Brush::Inflate | Brush::Crease) {
         return;
     }
     for s in mirror_signs(symmetry) {
@@ -395,7 +419,7 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
                 mesh.verts[i] = add(mesh.verts[i], scale(d, push * BLOB_FACTOR * f * dir));
             }
         }
-        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide | Brush::ClayThumb | Brush::Pinch | Brush::Inflate | Brush::Crease => {}
+        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide | Brush::ClayThumb | Brush::Plane | Brush::Pinch | Brush::Inflate | Brush::Crease => {}
     }
 }
 
@@ -856,6 +880,10 @@ impl Session {
             multiplane_scrape(mesh, mask, &a.adj, hit.local, radius, self.settings.strength, a.dir, a.invert, sym);
             return true;
         }
+        if a.brush == Brush::Plane {
+            plane_brush(mesh, mask, &a.adj, hit.local, radius, self.settings.strength, a.dir, a.invert, sym);
+            return true;
+        }
         if a.brush == Brush::ClayThumb {
             /* The first dab of the stroke only resets the angle (the grab delta is not set up yet). */
             let Some(angle) = a.clay_angle.map(sculpt_clay_thumb::next_front_angle).or_else(|| { a.clay_angle = Some(0.0); None }) else { return false };
@@ -939,7 +967,7 @@ impl Session {
             }
             a.last = cur;
         } else {
-            if matches!(a.brush, Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::MultiplaneScrape | Brush::Slide | Brush::ClayThumb | Brush::Pinch) {
+            if matches!(a.brush, Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::MultiplaneScrape | Brush::Slide | Brush::ClayThumb | Brush::Plane | Brush::Pinch) {
                 let p0 = rv3d.unproject_v3(rw, rh, a.last[0], a.last[1], a.depth);
                 let p1 = rv3d.unproject_v3(rw, rh, cur[0], cur[1], a.depth);
                 if let (Some(p0), Some(p1)) = (p0, p1) {
