@@ -133,6 +133,7 @@ mod mesh_extrude_faces;
 #[allow(dead_code)]
 mod mesh_flip;
 mod normal_cache;
+mod armature_select;
 mod edit_bone;
 #[allow(dead_code)]
 mod mesh_dissolve_faces;
