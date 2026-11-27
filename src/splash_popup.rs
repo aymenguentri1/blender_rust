@@ -1,7 +1,7 @@
 //! Drawing of the startup splash popup (`wm_block_splash_create`, wm_splash_screen.cc) with the rows of `WM_MT_splash`
 //! (wm.py:3571): "New File" templates left, "Getting Started" links right, a line, then Open / Recover Last Session and
-//! What's New / Donate. Geometry comes from `splash_layout`. Deviations: the splash image (`release/datafiles/splash.png`
-//! is a Git LFS object that cannot be fetched here) is a flat area, rows have no icons yet, and the rows do nothing but
+//! What's New / Donate. Geometry comes from `splash_layout`. Deviations: the splash image comes from `splash_image` (the
+//! LFS object `splash.png` cannot be fetched here), rows have no icons yet, and the rows do nothing but
 //! highlight (a click anywhere closes the popup, as the image button does).
 
 use crate::area::{fill_rect, Rcti};
@@ -13,7 +13,6 @@ use crate::version;
 
 const OUTLINE: Rgba = Rgba::hex(0x242424ff);
 const INNER: Rgba = Rgba::hex(0x181818ff);
-const IMAGE: Rgba = Rgba::hex(0x303030ff);
 const INNER_SEL: Rgba = Rgba::hex(0x4772b3ff);
 const TITLE_TEXT: Rgba = Rgba::hex(0x999999ff);
 const ITEM_TEXT: Rgba = Rgba::hex(0xddddddff);
@@ -82,7 +81,7 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, s: &Sp
     let p = s.layout.popup;
     fill_rect(buf, width, height, p, OUTLINE.to_xrgb());
     fill_rect(buf, width, height, Rcti { xmin: p.xmin + b, xmax: p.xmax - b, ymin: p.ymin + b, ymax: p.ymax - b }, INNER.to_xrgb());
-    fill_rect(buf, width, height, s.layout.image, IMAGE.to_xrgb());
+    crate::splash_image::draw(buf, width, height, s.layout.image);
     let white = Rgba::hex(0xffffffff);
     let text = version::version_string();
     let v = Rcti { xmin: s.layout.version.xmax - font::string_width(user, &text), ..s.layout.version };

@@ -164,6 +164,7 @@ mod modifier_menu;
 #[allow(dead_code)]
 mod modifier_panel;
 mod panel_frame;
+mod splash_image;
 mod splash_layout;
 mod splash_popup;
 mod outliner_highlight;
@@ -2724,7 +2725,7 @@ impl ApplicationHandler for App {
                     }
                     /* `wm_block_splash_create`: the splash popup is drawn above everything else. */
                     if let (false, Some(user)) = (self.splash_closed, self.user.as_ref()) {
-                        let s = splash_popup::layout(user, w as i32, h as i32, [2, 1]);
+                        let s = splash_popup::layout(user, w as i32, h as i32, splash_image::size());
                         splash_popup::draw(&mut buf, w, h, user, &s, self.cursor);
                     }
                     /* Popup menus are drawn above everything else. */
