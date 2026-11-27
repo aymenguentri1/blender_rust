@@ -19,6 +19,7 @@ mod screen;
 mod object_mode;
 mod sculpt;
 mod sculpt_header;
+mod select_header;
 mod screen_draw;
 #[allow(dead_code)]
 mod ui_layout;
@@ -764,7 +765,7 @@ impl ApplicationHandler for App {
             WindowEvent::MouseInput { state, button: MouseButton::Middle, .. } => match state {
                 ElementState::Pressed => {
                     let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
-                    let in_main = area::in_view3d_main(user, layout.main, self.cursor, self.sculpt.is_some());
+                    let in_main = area::in_view3d_main(user, layout.main, self.cursor, true);
                     let m = self.modifiers;
                     /* Alt + MIDDLEMOUSE (no Shift / Ctrl) is a `CLICK_DRAG` candidate for `view3d.view_axis`. */
                     self.alt_drag_start = if in_main && m.alt_key() && !m.shift_key() && !m.control_key() {
@@ -871,7 +872,7 @@ impl ApplicationHandler for App {
                 let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
                 let [x, y] = self.cursor;
                 let m = self.modifiers;
-                if !m.shift_key() || m.control_key() || m.alt_key() || !area::in_view3d_main(user, layout.main, self.cursor, self.sculpt.is_some()) {
+                if !m.shift_key() || m.control_key() || m.alt_key() || !area::in_view3d_main(user, layout.main, self.cursor, true) {
                     return;
                 }
                 let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
@@ -1107,7 +1108,7 @@ impl ApplicationHandler for App {
                     }
                     gfx.window.request_redraw();
                 }
-                if area::in_view3d_main(user, layout.main, self.cursor, self.sculpt.is_some()) {
+                if area::in_view3d_main(user, layout.main, self.cursor, true) {
                     let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
                     self.rv3d.update(&self.v3d, rw, rh);
                     let mval = [self.cursor[0] - layout.main.xmin, self.cursor[1] - layout.main.ymin];
@@ -1298,7 +1299,7 @@ impl ApplicationHandler for App {
             /* `view3d.zoom` on WHEELINMOUSE / WHEELOUTMOUSE; not over the header region. */
             WindowEvent::MouseWheel { delta: MouseScrollDelta::LineDelta(hlines, lines), .. } => {
                 let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
-                let in_main = area::in_view3d_main(user, layout.main, self.cursor, self.sculpt.is_some());
+                let in_main = area::in_view3d_main(user, layout.main, self.cursor, true);
                 let m = self.modifiers;
                 /* `screen.frame_offset` on Alt + WHEELUPMOUSE (delta -1) / WHEELDOWNMOUSE (delta +1), any area. */
                 if m.alt_key() && !m.control_key() && !m.shift_key() {
@@ -1646,7 +1647,7 @@ impl ApplicationHandler for App {
                 if self.sculpt.is_some() {
                     let cursor = self.cursor;
                     let in_main = match (self.layout.as_ref(), self.user.as_ref()) {
-                        (Some(l), Some(u)) => area::in_view3d_main(u, l.main, cursor, self.sculpt.is_some()),
+                        (Some(l), Some(u)) => area::in_view3d_main(u, l.main, cursor, true),
                         _ => false,
                     };
                     let sc = self.sculpt.as_mut().unwrap();
@@ -1729,7 +1730,7 @@ impl ApplicationHandler for App {
                  * level; NUMPAD_PERIOD frames the selection. Ctrl + Alt + S / F set smooth / flat shading (the
                  * menu entries of Object > Shade Smooth / Flat have no key in Blender). */
                 let in_main = match (self.layout.as_ref(), self.user.as_ref()) {
-                    (Some(l), Some(u)) => area::in_view3d_main(u, l.main, self.cursor, self.sculpt.is_some()),
+                    (Some(l), Some(u)) => area::in_view3d_main(u, l.main, self.cursor, true),
                     _ => false,
                 };
                 if in_main && !key_event.repeat {
@@ -2114,7 +2115,7 @@ impl ApplicationHandler for App {
                  * (`minmax_v3v3_v3(min, max, float3(0))`) with `ED_view3d_smooth_view()`. Not over the header region. */
                 if code == KeyCode::KeyC && self.modifiers.shift_key() && !self.modifiers.control_key() && !self.modifiers.alt_key() && !key_event.repeat {
                     let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
-                    if area::in_view3d_main(user, layout.main, self.cursor, self.sculpt.is_some()) {
+                    if area::in_view3d_main(user, layout.main, self.cursor, true) {
                         self.cursor3d = [0.0; 3];
                         let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
                         smooth_finish(&mut self.rv3d, &mut self.smooth);
@@ -2133,7 +2134,7 @@ impl ApplicationHandler for App {
                  * location, animated with `ED_view3d_smooth_view()`. Not over the header region. */
                 if code == KeyCode::Home && self.modifiers.alt_key() && !self.modifiers.shift_key() && !self.modifiers.control_key() && !key_event.repeat {
                     let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
-                    if area::in_view3d_main(user, layout.main, self.cursor, self.sculpt.is_some()) {
+                    if area::in_view3d_main(user, layout.main, self.cursor, true) {
                         /* `ED_view3d_smooth_view_force_finish()` precedes `ED_view3d_smooth_view()` in `viewcenter_cursor_exec()`. */
                         smooth_finish(&mut self.rv3d, &mut self.smooth);
                         let smooth_src = self.rv3d.state_backup();
@@ -2148,7 +2149,7 @@ impl ApplicationHandler for App {
                  * of the visible objects with `ED_view3d_smooth_view()`. Not over the header region. */
                 if code == KeyCode::Home && !self.modifiers.alt_key() && !self.modifiers.shift_key() && !key_event.repeat {
                     let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
-                    if area::in_view3d_main(user, layout.main, self.cursor, self.sculpt.is_some()) {
+                    if area::in_view3d_main(user, layout.main, self.cursor, true) {
                         let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
                         smooth_finish(&mut self.rv3d, &mut self.smooth);
                         let smooth_src = self.rv3d.state_backup();
@@ -2163,7 +2164,7 @@ impl ApplicationHandler for App {
                  * subtracts). Not over the header region. */
                 if code == KeyCode::KeyB && !self.modifiers.shift_key() && !self.modifiers.control_key() && !self.modifiers.alt_key() && !key_event.repeat {
                     let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
-                    if area::in_view3d_main(user, layout.main, self.cursor, self.sculpt.is_some()) && self.xform.is_none() {
+                    if area::in_view3d_main(user, layout.main, self.cursor, true) && self.xform.is_none() {
                         self.box_select = Some(BoxSelect { armed: true, start: None, cur: [0, 0], dragging: false, mode: select_box::BoxMode::Add });
                     }
                     return;
@@ -2171,7 +2172,7 @@ impl ApplicationHandler for App {
                 /* `view3d.zoom_border` on Shift + B (`WM_gesture_box_invoke()`); not over the header region. */
                 if code == KeyCode::KeyB && self.modifiers.shift_key() && !self.modifiers.control_key() && !self.modifiers.alt_key() && !key_event.repeat {
                     let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
-                    if area::in_view3d_main(user, layout.main, self.cursor, self.sculpt.is_some()) {
+                    if area::in_view3d_main(user, layout.main, self.cursor, true) {
                         self.zoom_border = Some(ZoomBorder { start: None, clip: false });
                     }
                     return;
@@ -2181,7 +2182,7 @@ impl ApplicationHandler for App {
                  * both always available here. Not over the header region. */
                 if code == KeyCode::KeyB && self.modifiers.alt_key() && !self.modifiers.shift_key() && !self.modifiers.control_key() && !key_event.repeat {
                     let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
-                    if area::in_view3d_main(user, layout.main, self.cursor, self.sculpt.is_some()) {
+                    if area::in_view3d_main(user, layout.main, self.cursor, true) {
                         if self.rv3d.clip.is_some() {
                             self.rv3d.clip = None;
                             self.taa = taa::TaaState::default();
@@ -2199,7 +2200,7 @@ impl ApplicationHandler for App {
                  * stays. Not over the header region. */
                 if code == KeyCode::KeyZ && shift_k && alt_k && !ctrl_k && !key_event.repeat {
                     let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
-                    if area::in_view3d_main(user, layout.main, self.cursor, self.sculpt.is_some()) {
+                    if area::in_view3d_main(user, layout.main, self.cursor, true) {
                         self.overlays_hidden = !self.overlays_hidden;
                         gfx.window.request_redraw();
                     }
@@ -2216,7 +2217,7 @@ impl ApplicationHandler for App {
                  * Entering wire drops the solid depth buffer; leaving it restarts the TAA accumulation. */
                 if code == KeyCode::KeyZ && self.modifiers.shift_key() && !self.modifiers.control_key() && !self.modifiers.alt_key() && !key_event.repeat {
                     let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
-                    if area::in_view3d_main(user, layout.main, self.cursor, self.sculpt.is_some()) {
+                    if area::in_view3d_main(user, layout.main, self.cursor, true) {
                         self.wire = !self.wire;
                         if self.wire {
                             self.scene_depth = Vec::new();
@@ -2231,7 +2232,7 @@ impl ApplicationHandler for App {
                  * scene has no active object in edit or pose mode). Not over the header region. */
                 if code == KeyCode::KeyZ && self.modifiers.alt_key() && !self.modifiers.shift_key() && !self.modifiers.control_key() && !key_event.repeat {
                     let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
-                    if area::in_view3d_main(user, layout.main, self.cursor, self.sculpt.is_some()) {
+                    if area::in_view3d_main(user, layout.main, self.cursor, true) {
                         /* In wire shading the operator flips `V3D_SHADING_XRAY_WIREFRAME`, which is not modelled. */
                         if !self.wire {
                             self.xray = !self.xray;
@@ -2330,7 +2331,7 @@ impl ApplicationHandler for App {
                     return;
                 }
                 let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) else { return };
-                if !area::in_view3d_main(user, layout.main, self.cursor, self.sculpt.is_some()) {
+                if !area::in_view3d_main(user, layout.main, self.cursor, true) {
                     return;
                 }
                 /* `ED_view3d_smooth_view_force_finish()` of `view3d.view_orbit`, `view_roll`, `dolly`,
@@ -2544,7 +2545,7 @@ impl ApplicationHandler for App {
                     }
                     /* Sculpt Mode: the brush ring at the cursor and the brush line at the bottom left. */
                     if let (Some(sc), Some(user)) = (self.sculpt.as_ref(), self.user.as_ref()) {
-                        if sc.adjust.is_some() || area::in_view3d_main(user, layout.main, self.cursor, self.sculpt.is_some()) {
+                        if sc.adjust.is_some() || area::in_view3d_main(user, layout.main, self.cursor, true) {
                             sc.draw_cursor(&mut buf, w, h, layout.main, user, self.cursor, self.modifiers.control_key());
                         }
                     }
@@ -2662,6 +2663,13 @@ impl ApplicationHandler for App {
                             area::blend_rect(&mut buf, w, h, region, theme::SPACE_VIEW3D_HEADER);
                             let items = sculpt_header::layout(user, region);
                             sculpt_header::draw(&mut buf, w, h, user, &items, &sc.settings, self.sculpt_hover);
+                        }
+                    }
+                    /* Every other mode: the Select Box tool's header (the `mode` row), the same overlap region. */
+                    if let (None, Some(user)) = (self.sculpt.as_ref(), self.user.as_ref()) {
+                        if let Some(region) = area::tool_header_rect(user, layout.main) {
+                            area::blend_rect(&mut buf, w, h, region, theme::SPACE_VIEW3D_HEADER);
+                            select_header::draw(&mut buf, w, h, user, &select_header::layout(user, region));
                         }
                     }
                     /* ED_screen_draw_edges(): the border and outline of every area, `totrct` with the area vertices as scissor. */

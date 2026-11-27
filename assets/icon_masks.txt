@@ -100,3 +100,8 @@ add
 restrict_view_on
 restrict_render_on
 x
+select_set
+select_extend
+select_subtract
+select_difference
+select_intersect
