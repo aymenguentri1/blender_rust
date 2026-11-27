@@ -108,4 +108,17 @@ mod tests {
         /* The X-ray toggle follows after 8 px of spacing. */
         assert_eq!(xray_button_rect(&user, header), Rcti { xmin: 72, xmax: 131, ymin: 1003, ymax: 1022 });
     }
+
+    #[test]
+    fn top_bar_logo_precedes_the_menus_and_plus_follows_the_tabs() {
+        /* `TOPBAR_MT_editor_menus` (logo menu, File, ...) then `template_ID_tabs` (tabs, then the `+` button). */
+        let user = UserDef::from_window_scale(1.0);
+        let mut row = HeaderRow::new_global(&user, 26);
+        let logo = row.place(user.widget_unit);
+        let file = row.place(40);
+        let tab = row.place(60);
+        let plus = row.place(user.widget_unit);
+        assert!(logo.xmax < file.xmin && file.xmax < tab.xmin && tab.xmax < plus.xmin);
+        assert_eq!(plus.size_x() + 1, user.widget_unit);
+    }
 }

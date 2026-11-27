@@ -2683,6 +2683,10 @@ impl ApplicationHandler for App {
                     if let Some(user) = self.user.as_ref() {
                         if let Some(header) = area::top_header_rect(user, layout.topbar) {
                             let mut row = ui_layout::HeaderRow::new_global(user, header.size_y() + 1);
+                            /* `layout.menu("TOPBAR_MT_blender", text="", icon='BLENDER')`: an icon only menu, `UI_UNIT_X` wide. */
+                            let mut logo = row.place(user.widget_unit);
+                            logo.translate(header.xmin, header.ymin);
+                            icons::draw_icon(&mut buf, w, h, user, logo, icons::Icon::Blender, theme::Rgba::hex(0xea7600ff));
                             for label in ["File", "Edit", "Render", "Window", "Help"] {
                                 let mut rect = row.place(font::label_width(user, label));
                                 rect.translate(header.xmin, header.ymin);
@@ -2716,6 +2720,11 @@ impl ApplicationHandler for App {
                                 widget_draw::draw_round_box(&mut buf, w, h, user, rect, inner, theme::WCOL_TAB_OUTLINE, theme::WCOL_TAB_ROUNDNESS);
                                 font::draw_label(&mut buf, w, h, user, rect, label, text);
                             }
+                            /* `template_ID_tabs(..., new="workspace.add")`: the `+` button after the last tab. */
+                            let mut add = row.place(user.widget_unit);
+                            add.translate(header.xmin, header.ymin);
+                            let color = hover::pulldown(&mut buf, w, h, user, add);
+                            icons::draw_icon(&mut buf, w, h, user, add, icons::Icon::Add, color);
                         }
                     }
                     /* `TOPBAR_HT_upper_bar.draw_right()`: the `template_ID(window, "scene")` and the
