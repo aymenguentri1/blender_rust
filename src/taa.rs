@@ -451,6 +451,27 @@ mod tests {
         assert!(!TaaState::single_sample_frame(false, true, false, 0, 10), "empty region");
     }
 
+    /* A stroke frame resets the TAA; once the stroke ends the next `begin` is sample 0 again and the accumulation
+     * reaches all samples with the weight of the new image only (the image drawn during the stroke is gone). */
+    #[test]
+    fn accumulation_restarts_cleanly_after_a_stroke() {
+        let mut t = TaaState::default();
+        let m = [[0.0; 4]; 4];
+        for _ in 0..3 {
+            let s = t.begin(m, 4, 4, false);
+            t.accumulate(&[0x00ff0000; 16], 4, 4, t.offset(s));
+        }
+        t.reset_for_navigation();
+        let mut out = vec![0u32; 16];
+        for want in 0..SAMPLES_LEN {
+            assert_eq!(t.begin(m, 4, 4, false), want);
+            t.accumulate(&[0x0000ff00; 16], 4, 4, t.offset(want));
+        }
+        assert_eq!(t.sample, SAMPLES_LEN);
+        t.resolve(&mut out, 4, 4, crate::area::Rcti { xmin: 0, xmax: 3, ymin: 0, ymax: 3 });
+        assert!(out.iter().all(|&p| p == 0x0000ff00), "no red left from the stroke frames");
+    }
+
     #[test]
     fn navigation_reset_restarts_accumulation() {
         let mut t = TaaState::default();
