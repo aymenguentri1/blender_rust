@@ -4,7 +4,7 @@
 Writes assets/icon_masks.txt (one svg name per line) and assets/icon_masks.bin (SIZE x SIZE bytes per name, row 0
 on top, in that order). Needs rsvg-convert, PIL and scripts/blender_ref.sh setup. Usage: python3 scripts/gen_icon_masks.py
 """
-import io, re, subprocess, sys
+import io, re, shutil, subprocess, sys
 from PIL import Image
 
 SIZE = 64
@@ -17,7 +17,8 @@ mod_decim mod_remesh outliner_collection outliner_ob_mesh outliner_ob_camera out
 outliner_ob_empty mesh_plane mesh_cube mesh_circle mesh_uvsphere mesh_icosphere mesh_cylinder mesh_cone
 mesh_torus mesh_grid empty_axis empty_arrows empty_single_arrow cube sphere cone light_point light_sun
 light_spot light_area rightarrow view_zoom view_pan view_camera_unselected view_camera
-view_perspective view_ortho outliner properties time filter viewzoom collection_new mouse_mmb_drag mouse_rmb tool_settings scene output scene_data render_result world object_data constraint physics mesh_data camera_data outliner_data_light empty_data radiobut_off rew frame_prev prev_keyframe play_reverse play pause next_keyframe frame_next ff time gizmo add restrict_view_on restrict_render_on x select_set select_extend select_subtract select_difference select_intersect checkmark duplicate tria_up tria_down checkbox_hlt checkbox_dehlt decorate_unlocked decorate_locked outliner_collection.white outliner_collection.dark renderlayers unpinned group preview_range particles mouse_lmb blender""".split()
+view_perspective view_ortho outliner properties time filter viewzoom collection_new mouse_mmb_drag mouse_rmb tool_settings scene output scene_data render_result world object_data constraint physics mesh_data camera_data outliner_data_light empty_data radiobut_off rew frame_prev prev_keyframe play_reverse play pause next_keyframe frame_next ff time gizmo add restrict_view_on restrict_render_on x select_set select_extend select_subtract select_difference select_intersect checkmark duplicate tria_up tria_down checkbox_hlt checkbox_dehlt decorate_unlocked decorate_locked outliner_collection.white outliner_collection.dark renderlayers unpinned group preview_range particles mouse_lmb blender
+file_new file_folder file_tick link_blend append_blend project import export quit""".split()
 
 
 def main():
@@ -41,8 +42,12 @@ def main():
         w, h = float(m.group(1)), float(m.group(2))
         k = SIZE / 1600.0
         pw, ph = max(1, round(w * k)), max(1, round(h * k))
-        png = subprocess.run(["rsvg-convert", "-w", str(pw), "-h", str(ph), "-f", "png"], input=svg,
-                             check=True, capture_output=True).stdout
+        if shutil.which("rsvg-convert"):
+            png = subprocess.run(["rsvg-convert", "-w", str(pw), "-h", str(ph), "-f", "png"], input=svg,
+                                 check=True, capture_output=True).stdout
+        else:  # fallback renderer when librsvg is not installed
+            import cairosvg
+            png = cairosvg.svg2png(bytestring=svg, output_width=pw, output_height=ph)
         icon = Image.open(io.BytesIO(png)).convert("RGBA")
         img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
         img.paste(icon, ((SIZE - pw) // 2, (SIZE - ph) // 2))

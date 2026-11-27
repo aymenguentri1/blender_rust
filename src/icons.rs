@@ -208,10 +208,28 @@ pub enum Icon {
     MouseLmb,
     /// `ICON_BLENDER`: the logo of `TOPBAR_MT_blender` (space_topbar.py:115). The mask is drawn in one colour.
     Blender,
+    /// `ICON_FILE_NEW`: icon of a `TOPBAR_MT_file` menu entry.
+    FileNew,
+    /// `ICON_FILE_FOLDER`: icon of a `TOPBAR_MT_file` menu entry.
+    FileFolder,
+    /// `ICON_FILE_TICK`: icon of a `TOPBAR_MT_file` menu entry.
+    FileTick,
+    /// `ICON_LINK_BLEND`: icon of a `TOPBAR_MT_file` menu entry.
+    LinkBlend,
+    /// `ICON_APPEND_BLEND`: icon of a `TOPBAR_MT_file` menu entry.
+    AppendBlend,
+    /// `ICON_PROJECT`: icon of a `TOPBAR_MT_file` menu entry.
+    Project,
+    /// `ICON_IMPORT`: icon of a `TOPBAR_MT_file` menu entry.
+    Import,
+    /// `ICON_EXPORT`: icon of a `TOPBAR_MT_file` menu entry.
+    Export,
+    /// `ICON_QUIT`: icon of a `TOPBAR_MT_file` menu entry.
+    Quit,
 }
 
 impl Icon {
-    pub const ALL: &'static [Icon] = &[Icon::View3D, Icon::ObjectMode, Icon::SculptMode, Icon::DownArrow, Icon::OrientationGlobal, Icon::PivotMedian, Icon::PivotCursor, Icon::PivotIndividual, Icon::Snap, Icon::Proportional, Icon::Overlays, Icon::Xray, Icon::ShadingWire, Icon::ShadingSolid, Icon::ShadingMaterial, Icon::ShadingRendered, Icon::RightArrow, Icon::LeftArrow, Icon::Monitor, Icon::Camera, Icon::Eye, Icon::Grip, Icon::EditMode, Icon::ModWrench, Icon::ModArray, Icon::ModMirror, Icon::ModSolidify, Icon::ModBevel, Icon::ModSmooth, Icon::ModDeform, Icon::ModTriangulate, Icon::ModBoolean, Icon::ModWireframe, Icon::ModDecimate, Icon::ModRemesh, Icon::OutlinerCollection, Icon::ObMesh, Icon::ObCamera, Icon::ObLight, Icon::ObEmpty, Icon::MeshPlane, Icon::MeshCube, Icon::MeshCircle, Icon::MeshUvSphere, Icon::MeshIcoSphere, Icon::MeshCylinder, Icon::MeshCone, Icon::MeshTorus, Icon::MeshGrid, Icon::EmptyAxis, Icon::EmptyArrows, Icon::EmptySingleArrow, Icon::Cube, Icon::Sphere, Icon::Cone, Icon::LightPoint, Icon::LightSun, Icon::LightSpot, Icon::LightArea, Icon::ChevronRight, Icon::ViewZoom, Icon::ViewPan, Icon::ViewCameraUnselected, Icon::ViewCamera, Icon::ViewPerspective, Icon::ViewOrtho, Icon::EditorOutliner, Icon::EditorProperties, Icon::EditorTimeline, Icon::Filter, Icon::Search, Icon::CollectionNew, Icon::MouseMmbDrag, Icon::MouseRmb, Icon::ToolSettings, Icon::TabScene, Icon::Output, Icon::SceneData, Icon::RenderResult, Icon::World, Icon::ObjectData, Icon::Constraint, Icon::Physics, Icon::MeshData, Icon::CameraData, Icon::LightData, Icon::EmptyData, Icon::RadioButOff, Icon::Rew, Icon::FramePrev, Icon::PrevKeyframe, Icon::PlayReverse, Icon::Play, Icon::Pause, Icon::NextKeyframe, Icon::FrameNext, Icon::Ff, Icon::Time, Icon::Gizmo, Icon::Add, Icon::RestrictViewOn, Icon::RestrictRenderOn, Icon::X, Icon::SelectSet, Icon::SelectExtend, Icon::SelectSubtract, Icon::SelectDifference, Icon::SelectIntersect, Icon::Checkmark, Icon::Duplicate, Icon::TriaUp, Icon::TriaDown, Icon::CheckboxHlt, Icon::CheckboxDehlt, Icon::DecorateUnlocked, Icon::DecorateLocked, Icon::RenderLayers, Icon::Unpinned, Icon::Group, Icon::PreviewRange, Icon::Particles, Icon::MouseLmb, Icon::Blender];
+    pub const ALL: &'static [Icon] = &[Icon::View3D, Icon::ObjectMode, Icon::SculptMode, Icon::DownArrow, Icon::OrientationGlobal, Icon::PivotMedian, Icon::PivotCursor, Icon::PivotIndividual, Icon::Snap, Icon::Proportional, Icon::Overlays, Icon::Xray, Icon::ShadingWire, Icon::ShadingSolid, Icon::ShadingMaterial, Icon::ShadingRendered, Icon::RightArrow, Icon::LeftArrow, Icon::Monitor, Icon::Camera, Icon::Eye, Icon::Grip, Icon::EditMode, Icon::ModWrench, Icon::ModArray, Icon::ModMirror, Icon::ModSolidify, Icon::ModBevel, Icon::ModSmooth, Icon::ModDeform, Icon::ModTriangulate, Icon::ModBoolean, Icon::ModWireframe, Icon::ModDecimate, Icon::ModRemesh, Icon::OutlinerCollection, Icon::ObMesh, Icon::ObCamera, Icon::ObLight, Icon::ObEmpty, Icon::MeshPlane, Icon::MeshCube, Icon::MeshCircle, Icon::MeshUvSphere, Icon::MeshIcoSphere, Icon::MeshCylinder, Icon::MeshCone, Icon::MeshTorus, Icon::MeshGrid, Icon::EmptyAxis, Icon::EmptyArrows, Icon::EmptySingleArrow, Icon::Cube, Icon::Sphere, Icon::Cone, Icon::LightPoint, Icon::LightSun, Icon::LightSpot, Icon::LightArea, Icon::ChevronRight, Icon::ViewZoom, Icon::ViewPan, Icon::ViewCameraUnselected, Icon::ViewCamera, Icon::ViewPerspective, Icon::ViewOrtho, Icon::EditorOutliner, Icon::EditorProperties, Icon::EditorTimeline, Icon::Filter, Icon::Search, Icon::CollectionNew, Icon::MouseMmbDrag, Icon::MouseRmb, Icon::ToolSettings, Icon::TabScene, Icon::Output, Icon::SceneData, Icon::RenderResult, Icon::World, Icon::ObjectData, Icon::Constraint, Icon::Physics, Icon::MeshData, Icon::CameraData, Icon::LightData, Icon::EmptyData, Icon::RadioButOff, Icon::Rew, Icon::FramePrev, Icon::PrevKeyframe, Icon::PlayReverse, Icon::Play, Icon::Pause, Icon::NextKeyframe, Icon::FrameNext, Icon::Ff, Icon::Time, Icon::Gizmo, Icon::Add, Icon::RestrictViewOn, Icon::RestrictRenderOn, Icon::X, Icon::SelectSet, Icon::SelectExtend, Icon::SelectSubtract, Icon::SelectDifference, Icon::SelectIntersect, Icon::Checkmark, Icon::Duplicate, Icon::TriaUp, Icon::TriaDown, Icon::CheckboxHlt, Icon::CheckboxDehlt, Icon::DecorateUnlocked, Icon::DecorateLocked, Icon::RenderLayers, Icon::Unpinned, Icon::Group, Icon::PreviewRange, Icon::Particles, Icon::MouseLmb, Icon::Blender, Icon::FileNew, Icon::FileFolder, Icon::FileTick, Icon::LinkBlend, Icon::AppendBlend, Icon::Project, Icon::Import, Icon::Export, Icon::Quit];
 
     /// The file name (without `.svg`) of the icon in `release/datafiles/icons_svg`.
     pub fn svg_name(self) -> &'static str {
@@ -338,6 +356,15 @@ impl Icon {
             Icon::Particles => "particles",
             Icon::MouseLmb => "mouse_lmb",
             Icon::Blender => "blender",
+            Icon::FileNew => "file_new",
+            Icon::FileFolder => "file_folder",
+            Icon::FileTick => "file_tick",
+            Icon::LinkBlend => "link_blend",
+            Icon::AppendBlend => "append_blend",
+            Icon::Project => "project",
+            Icon::Import => "import",
+            Icon::Export => "export",
+            Icon::Quit => "quit",
             Icon::DecorateLocked => "decorate_locked",
         }
     }
@@ -464,6 +491,15 @@ mod tests {
         for &icon in Icon::ALL {
             assert!(MASK_NAMES.lines().any(|n| n == icon.svg_name()), "{icon:?}");
             assert!(icon.mask().iter().any(|&a| a > 60), "{icon:?} mask is empty");
+        }
+    }
+
+    /* The icons of the File menu (TOPBAR_MT_file) resolve to a non-empty mask. */
+    #[test]
+    fn file_menu_icons_have_masks() {
+        for icon in [Icon::FileNew, Icon::FileFolder, Icon::FileTick, Icon::LinkBlend, Icon::AppendBlend, Icon::Project, Icon::Import, Icon::Export, Icon::Quit] {
+            assert!(Icon::ALL.contains(&icon), "{icon:?}");
+            assert!(icon.mask().iter().filter(|&&a| a > 60).count() > 50, "{icon:?} mask is empty");
         }
     }
 

@@ -122,3 +122,12 @@ preview_range
 particles
 mouse_lmb
 blender
+file_new
+file_folder
+file_tick
+link_blend
+append_blend
+project
+import
+export
+quit
