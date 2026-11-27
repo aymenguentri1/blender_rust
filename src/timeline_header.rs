@@ -53,7 +53,8 @@ fn parts(playing: bool, frame: i32, start: i32, end: i32) -> Vec<Part> {
     transport.extend([(1.0, g(Icon::NextKeyframe)), (1.0, g(Icon::FrameNext)), (1.0, g(Icon::Ff)), (0.75, Arrow)]);
     vec![
         Part::Spacer,
-        Part::Group(vec![(1.0, g(Icon::RadioButOff)), (1.0, KeyType)]),
+        /* `popover(panel="TIME_PT_keyframing", text="", icon=icon_keytype)`: the diamond and the dropdown arrow. */
+        Part::Group(vec![(1.0, g(Icon::RadioButOff)), (1.0, KeyType), (0.75, Arrow)]),
         Part::Group(transport),
         Part::Group(vec![(1.0, g(Icon::Snap)), (0.75, Arrow)]),
         Part::Spacer,
@@ -130,7 +131,7 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, items:
             Look::Arrow => icons::draw_icon(buf, width, height, user, r, Icon::DownArrow, icon_color),
             Look::KeyType => {
                 let (cx, cy) = (r.xmin as f32 + (r.size_x() + 1) as f32 / 2.0, r.ymin as f32 + (r.size_y() + 1) as f32 / 2.0);
-                keyframe_draw::draw_keyframe(buf, width, height, cx, height as f32 - cy, 0.5 * u as f32, false, KeyType::Keyframe, 1.0);
+                keyframe_draw::draw_keyframe(buf, width, height, cx, height as f32 - cy, 0.5 * u as f32, true, KeyType::Keyframe, 1.0);
             }
             Look::Field { label, value } => {
                 let text = value.to_string();
@@ -160,6 +161,16 @@ mod tests {
     }
 
     #[test]
+    fn key_type_is_followed_by_its_arrow_in_the_auto_key_row() {
+        let user = UserDef::from_window_scale(1.0);
+        let items = layout(&user, header(), 260, false, 1, (1, 250));
+        let k = items.iter().position(|i| i.look == Look::KeyType).unwrap();
+        assert_eq!(items[k - 1].look, Look::Glyph(Icon::RadioButOff));
+        assert_eq!(items[k + 1].look, Look::Arrow);
+        assert!(items[k + 1].left && !items[k + 1].right);
+    }
+
+    #[test]
     fn playback_popover_is_wider_than_its_label() {
         let user = UserDef::from_window_scale(1.0);
         assert_eq!(popover_width(&user, "Playback"), font::string_width(&user, "Playback") + user.widget_unit);
@@ -170,7 +181,7 @@ mod tests {
     fn items_stay_inside_and_in_order() {
         let user = UserDef::from_window_scale(1.0);
         let items = layout(&user, header(), 260, false, 1, (1, 250));
-        assert_eq!(items.len(), 19);
+        assert_eq!(items.len(), 20);
         for w in items.windows(2) {
             assert!(w[1].rect.xmin > w[0].rect.xmax, "{:?} {:?}", w[0].look, w[1].look);
         }
