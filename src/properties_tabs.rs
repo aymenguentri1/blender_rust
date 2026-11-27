@@ -32,8 +32,11 @@ pub fn layout(user: &UserDef, nav: Rcti, tabs: &[Tab]) -> Vec<(Context, Rcti)> {
 pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, nav: Rcti, tabs: &[Tab], active: Context, data: Option<&ObjectData>) {
     for (c, r) in layout(user, nav, tabs) {
         let on = c == active;
-        if on {
-            draw_round_box(buf, width, height, user, r, theme::WCOL_TAB_INNER_SEL, theme::WCOL_TAB_OUTLINE, theme::WCOL_TAB_ROUNDNESS);
+        let base = if on { theme::WCOL_TAB_INNER_SEL } else { theme::WCOL_TAB_INNER };
+        let hovered = crate::hover::over(r);
+        if on || hovered {
+            let inner = crate::hover::colors(r, base, theme::WCOL_TAB_TEXT).0;
+            draw_round_box(buf, width, height, user, r, inner, theme::WCOL_TAB_OUTLINE, theme::WCOL_TAB_ROUNDNESS);
         }
         let icon = tab_icon(c, data);
         let mono = if on { theme::WCOL_TAB_TEXT_SEL } else { theme::WCOL_TAB_TEXT };

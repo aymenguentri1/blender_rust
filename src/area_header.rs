@@ -88,22 +88,23 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, items:
     let u = user.widget_unit;
     for it in items {
         let r = it.rect;
+        let (tool, icon_color) = crate::hover::colors(r, theme::WCOL_TOOL_INNER, ICON_COLOR);
         match it.look {
             Look::EditorType(icon) | Look::DisplayMode(icon) => {
-                draw_round_box(buf, width, height, user, r, theme::WCOL_TOOL_INNER, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS);
-                icons::draw_icon(buf, width, height, user, Rcti { xmax: r.xmin + u - 1, ..r }, icon, ICON_COLOR);
-                icons::draw_icon(buf, width, height, user, Rcti { xmin: r.xmax + 1 - u * 3 / 4, ..r }, Icon::DownArrow, ICON_COLOR);
+                draw_round_box(buf, width, height, user, r, tool, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS);
+                icons::draw_icon(buf, width, height, user, Rcti { xmax: r.xmin + u - 1, ..r }, icon, icon_color);
+                icons::draw_icon(buf, width, height, user, Rcti { xmin: r.xmax + 1 - u * 3 / 4, ..r }, Icon::DownArrow, icon_color);
             }
             Look::Filter => {
-                draw_round_box(buf, width, height, user, r, theme::WCOL_TOOL_INNER, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS);
-                icons::draw_icon(buf, width, height, user, r, Icon::DownArrow, ICON_COLOR);
+                draw_round_box(buf, width, height, user, r, tool, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS);
+                icons::draw_icon(buf, width, height, user, r, Icon::DownArrow, icon_color);
             }
             Look::Button(icon) => {
-                draw_round_box_sides(buf, width, height, user, r, theme::WCOL_TOOL_INNER, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS, true, true);
-                icons::draw_icon(buf, width, height, user, r, icon, ICON_COLOR);
+                draw_round_box_sides(buf, width, height, user, r, tool, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS, true, true);
+                icons::draw_icon(buf, width, height, user, r, icon, icon_color);
             }
             Look::Search => {
-                draw_round_box(buf, width, height, user, r, TEXT_INNER, TEXT_OUTLINE, theme::WCOL_TOOL_ROUNDNESS);
+                draw_round_box(buf, width, height, user, r, crate::hover::colors(r, TEXT_INNER, ICON_COLOR).0, TEXT_OUTLINE, theme::WCOL_TOOL_ROUNDNESS);
                 icons::draw_icon(buf, width, height, user, Rcti { xmax: r.xmin + u - 1, ..r }, Icon::Search, ICON_COLOR);
                 font::draw_label_pad(buf, width, height, user, Rcti { xmin: r.xmin + u, ..r }, "Search", PLACEHOLDER, 0);
             }

@@ -205,6 +205,7 @@ mod widget_colors;
 mod theme_widgets;
 #[allow(dead_code)]
 mod widget_hover;
+mod hover;
 #[allow(dead_code)]
 mod curve_forward_diff;
 #[allow(dead_code)]
@@ -587,6 +588,9 @@ impl ApplicationHandler for App {
                 let height = gfx.window.inner_size().height as i32;
                 let x = position.x.floor() as i32;
                 let y = height - 1 - position.y.floor() as i32;
+                if hover::changed(self.cursor, [x, y]) {
+                    gfx.window.request_redraw();
+                }
                 self.cursor = [x, y];
                 /* Sculpt Mode: the radius / strength modal follows the cursor, a running stroke dabs along it,
                  * and the brush ring is redrawn at the new position. */
@@ -2393,6 +2397,9 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::RedrawRequested => {
+                /* Widgets under an open popup do not light up. */
+                let popup = self.add_menu.is_some() || self.mod_menu.is_some() || self.brush_menu.is_some() || self.add_mod_menu.is_some() || self.rename.is_some();
+                hover::begin_frame((!popup).then_some(self.cursor));
                 /* Sculpt Mode ends with the mesh object it works on. */
                 if self.sculpt.is_some() && !self.scene.active_object().is_some_and(|o| o.mesh().is_some()) {
                     self.sculpt = None;
@@ -2602,7 +2609,8 @@ impl ApplicationHandler for App {
                             for label in ["File", "Edit", "Render", "Window", "Help"] {
                                 let mut rect = row.place(font::label_width(user, label));
                                 rect.translate(header.xmin, header.ymin);
-                                font::draw_label(&mut buf, w, h, user, rect, label, theme::WCOL_PULLDOWN_TEXT);
+                                let color = hover::pulldown(&mut buf, w, h, user, rect);
+                                font::draw_label(&mut buf, w, h, user, rect, label, color);
                             }
                             for (i, label) in [
                                 "Layout",
@@ -2623,17 +2631,12 @@ impl ApplicationHandler for App {
                                 let mut rect = row.place(font::label_width(user, label));
                                 rect.translate(header.xmin, header.ymin);
                                 let active = i == 0;
-                                widget_draw::draw_round_box(
-                                    &mut buf,
-                                    w,
-                                    h,
-                                    user,
+                                let (inner, text) = hover::colors(
                                     rect,
                                     if active { theme::WCOL_TAB_INNER_SEL } else { theme::WCOL_TAB_INNER },
-                                    theme::WCOL_TAB_OUTLINE,
-                                    theme::WCOL_TAB_ROUNDNESS,
+                                    if active { theme::WCOL_TAB_TEXT_SEL } else { theme::WCOL_TAB_TEXT },
                                 );
-                                let text = if active { theme::WCOL_TAB_TEXT_SEL } else { theme::WCOL_TAB_TEXT };
+                                widget_draw::draw_round_box(&mut buf, w, h, user, rect, inner, theme::WCOL_TAB_OUTLINE, theme::WCOL_TAB_ROUNDNESS);
                                 font::draw_label(&mut buf, w, h, user, rect, label, text);
                             }
                         }
@@ -2652,17 +2655,9 @@ impl ApplicationHandler for App {
                             for label in ["Scene", "ViewLayer"] {
                                 let mut rect = row.place(field);
                                 rect.translate(header.xmin, header.ymin);
-                                widget_draw::draw_round_box(
-                                    &mut buf,
-                                    w,
-                                    h,
-                                    user,
-                                    rect,
-                                    theme::WCOL_MENU_INNER,
-                                    theme::WCOL_MENU_OUTLINE,
-                                    theme::WCOL_MENU_ROUNDNESS,
-                                );
-                                font::draw_label(&mut buf, w, h, user, rect, label, theme::WCOL_MENU_TEXT);
+                                let (inner, text) = hover::colors(rect, theme::WCOL_MENU_INNER, theme::WCOL_MENU_TEXT);
+                                widget_draw::draw_round_box(&mut buf, w, h, user, rect, inner, theme::WCOL_MENU_OUTLINE, theme::WCOL_MENU_ROUNDNESS);
+                                font::draw_label(&mut buf, w, h, user, rect, label, text);
                             }
                         }
                     }
