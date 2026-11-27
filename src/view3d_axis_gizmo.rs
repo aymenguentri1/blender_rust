@@ -2,7 +2,11 @@
 //! (editors/space_view3d/view3d_gizmo_navigate_type.cc:55-290): the order, positions, depth and colours of
 //! the six axis balls. `m` is the 3x3 view rotation (`gz->matrix_offset`, `m[col][row]`).
 
-use crate::theme::{Rgba, TUI_XAXIS, TUI_YAXIS, TUI_ZAXIS};
+use crate::area::Rcti;
+use crate::font::{draw_text, string_width};
+use crate::theme::{Rgba, SPACE_VIEW3D_BACK, TUI_XAXIS, TUI_YAXIS, TUI_ZAXIS};
+use crate::userdef::UserDef;
+use crate::widget_draw::blend_px;
 
 /// `AXIS_HANDLE_SIZE`: the ball radius relative to the widget radius.
 pub const AXIS_HANDLE_SIZE: f32 = 0.20;
@@ -88,6 +92,118 @@ pub fn middle_color(view: [f32; 4], axis: usize) -> [f32; 4] {
     interp(view, axis_color(axis), 0.75)
 }
 
+/// `U.gizmo_size_navigate_v3d` and `GIZMO_OFFSET` (view3d_gizmo_navigate.cc:38-41).
+const GIZMO_SIZE: f32 = 80.0;
+const GIZMO_OFFSET: f32 = 10.0;
+
+fn to_rgba(c: [f32; 4]) -> (Rgba, f32) {
+    let b = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    (Rgba { r: b(c[0]), g: b(c[1]), b: b(c[2]), a: 255 }, c[3].clamp(0.0, 1.0))
+}
+
+/// Blends `c` (alpha in `c[3]`) with `coverage` into the pixel at window `(x, y)`, y up.
+fn put(buf: &mut [u32], w: usize, h: usize, x: i32, y: i32, c: [f32; 4], coverage: f32) {
+    if x < 0 || y < 0 || x >= w as i32 || y >= h as i32 || coverage <= 0.0 {
+        return;
+    }
+    let (rgb, a) = to_rgba(c);
+    let i = (h - 1 - y as usize) * w + x as usize;
+    buf[i] = blend_px(buf[i], rgb, coverage * a);
+}
+
+/// `draw_roundbox_4fv_ex` of a circle: `inner` disc with an `outline` ring of `ring` pixels.
+fn ball(buf: &mut [u32], w: usize, h: usize, (cx, cy): (f32, f32), rad: f32, ring: f32, inner: [f32; 4], outline: [f32; 4]) {
+    for y in (cy - rad - 1.0).floor() as i32..=(cy + rad + 1.0).ceil() as i32 {
+        for x in (cx - rad - 1.0).floor() as i32..=(cx + rad + 1.0).ceil() as i32 {
+            let d = ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt();
+            let cov = (rad - d + 0.5).clamp(0.0, 1.0);
+            let ring_t = (d - (rad - ring) + 0.5).clamp(0.0, 1.0);
+            put(buf, w, h, x, y, interp(inner, outline, ring_t), cov);
+        }
+    }
+}
+
+/// `GPU_SHADER_3D_POLYLINE_SMOOTH_COLOR` line from `a` to `b` of `width` pixels, colour `ca` to `cb`.
+fn line(buf: &mut [u32], w: usize, h: usize, a: (f32, f32), b: (f32, f32), width: f32, ca: [f32; 4], cb: [f32; 4]) {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len2 = (dx * dx + dy * dy).max(1e-6);
+    let half = width / 2.0;
+    for y in (a.1.min(b.1) - half - 1.0).floor() as i32..=(a.1.max(b.1) + half + 1.0).ceil() as i32 {
+        for x in (a.0.min(b.0) - half - 1.0).floor() as i32..=(a.0.max(b.0) + half + 1.0).ceil() as i32 {
+            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+            let t = (((px - a.0) * dx + (py - a.1) * dy) / len2).clamp(0.0, 1.0);
+            let d = ((px - (a.0 + dx * t)).powi(2) + (py - (a.1 + dy * t)).powi(2)).sqrt();
+            put(buf, w, h, x, y, interp(ca, cb, t), (half - d + 0.5).clamp(0.0, 1.0));
+        }
+    }
+}
+
+/// `(centre x, centre y, radius)` in window pixels, y up (view3d_gizmo_navigate.cc:307-312, `WIDGET_RADIUS`).
+pub fn placement(user: &UserDef, region: Rcti) -> (f32, f32, f32) {
+    let s = user.scale_factor;
+    let off = s * (GIZMO_OFFSET + GIZMO_SIZE / 2.0);
+    (region.xmax as f32 - off, region.ymax as f32 - off, GIZMO_SIZE / 2.0 * s)
+}
+
+fn rot(m: [[f32; 3]; 3], v: [f32; 3]) -> [f32; 3] {
+    let mut out = [0.0; 3];
+    for (row, o) in out.iter_mut().enumerate() {
+        *o = m[0][row] * v[0] + m[1][row] * v[1] + m[2][row] * v[2];
+    }
+    out
+}
+
+/// `gizmo_axis_draw()` without the hover state: lines, balls and letters, back to front.
+/// Deviation: the letters use the UI font, not the bold default font.
+pub fn draw(buf: &mut [u32], w: usize, h: usize, user: &UserDef, region: Rcti, m: [[f32; 3]; 3]) {
+    let (cx, cy, rad) = placement(user, region);
+    let view = {
+        let c = SPACE_VIEW3D_BACK;
+        [c.r as f32 / 255.0, c.g as f32 / 255.0, c.b as f32 / 255.0, 1.0]
+    };
+    let line_width = GIZMO_SIZE / 40.0 * user.pixelsize as f32;
+    let ring_width = GIZMO_SIZE / 60.0 * user.pixelsize as f32;
+    let align = axis_align(m);
+    let screen = |v: [f32; 3]| (cx + v[0] * rad, cy + v[1] * rad);
+    for b in axis_order(m) {
+        let behind = b.is_behind();
+        let aligned_front = align == Some(b.axis) && !behind;
+        let aligned_back = align == Some(b.axis) && behind;
+        let at = screen(b.position(m));
+        let col = axis_color(b.axis);
+        let fading = fading_color(view, b.axis, b.depth);
+        if b.is_pos || align.is_some() {
+            let v = b.v_final();
+            let k = -(line_width / rad * 0.66);
+            let e = 1.0 - AXIS_HANDLE_SIZE;
+            let start = screen(rot(m, [v[0] * k, v[1] * k, v[2] * k]));
+            let end = screen(rot(m, [v[0] * e, v[1] * e, v[2] * e]));
+            line(buf, w, h, start, end, line_width, middle_color(view, b.axis), fading);
+        }
+        if !aligned_back {
+            let (mut inner, mut outline) = (fading, fading);
+            if !b.is_pos {
+                let alpha = (b.depth + 1.0).min(1.0);
+                if aligned_front {
+                    outline = interp([1.0; 4], col, 0.5);
+                    outline[3] = alpha;
+                } else {
+                    inner = interp(view, col, 0.25);
+                    inner[3] = alpha;
+                }
+            }
+            ball(buf, w, h, at, rad * AXIS_HANDLE_SIZE * b.scale(), ring_width, inner, outline);
+        }
+        if (b.is_pos || align == Some(b.axis)) && !aligned_back {
+            let name = format!("{}{}", if b.is_pos { "" } else { "-" }, ['X', 'Y', 'Z'][b.axis]);
+            let tw = string_width(user, &name) as f32;
+            let x = (at.0 - tw * if b.is_pos { 0.5 } else { 0.55 }).round() as i32;
+            let baseline = (at.1 - rad * AXIS_HANDLE_SIZE * 1.25 * 0.36).round() as i32;
+            draw_text(buf, w, h, user, x, baseline, &name, Rgba { r: 0, g: 0, b: 0, a: 230 });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,5 +265,22 @@ mod tests {
         let back = fading_color(view, 2, -1.0);
         assert!((back[2] - axis_color(2)[2] * 0.5).abs() < 1e-6);
         assert!((middle_color(view, 1)[1] - axis_color(1)[1] * 0.75).abs() < 1e-6);
+    }
+
+    #[test]
+    fn draw_paints_the_z_ball_and_stays_inside_the_gizmo() {
+        let user = UserDef::from_window_scale(1.0);
+        let (w, h) = (400usize, 400usize);
+        let region = Rcti { xmin: 0, xmax: 399, ymin: 0, ymax: 399 };
+        let bg = 0x003d_3d3du32;
+        let mut buf = vec![bg; w * h];
+        let m = m3(STARTUP_VIEWQUAT);
+        draw(&mut buf, w, h, &user, region, m);
+        let (cx, cy, rad) = placement(&user, region);
+        assert_eq!((cx, cy, rad), (349.0, 349.0, 40.0));
+        let z = axis_order(m).into_iter().find(|b| b.index == 5).unwrap().position(m);
+        let (x, y) = ((cx + z[0] * rad) as usize, (cy + z[1] * rad) as usize);
+        assert_ne!(buf[(h - 1 - y) * w + x], bg);
+        assert_eq!(buf[(h - 1 - 5) * w + 5], bg);
     }
 }
