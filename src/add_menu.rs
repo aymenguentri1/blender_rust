@@ -9,6 +9,7 @@
 
 use crate::area::{fill_rect, Rcti};
 use crate::font;
+use crate::icons::{self, Icon};
 use crate::mesh::Primitive;
 pub use crate::scene::{EmptyKind, LightKind};
 use crate::theme::Rgba;
@@ -80,6 +81,40 @@ impl AddItem {
         }
     }
 
+    /// The icon of the item in `VIEW3D_MT_mesh_add`, `VIEW3D_MT_empty_add`, `VIEW3D_MT_camera_add` and the light type
+    /// enum (space_view3d.py:2583-2850, `ICON_LIGHT_*` of `object.light_add`).
+    pub fn icon(self) -> Icon {
+        match self {
+            AddItem::Mesh(p) => match p {
+                Primitive::Plane => Icon::MeshPlane,
+                Primitive::Cube => Icon::MeshCube,
+                Primitive::Circle => Icon::MeshCircle,
+                Primitive::UvSphere => Icon::MeshUvSphere,
+                Primitive::IcoSphere => Icon::MeshIcoSphere,
+                Primitive::Cylinder => Icon::MeshCylinder,
+                Primitive::Cone => Icon::MeshCone,
+                Primitive::Torus => Icon::MeshTorus,
+                Primitive::Grid => Icon::MeshGrid,
+            },
+            AddItem::Empty(k) => match k {
+                EmptyKind::PlainAxes => Icon::EmptyAxis,
+                EmptyKind::Arrows => Icon::EmptyArrows,
+                EmptyKind::SingleArrow => Icon::EmptySingleArrow,
+                EmptyKind::Circle => Icon::MeshCircle,
+                EmptyKind::Cube => Icon::Cube,
+                EmptyKind::Sphere => Icon::Sphere,
+                EmptyKind::Cone => Icon::Cone,
+            },
+            AddItem::Camera => Icon::ObCamera,
+            AddItem::Light(k) => match k {
+                LightKind::Point => Icon::LightPoint,
+                LightKind::Sun => Icon::LightSun,
+                LightKind::Spot => Icon::LightSpot,
+                LightKind::Area => Icon::LightArea,
+            },
+        }
+    }
+
     /// The name of the new object.
     pub fn object_name(self) -> &'static str {
         match self {
@@ -103,7 +138,7 @@ pub fn layout(user: &UserDef, pos: [i32; 2], win_w: i32, win_h: i32) -> Layout {
     let margin = (unit / 5).max(2);
     let widest = AddItem::ALL
         .iter()
-        .map(|p| font::label_width(user, p.label()))
+        .map(|p| font::label_width(user, p.label()) + unit)
         .chain([font::label_width(user, TITLE)])
         .max()
         .unwrap_or(0);
@@ -159,7 +194,9 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, layout
         if selected {
             fill_rect(buf, width, height, rect, INNER_SEL.to_xrgb());
         }
-        font::draw_label(buf, width, height, user, rect, prim.label(), if selected { ITEM_TEXT_SEL } else { ITEM_TEXT });
+        let col = if selected { ITEM_TEXT_SEL } else { ITEM_TEXT };
+        icons::draw_icon(buf, width, height, user, Rcti { xmax: rect.xmin + user.widget_unit - 1, ..rect }, prim.icon(), col);
+        font::draw_label(buf, width, height, user, Rcti { xmin: rect.xmin + user.widget_unit, ..rect }, prim.label(), col);
     }
 }
 
@@ -246,5 +283,19 @@ mod tests {
         assert_eq!(at(other.xmax, other.ymin), INNER.to_xrgb(), "other rows");
         assert_eq!(at(l.panel.xmin, l.panel.ymin), OUTLINE.to_xrgb(), "outline");
         assert_eq!(at(l.panel.xmax + 5, l.panel.ymin), bg, "outside the panel");
+    }
+
+    #[test]
+    fn every_item_has_its_blender_icon() {
+        assert_eq!(AddItem::Mesh(Primitive::Torus).icon(), Icon::MeshTorus);
+        assert_eq!(AddItem::Empty(EmptyKind::Circle).icon(), Icon::MeshCircle);
+        assert_eq!(AddItem::Empty(EmptyKind::Cone).icon(), Icon::Cone);
+        assert_eq!(AddItem::Camera.icon(), Icon::ObCamera);
+        assert_eq!(AddItem::Light(LightKind::Spot).icon(), Icon::LightSpot);
+        /* One icon per entry that has a distinct Blender icon: 21 entries, `MESH_CIRCLE` shared by two. */
+        let mut v: Vec<_> = AddItem::ALL.iter().map(|i| format!("{:?}", i.icon())).collect();
+        v.sort();
+        v.dedup();
+        assert_eq!(v.len(), 20);
     }
 }

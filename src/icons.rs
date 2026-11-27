@@ -81,6 +81,29 @@ pub enum Icon {
     ObCamera,
     ObLight,
     ObEmpty,
+    /// The icons of `VIEW3D_MT_mesh_add`: `ICON_MESH_PLANE`, `_CUBE`, `_CIRCLE`, `_UVSPHERE`, `_ICOSPHERE`, `_CYLINDER`,
+    /// `_CONE`, `_TORUS`, `_GRID`.
+    MeshPlane,
+    MeshCube,
+    MeshCircle,
+    MeshUvSphere,
+    MeshIcoSphere,
+    MeshCylinder,
+    MeshCone,
+    MeshTorus,
+    MeshGrid,
+    /// The icons of `VIEW3D_MT_empty_add`: `ICON_EMPTY_AXIS`, `_ARROWS`, `_SINGLE_ARROW`, `ICON_CUBE`, `_SPHERE`, `_CONE`.
+    EmptyAxis,
+    EmptyArrows,
+    EmptySingleArrow,
+    Cube,
+    Sphere,
+    Cone,
+    /// `ICON_LIGHT_POINT`, `_SUN`, `_SPOT`, `_AREA` of the light types.
+    LightPoint,
+    LightSun,
+    LightSpot,
+    LightArea,
 }
 
 #[derive(Clone, Debug)]
@@ -173,6 +196,55 @@ fn shapes(icon: Icon) -> Vec<Shape> {
         ],
         Icon::ObLight => vec![ring(8.0, 6.5, 3.6, 1.3), line(6.3, 11.5, 9.7, 11.5, 1.2), line(6.8, 13.7, 9.2, 13.7, 1.2)],
         Icon::ObEmpty => vec![line(8.0, 1.5, 8.0, 14.5, 1.2), line(1.5, 8.0, 14.5, 8.0, 1.2), line(3.0, 13.0, 13.0, 3.0, 1.2)],
+        Icon::MeshPlane => vec![polyline(&[[2.0, 11.5], [5.5, 4.5], [14.0, 4.5], [10.5, 11.5]], 1.3, true)],
+        Icon::MeshCube => cube_outline(1.2),
+        Icon::MeshCircle => vec![ring(8.0, 8.0, 5.5, 1.3)],
+        Icon::MeshUvSphere => vec![ring(8.0, 8.0, 6.0, 1.2), ellipse(8.0, 8.0, 2.6, 6.0, 1.0), line(2.0, 8.0, 14.0, 8.0, 1.0)],
+        Icon::MeshIcoSphere => vec![
+            ring(8.0, 8.0, 6.0, 1.2),
+            polyline(&[[8.0, 4.0], [11.5, 6.0], [11.5, 10.0], [8.0, 12.0], [4.5, 10.0], [4.5, 6.0]], 1.0, true),
+        ],
+        Icon::MeshCylinder => vec![
+            ellipse(8.0, 4.5, 5.0, 2.0, 1.2),
+            ellipse(8.0, 11.5, 5.0, 2.0, 1.2),
+            line(3.0, 4.5, 3.0, 11.5, 1.2),
+            line(13.0, 4.5, 13.0, 11.5, 1.2),
+        ],
+        Icon::MeshCone => vec![ellipse(8.0, 12.0, 5.5, 2.0, 1.2), line(8.0, 2.0, 2.5, 12.0, 1.2), line(8.0, 2.0, 13.5, 12.0, 1.2)],
+        Icon::MeshTorus => vec![ellipse(8.0, 8.0, 6.5, 4.5, 1.3), ellipse(8.0, 8.0, 2.8, 1.6, 1.1)],
+        Icon::MeshGrid => vec![
+            polyline(&[[2.0, 2.0], [14.0, 2.0], [14.0, 14.0], [2.0, 14.0]], 1.2, true),
+            line(6.0, 2.0, 6.0, 14.0, 1.0),
+            line(10.0, 2.0, 10.0, 14.0, 1.0),
+            line(2.0, 6.0, 14.0, 6.0, 1.0),
+            line(2.0, 10.0, 14.0, 10.0, 1.0),
+        ],
+        Icon::EmptyAxis => vec![line(8.0, 1.5, 8.0, 14.5, 1.2), line(1.5, 8.0, 14.5, 8.0, 1.2)],
+        Icon::EmptyArrows => vec![
+            line(8.0, 8.0, 8.0, 4.0, 1.2),
+            poly(&[[8.0, 1.5], [6.2, 4.5], [9.8, 4.5]]),
+            line(8.0, 8.0, 12.0, 8.0, 1.2),
+            poly(&[[14.5, 8.0], [11.5, 6.2], [11.5, 9.8]]),
+            line(8.0, 8.0, 4.5, 11.5, 1.2),
+            poly(&[[2.0, 14.0], [3.0, 10.5], [5.5, 13.0]]),
+        ],
+        Icon::EmptySingleArrow => vec![line(8.0, 14.0, 8.0, 5.5, 1.2), poly(&[[8.0, 1.5], [5.5, 6.0], [10.5, 6.0]])],
+        Icon::Cube => vec![polyline(&[[3.0, 3.0], [13.0, 3.0], [13.0, 13.0], [3.0, 13.0]], 1.3, true)],
+        Icon::Sphere => vec![ring(8.0, 8.0, 5.5, 1.3)],
+        Icon::Cone => vec![polyline(&[[8.0, 2.0], [14.0, 13.0], [2.0, 13.0]], 1.3, true)],
+        Icon::LightPoint => {
+            let mut v = vec![ring(8.0, 8.0, 3.0, 1.3)];
+            v.extend([line(8.0, 1.5, 8.0, 3.5, 1.1), line(8.0, 12.5, 8.0, 14.5, 1.1), line(1.5, 8.0, 3.5, 8.0, 1.1), line(12.5, 8.0, 14.5, 8.0, 1.1)]);
+            v
+        }
+        Icon::LightSun => {
+            let mut v = vec![disc(8.0, 8.0, 3.2)];
+            v.extend([line(8.0, 1.5, 8.0, 3.5, 1.1), line(8.0, 12.5, 8.0, 14.5, 1.1), line(1.5, 8.0, 3.5, 8.0, 1.1), line(12.5, 8.0, 14.5, 8.0, 1.1)]);
+            v.extend([line(3.4, 3.4, 4.8, 4.8, 1.1), line(11.2, 11.2, 12.6, 12.6, 1.1), line(3.4, 12.6, 4.8, 11.2, 1.1), line(11.2, 4.8, 12.6, 3.4, 1.1)]);
+            v
+        }
+        Icon::LightSpot => vec![ring(8.0, 4.5, 2.5, 1.2), line(5.5, 8.0, 2.5, 14.0, 1.1), line(10.5, 8.0, 13.5, 14.0, 1.1)],
+        Icon::LightArea => vec![polyline(&[[2.0, 5.0], [14.0, 5.0], [14.0, 11.0], [2.0, 11.0]], 1.3, true), disc(8.0, 8.0, 1.6)],
         Icon::OutlinerCollection => vec![
             polyline(&[[2.5, 12.5], [2.5, 3.5], [13.5, 3.5], [13.5, 12.5]], 1.3, false),
             line(2.5, 12.5, 13.5, 12.5, 1.3),
@@ -459,6 +531,25 @@ mod tests {
             Icon::ObCamera,
             Icon::ObLight,
             Icon::ObEmpty,
+            Icon::MeshPlane,
+            Icon::MeshCube,
+            Icon::MeshCircle,
+            Icon::MeshUvSphere,
+            Icon::MeshIcoSphere,
+            Icon::MeshCylinder,
+            Icon::MeshCone,
+            Icon::MeshTorus,
+            Icon::MeshGrid,
+            Icon::EmptyAxis,
+            Icon::EmptyArrows,
+            Icon::EmptySingleArrow,
+            Icon::Cube,
+            Icon::Sphere,
+            Icon::Cone,
+            Icon::LightPoint,
+            Icon::LightSun,
+            Icon::LightSpot,
+            Icon::LightArea,
         ] {
             let mut buf = vec![bg(); 400];
             draw_icon(&mut buf, 20, 20, &user, rect, icon, Rgba::hex(0xffffffff));
