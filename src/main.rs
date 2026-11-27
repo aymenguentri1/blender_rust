@@ -136,6 +136,7 @@ mod mesh_merge;
 #[allow(dead_code)]
 mod mesh_delete_loose;
 mod sculpt_hide;
+mod sculpt_rotate;
 mod mesh_edgering;
 mod mesh_loopcut;
 mod mesh_ops;
