@@ -171,6 +171,7 @@ mod outliner_iconrow;
 mod icon_theme;
 mod object_tab_context;
 mod object_tab_panels;
+mod object_tab_view;
 mod transform_panel;
 mod select_box;
 mod rename_popup;
@@ -1103,7 +1104,7 @@ impl ApplicationHandler for App {
                 /* The Transform panel of the properties editor: a click on a field starts typing into it; a click
                  * anywhere else applies the text of the open field and then does what it normally does. */
                 let tp_window = modifier_panel::window_rect(user, layout.properties);
-                let tp = tp_window.map(|w| transform_panel::layout(user, w, &self.scene, self.field_edit.as_ref()));
+                let tp = tp_window.map(|w| object_tab_view::layout(user, w, &self.scene, self.field_edit.as_ref()));
                 let clicked_field = match (&tp_window, &tp) {
                     (Some(w), Some(l)) if w.isect_pt_v(self.cursor) => transform_panel::field_at(l, self.cursor),
                     _ => None,
@@ -2493,7 +2494,7 @@ impl ApplicationHandler for App {
                     /* Modifiers panel of the properties editor. */
                     if let Some(user) = self.user.as_ref() {
                         if let Some(window) = modifier_panel::window_rect(user, layout.properties) {
-                            let tp = transform_panel::layout(user, window, &self.scene, self.field_edit.as_ref());
+                            let tp = object_tab_view::layout(user, window, &self.scene, self.field_edit.as_ref());
                             modifier_panel::draw(&mut buf, w, h, user, &tp.widgets);
                             let below = area::Rcti { ymax: tp.bottom, ..window };
                             let widgets = modifier_panel::widgets(user, below, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open).with_edit(self.mod_edit.as_ref()));
