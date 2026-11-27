@@ -1838,4 +1838,50 @@ mod tests {
         let c = rv3d.cursor3d_position(200, 100, [150, 50], [0.0; 3]);
         assert!(close(c[0], 3.6, 1e-3) && close(c[1], 0.0, 1e-4) && close(c[2], 0.0, 1e-4), "{:?}", c);
     }
+
+    /* `view3d_from_minmax()`: unit cube (size 2) at the origin in a 1000x500 region. */
+    #[test]
+    fn view_all_cube_at_origin_has_zero_ofs_and_fit_dist() {
+        let v3d = View3D::default();
+        let mut rv3d = RegionView3D::default();
+        rv3d.view_from_minmax(&v3d, 1000, 500, [-1.0; 3], [1.0; 3]);
+        assert_eq!(rv3d.ofs, [0.0; 3]);
+        let half = ((2.0 * ((DEFAULT_SENSOR_WIDTH / 2.0) / v3d.lens).atan() / 2.0).tan() * CAMERA_PARAM_ZOOM_INIT_PERSP).atan();
+        let expected = 1.4 / half.tan() * 2.0;
+        assert!(close(rv3d.dist, expected, 1e-3), "{} vs {}", rv3d.dist, expected);
+    }
+
+    #[test]
+    fn view_all_off_centre_bounds_move_ofs_to_the_negated_centre() {
+        let mut rv3d = RegionView3D::default();
+        rv3d.view_from_minmax(&View3D::default(), 1000, 500, [2.0, 4.0, -6.0], [4.0, 8.0, -2.0]);
+        assert_eq!(rv3d.ofs, [-3.0, -6.0, 4.0]);
+    }
+
+    #[test]
+    fn view_all_ortho_matches_persp_fit_but_differs_for_tiny_bounds() {
+        let v3d = View3D::default();
+        let mut p = RegionView3D::default();
+        let mut o = RegionView3D { ortho: true, ..RegionView3D::default() };
+        p.view_from_minmax(&v3d, 1000, 500, [-1.0; 3], [1.0; 3]);
+        o.view_from_minmax(&v3d, 1000, 500, [-1.0; 3], [1.0; 3]);
+        assert!(close(o.dist, 1.4 / (DEFAULT_SENSOR_WIDTH / v3d.lens) * 2.0, 1e-3));
+        assert!(close(p.dist, o.dist, 1e-3));
+        /* Tiny bounds: persp clamps to the near plane, ortho does not clamp. */
+        p.view_from_minmax(&v3d, 1000, 500, [0.0; 3], [0.001; 3]);
+        o.view_from_minmax(&v3d, 1000, 500, [0.0; 3], [0.001; 3]);
+        assert!(close(p.dist, v3d.clip_start * 1.5, 1e-6));
+        assert!(o.dist < p.dist);
+    }
+
+    #[test]
+    fn view_all_single_point_ortho_keeps_dist_but_persp_clamps_to_near() {
+        let v3d = View3D::default();
+        let mut o = RegionView3D { ortho: true, ..RegionView3D::default() };
+        o.view_from_minmax(&v3d, 1000, 500, [1.0; 3], [1.0; 3]);
+        assert_eq!(o.dist, 10.0);
+        let mut p = RegionView3D::default();
+        p.view_from_minmax(&v3d, 1000, 500, [1.0; 3], [1.0; 3]);
+        assert!(close(p.dist, v3d.clip_start * 1.5, 1e-6));
+    }
 }
