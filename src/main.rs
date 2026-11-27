@@ -12,6 +12,8 @@
 mod area;
 mod area_header;
 mod topbar_id_fields;
+#[allow(dead_code)]
+mod topbar_menu;
 mod properties_tabs;
 mod timeline_header;
 #[allow(dead_code)]
