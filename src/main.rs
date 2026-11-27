@@ -23,6 +23,7 @@ mod blend_header;
 mod screen;
 mod object_mode;
 mod sculpt;
+mod sculpt_clay_strips;
 mod sculpt_header;
 mod select_header;
 mod screen_draw;
