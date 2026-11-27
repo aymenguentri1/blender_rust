@@ -6,7 +6,9 @@
 //! Deviations: layout only; the gap between groups is `button_space_y`, the top margin is half `UI_TOOLBAR_MARGIN`.
 
 use crate::area::Rcti;
+use crate::theme::Rgba;
 use crate::userdef::UserDef;
+use crate::widget_draw::draw_round_box;
 
 /// `ICON_DEFAULT_HEIGHT_TOOLBAR`.
 const ICON_HEIGHT_TOOLBAR: f32 = 32.0;
@@ -114,6 +116,33 @@ pub fn layout(user: &UserDef, region: Rcti, active: &str) -> Vec<Placed> {
     out
 }
 
+/// `.wcol_toolbar_item` (userdef_default_theme.c:42-51): `inner_sel` is the depressed (active tool) colour.
+pub const WCOL_TOOLBAR_ITEM_INNER: Rgba = Rgba::hex(0x282828ff);
+pub const WCOL_TOOLBAR_ITEM_INNER_SEL: Rgba = Rgba::hex(0x4772b3ff);
+pub const WCOL_TOOLBAR_ITEM_ROUNDNESS: f32 = 0.2;
+
+/// The background of a cell: `inner_sel` while the tool is active (`UI_SELECT`/`UI_BUT_DRAW_ACTIVE` depress),
+/// brightened by the hover colour; an inactive cell is only drawn under the cursor (the toolbar items have no
+/// frame at rest, `widget_state()` of `ToolbarItem` draws no box without `UI_ACTIVE`/`UI_SELECT`).
+pub fn cell_inner(cell: &Placed) -> Option<Rgba> {
+    cell.active.then_some(WCOL_TOOLBAR_ITEM_INNER_SEL)
+}
+
+/// Draws the cell backgrounds of `cells` (see `layout`).
+pub fn draw_cells(buf: &mut [u32], width: usize, height: usize, user: &UserDef, cells: &[Placed]) {
+    let none = Rgba::hex(0);
+    for c in cells {
+        let hovered = crate::hover::inside(c.rect);
+        let inner = match (cell_inner(c), hovered) {
+            (Some(i), _) => i,
+            (None, true) => WCOL_TOOLBAR_ITEM_INNER,
+            (None, false) => continue,
+        };
+        let (inner, _) = crate::hover::colors(c.rect, inner, none);
+        draw_round_box(buf, width, height, user, c.rect, inner, none, WCOL_TOOLBAR_ITEM_ROUNDNESS);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +184,21 @@ mod tests {
         assert_eq!(p[0].rect.ymin - p[1].rect.ymax, 1, "no gap inside a column");
         assert_eq!(p[1].rect.ymin - p[2].rect.ymax - 1, 2, "a separator adds button_space_y");
         assert_eq!(p[0].rect.ymax, 740 - 8);
+    }
+
+    #[test]
+    fn active_cell_is_filled_with_the_depressed_colour() {
+        let user = UserDef::from_window_scale(1.0);
+        let cells = placed("builtin.select_box");
+        let (w, h) = (1000usize, 800usize);
+        let mut buf = vec![0u32; w * h];
+        crate::hover::begin_frame(None);
+        draw_cells(&mut buf, w, h, &user, &cells);
+        let px = |r: Rcti| buf[(h - 1 - r.cent_y() as usize) * w + r.cent_x() as usize];
+        let active = cells.iter().find(|c| c.active).unwrap();
+        let other = cells.iter().find(|c| !c.active).unwrap();
+        assert_eq!(cell_inner(active), Some(WCOL_TOOLBAR_ITEM_INNER_SEL));
+        assert_ne!(px(active.rect), 0);
+        assert_eq!(px(other.rect), 0);
     }
 }
