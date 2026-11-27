@@ -109,10 +109,18 @@ pub enum Icon {
     LightArea,
     /// `ICON_RIGHTARROW`: the thin chevron of a collapsed outliner row (`ICON_DOWNARROW_HLT` is the open one).
     ChevronRight,
+    /// The navigate gizmo buttons (view3d_gizmo_navigate.cc:100-140): `ICON_VIEW_ZOOM`, `ICON_VIEW_PAN`,
+    /// `ICON_VIEW_CAMERA_UNSELECTED`, `ICON_VIEW_CAMERA`, `ICON_VIEW_PERSPECTIVE`, `ICON_VIEW_ORTHO`.
+    ViewZoom,
+    ViewPan,
+    ViewCameraUnselected,
+    ViewCamera,
+    ViewPerspective,
+    ViewOrtho,
 }
 
 impl Icon {
-    pub const ALL: &'static [Icon] = &[Icon::View3D, Icon::ObjectMode, Icon::SculptMode, Icon::DownArrow, Icon::OrientationGlobal, Icon::PivotMedian, Icon::PivotCursor, Icon::PivotIndividual, Icon::Snap, Icon::Proportional, Icon::Overlays, Icon::Xray, Icon::ShadingWire, Icon::ShadingSolid, Icon::ShadingMaterial, Icon::ShadingRendered, Icon::RightArrow, Icon::LeftArrow, Icon::Monitor, Icon::Camera, Icon::Eye, Icon::Grip, Icon::EditMode, Icon::ModWrench, Icon::ModArray, Icon::ModMirror, Icon::ModSolidify, Icon::ModBevel, Icon::ModSmooth, Icon::ModDeform, Icon::ModTriangulate, Icon::ModBoolean, Icon::ModWireframe, Icon::ModDecimate, Icon::ModRemesh, Icon::OutlinerCollection, Icon::ObMesh, Icon::ObCamera, Icon::ObLight, Icon::ObEmpty, Icon::MeshPlane, Icon::MeshCube, Icon::MeshCircle, Icon::MeshUvSphere, Icon::MeshIcoSphere, Icon::MeshCylinder, Icon::MeshCone, Icon::MeshTorus, Icon::MeshGrid, Icon::EmptyAxis, Icon::EmptyArrows, Icon::EmptySingleArrow, Icon::Cube, Icon::Sphere, Icon::Cone, Icon::LightPoint, Icon::LightSun, Icon::LightSpot, Icon::LightArea, Icon::ChevronRight];
+    pub const ALL: &'static [Icon] = &[Icon::View3D, Icon::ObjectMode, Icon::SculptMode, Icon::DownArrow, Icon::OrientationGlobal, Icon::PivotMedian, Icon::PivotCursor, Icon::PivotIndividual, Icon::Snap, Icon::Proportional, Icon::Overlays, Icon::Xray, Icon::ShadingWire, Icon::ShadingSolid, Icon::ShadingMaterial, Icon::ShadingRendered, Icon::RightArrow, Icon::LeftArrow, Icon::Monitor, Icon::Camera, Icon::Eye, Icon::Grip, Icon::EditMode, Icon::ModWrench, Icon::ModArray, Icon::ModMirror, Icon::ModSolidify, Icon::ModBevel, Icon::ModSmooth, Icon::ModDeform, Icon::ModTriangulate, Icon::ModBoolean, Icon::ModWireframe, Icon::ModDecimate, Icon::ModRemesh, Icon::OutlinerCollection, Icon::ObMesh, Icon::ObCamera, Icon::ObLight, Icon::ObEmpty, Icon::MeshPlane, Icon::MeshCube, Icon::MeshCircle, Icon::MeshUvSphere, Icon::MeshIcoSphere, Icon::MeshCylinder, Icon::MeshCone, Icon::MeshTorus, Icon::MeshGrid, Icon::EmptyAxis, Icon::EmptyArrows, Icon::EmptySingleArrow, Icon::Cube, Icon::Sphere, Icon::Cone, Icon::LightPoint, Icon::LightSun, Icon::LightSpot, Icon::LightArea, Icon::ChevronRight, Icon::ViewZoom, Icon::ViewPan, Icon::ViewCameraUnselected, Icon::ViewCamera, Icon::ViewPerspective, Icon::ViewOrtho];
 
     /// The file name (without `.svg`) of the icon in `release/datafiles/icons_svg`.
     pub fn svg_name(self) -> &'static str {
@@ -177,6 +185,12 @@ impl Icon {
             Icon::LightSpot => "light_spot",
             Icon::LightArea => "light_area",
             Icon::ChevronRight => "rightarrow",
+            Icon::ViewZoom => "view_zoom",
+            Icon::ViewPan => "view_pan",
+            Icon::ViewCameraUnselected => "view_camera_unselected",
+            Icon::ViewCamera => "view_camera",
+            Icon::ViewPerspective => "view_perspective",
+            Icon::ViewOrtho => "view_ortho",
         }
     }
 

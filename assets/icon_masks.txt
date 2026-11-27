@@ -57,3 +57,9 @@ light_sun
 light_spot
 light_area
 rightarrow
+view_zoom
+view_pan
+view_camera_unselected
+view_camera
+view_perspective
+view_ortho

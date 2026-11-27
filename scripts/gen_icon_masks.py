@@ -16,7 +16,8 @@ mod_mirror mod_solidify mod_bevel mod_smooth mod_simpledeform mod_triangulate mo
 mod_decim mod_remesh outliner_collection outliner_ob_mesh outliner_ob_camera outliner_ob_light
 outliner_ob_empty mesh_plane mesh_cube mesh_circle mesh_uvsphere mesh_icosphere mesh_cylinder mesh_cone
 mesh_torus mesh_grid empty_axis empty_arrows empty_single_arrow cube sphere cone light_point light_sun
-light_spot light_area rightarrow""".split()
+light_spot light_area rightarrow view_zoom view_pan view_camera_unselected view_camera
+view_perspective view_ortho""".split()
 
 
 def main():

@@ -151,6 +151,7 @@ mod brush_menu;
 mod add_modifier_menu;
 mod icons;
 mod view3d_header;
+mod view3d_navigate;
 mod modifier_menu;
 #[allow(dead_code)]
 mod modifier_panel;
@@ -2510,6 +2511,9 @@ impl ApplicationHandler for App {
                         }
                         if !self.overlays_hidden {
                             overlay_grid_draw::draw_grid(&mut buf, w, h, layout.main, &self.v3d, &self.rv3d, &self.scene_depth);
+                        }
+                        if let Some(user) = self.user.as_ref() {
+                            view3d_navigate::draw(&mut buf, w, h, user, layout.main, self.rv3d.ortho, false);
                         }
                         if let Some(user) = self.user.as_ref().filter(|_| !self.overlays_hidden) {
                             overlay_extra::draw_extras(&mut buf, w, h, layout.main, user, &self.rv3d, &self.scene);
