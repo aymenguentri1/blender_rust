@@ -118,3 +118,4 @@ outliner_collection.dark
 renderlayers
 unpinned
 group
+preview_range

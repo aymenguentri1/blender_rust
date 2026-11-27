@@ -16,6 +16,8 @@ use crate::widget_draw::draw_round_box_sides;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Look {
     Glyph(Icon),
+    /// A toggle that is on (`TH_WCOL_TOGGLE` selected, blue): `show_overlays`.
+    GlyphOn(Icon),
     /// `popover(text="")` without an icon: the arrow.
     Arrow,
     /// The key type of `TIME_PT_keyframing` (`ICON_KEYTYPE_KEYFRAME_VEC`, a diamond).
@@ -62,11 +64,12 @@ fn parts(playing: bool, frame: i32, start: i32, end: i32) -> Vec<Part> {
         Part::Group(vec![(3.8, Field { label: None, value: frame })]),
         /* `use_preview_range`, then `Start` / `End` with `scale_x = 0.8`. */
         Part::Group(vec![
-            (1.0, g(Icon::Time)),
+            (1.0, g(Icon::PreviewRange)),
             (4.4, Field { label: Some("Start"), value: start }),
             (4.4, Field { label: Some("End"), value: end }),
         ]),
-        Part::Group(vec![(1.5, g(Icon::Overlays)), (0.75, Arrow)]),
+        /* `row.prop(overlays, "show_overlays", text="", icon='OVERLAY')`, on by default. */
+        Part::Group(vec![(1.5, Look::GlyphOn(Icon::Overlays)), (0.75, Arrow)]),
     ]
 }
 
@@ -124,10 +127,15 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, items:
     let u = user.widget_unit;
     for it in items {
         let r = it.rect;
-        let (inner, icon_color) = crate::hover::colors(r, theme::WCOL_TOOL_INNER, ICON_COLOR);
+        let on = matches!(it.look, Look::GlyphOn(_));
+        let (inner, icon_color) = if on {
+            crate::hover::colors(r, theme::WCOL_TOGGLE_INNER_SEL, Rgba::hex(0xffffffff))
+        } else {
+            crate::hover::colors(r, theme::WCOL_TOOL_INNER, ICON_COLOR)
+        };
         draw_round_box_sides(buf, width, height, user, r, inner, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS, !it.left, !it.right);
         match &it.look {
-            Look::Glyph(icon) => icons::draw_icon(buf, width, height, user, r, *icon, icon_color),
+            Look::Glyph(icon) | Look::GlyphOn(icon) => icons::draw_icon(buf, width, height, user, r, *icon, icon_color),
             Look::Arrow => icons::draw_icon(buf, width, height, user, r, Icon::DownArrow, icon_color),
             Look::KeyType => {
                 let (cx, cy) = (r.xmin as f32 + (r.size_x() + 1) as f32 / 2.0, r.ymin as f32 + (r.size_y() + 1) as f32 / 2.0);
@@ -168,6 +176,15 @@ mod tests {
         assert_eq!(items[k - 1].look, Look::Glyph(Icon::RadioButOff));
         assert_eq!(items[k + 1].look, Look::Arrow);
         assert!(items[k + 1].left && !items[k + 1].right);
+    }
+
+    #[test]
+    fn preview_range_uses_its_own_icon_and_overlays_is_on() {
+        let user = UserDef::from_window_scale(1.0);
+        let items = layout(&user, header(), 260, false, 1, (1, 250));
+        assert!(items.iter().any(|i| i.look == Look::Glyph(Icon::PreviewRange)));
+        assert!(!items.iter().any(|i| i.look == Look::Glyph(Icon::Time)));
+        assert!(items.iter().any(|i| i.look == Look::GlyphOn(Icon::Overlays)));
     }
 
     #[test]
