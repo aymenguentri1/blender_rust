@@ -1,21 +1,24 @@
-//! Vector icons drawn in software.
+//! Icons drawn from Blender's own artwork.
 //!
-//! Blender draws its icons from `release/datafiles/icons/*.dat` / the `blender_icons.svg` sheet
-//! (`ICON_*`, `UI_icon_draw()` in editors/interface/interface_icons.cc). There is no icon sheet here,
-//! so every icon is a handful of signed-distance primitives on a 16 x 16 design grid (y down), which
-//! is the size of a Blender icon (`ICON_DEFAULT_HEIGHT`, scaled by `UI_SCALE_FAC`).
-//!
-//! Icons are single coloured: shapes carry an alpha so a face can be lighter than its outline.
-//! Coverage is anti-aliased from the distance to the shape and the shapes are combined with "over".
-//! Deviation: the outlines are this port's own drawing, not Blender's artwork.
+//! Blender draws its icons (`ICON_*`, `UI_icon_draw()` in editors/interface/interface_icons.cc) from the
+//! `release/datafiles/icons_svg/*.svg` files. `scripts/gen_icon_masks.py` renders each of those SVGs to a 64 x 64
+//! alpha mask (`assets/icon_masks.bin`, names in `assets/icon_masks.txt`); `draw_icon` scales a mask to
+//! `ICON_DEFAULT_HEIGHT` (16 px) x `UI_SCALE_FAC` with a 4 x 4 box filter and tints it with the given colour.
+//! Deviation: the icons are single coloured (the theme's icon colours are not applied) and `LeftArrow` is the
+//! mirrored `ICON_DISCLOSURE_TRI_RIGHT`.
 
 use crate::area::Rcti;
 use crate::theme::Rgba;
 use crate::userdef::UserDef;
 use crate::widget_draw::blend_px;
 
-/// Size of the design grid in icon units.
+/// Size of an icon in icon units (`ICON_DEFAULT_HEIGHT`).
 pub const GRID: f32 = 16.0;
+
+/// Side of the stored masks in pixels.
+const MASK: usize = 64;
+const MASK_NAMES: &str = include_str!("../assets/icon_masks.txt");
+const MASK_DATA: &[u8] = include_bytes!("../assets/icon_masks.bin");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
@@ -106,370 +109,99 @@ pub enum Icon {
     LightArea,
 }
 
-#[derive(Clone, Debug)]
-enum Prim {
-    Line { a: [f32; 2], b: [f32; 2], w: f32 },
-    Disc { c: [f32; 2], r: f32 },
-    Ring { c: [f32; 2], r: f32, w: f32 },
-    /// An ellipse outline, `r = [rx, ry]`.
-    Ellipse { c: [f32; 2], r: [f32; 2], w: f32 },
-    Poly(Vec<[f32; 2]>),
-    PolyLine { pts: Vec<[f32; 2]>, w: f32, closed: bool },
-}
+impl Icon {
+    pub const ALL: &'static [Icon] = &[Icon::View3D, Icon::ObjectMode, Icon::SculptMode, Icon::DownArrow, Icon::OrientationGlobal, Icon::PivotMedian, Icon::PivotCursor, Icon::PivotIndividual, Icon::Snap, Icon::Proportional, Icon::Overlays, Icon::Xray, Icon::ShadingWire, Icon::ShadingSolid, Icon::ShadingMaterial, Icon::ShadingRendered, Icon::RightArrow, Icon::LeftArrow, Icon::Monitor, Icon::Camera, Icon::Eye, Icon::Grip, Icon::EditMode, Icon::ModWrench, Icon::ModArray, Icon::ModMirror, Icon::ModSolidify, Icon::ModBevel, Icon::ModSmooth, Icon::ModDeform, Icon::ModTriangulate, Icon::ModBoolean, Icon::ModWireframe, Icon::ModDecimate, Icon::ModRemesh, Icon::OutlinerCollection, Icon::ObMesh, Icon::ObCamera, Icon::ObLight, Icon::ObEmpty, Icon::MeshPlane, Icon::MeshCube, Icon::MeshCircle, Icon::MeshUvSphere, Icon::MeshIcoSphere, Icon::MeshCylinder, Icon::MeshCone, Icon::MeshTorus, Icon::MeshGrid, Icon::EmptyAxis, Icon::EmptyArrows, Icon::EmptySingleArrow, Icon::Cube, Icon::Sphere, Icon::Cone, Icon::LightPoint, Icon::LightSun, Icon::LightSpot, Icon::LightArea];
 
-#[derive(Clone, Debug)]
-struct Shape {
-    prim: Prim,
-    alpha: f32,
-}
+    /// The file name (without `.svg`) of the icon in `release/datafiles/icons_svg`.
+    pub fn svg_name(self) -> &'static str {
+        match self {
+            Icon::View3D => "view3d",
+            Icon::ObjectMode => "object_datamode",
+            Icon::SculptMode => "sculptmode_hlt",
+            Icon::DownArrow => "downarrow_hlt",
+            Icon::OrientationGlobal => "orientation_global",
+            Icon::PivotMedian => "pivot_median",
+            Icon::PivotCursor => "pivot_cursor",
+            Icon::PivotIndividual => "pivot_individual",
+            Icon::Snap => "snap_off",
+            Icon::Proportional => "prop_off",
+            Icon::Overlays => "overlay",
+            Icon::Xray => "xray",
+            Icon::ShadingWire => "shading_wire",
+            Icon::ShadingSolid => "shading_solid",
+            Icon::ShadingMaterial => "material",
+            Icon::ShadingRendered => "shading_rendered",
+            Icon::RightArrow => "disclosure_tri_right",
+            Icon::LeftArrow => "disclosure_tri_right",
+            Icon::Monitor => "restrict_view_off",
+            Icon::Camera => "restrict_render_off",
+            Icon::Eye => "hide_off",
+            Icon::Grip => "grip",
+            Icon::EditMode => "editmode_hlt",
+            Icon::ModWrench => "modifier",
+            Icon::ModArray => "mod_array",
+            Icon::ModMirror => "mod_mirror",
+            Icon::ModSolidify => "mod_solidify",
+            Icon::ModBevel => "mod_bevel",
+            Icon::ModSmooth => "mod_smooth",
+            Icon::ModDeform => "mod_simpledeform",
+            Icon::ModTriangulate => "mod_triangulate",
+            Icon::ModBoolean => "mod_boolean",
+            Icon::ModWireframe => "mod_wireframe",
+            Icon::ModDecimate => "mod_decim",
+            Icon::ModRemesh => "mod_remesh",
+            Icon::OutlinerCollection => "outliner_collection",
+            Icon::ObMesh => "outliner_ob_mesh",
+            Icon::ObCamera => "outliner_ob_camera",
+            Icon::ObLight => "outliner_ob_light",
+            Icon::ObEmpty => "outliner_ob_empty",
+            Icon::MeshPlane => "mesh_plane",
+            Icon::MeshCube => "mesh_cube",
+            Icon::MeshCircle => "mesh_circle",
+            Icon::MeshUvSphere => "mesh_uvsphere",
+            Icon::MeshIcoSphere => "mesh_icosphere",
+            Icon::MeshCylinder => "mesh_cylinder",
+            Icon::MeshCone => "mesh_cone",
+            Icon::MeshTorus => "mesh_torus",
+            Icon::MeshGrid => "mesh_grid",
+            Icon::EmptyAxis => "empty_axis",
+            Icon::EmptyArrows => "empty_arrows",
+            Icon::EmptySingleArrow => "empty_single_arrow",
+            Icon::Cube => "cube",
+            Icon::Sphere => "sphere",
+            Icon::Cone => "cone",
+            Icon::LightPoint => "light_point",
+            Icon::LightSun => "light_sun",
+            Icon::LightSpot => "light_spot",
+            Icon::LightArea => "light_area",
+        }
+    }
 
-impl Shape {
-    fn a(mut self, alpha: f32) -> Shape {
-        self.alpha = alpha;
-        self
+    fn mask(self) -> &'static [u8] {
+        let k = MASK_NAMES.lines().position(|n| n == self.svg_name()).expect("icon without a mask");
+        &MASK_DATA[k * MASK * MASK..(k + 1) * MASK * MASK]
     }
 }
 
-fn line(x0: f32, y0: f32, x1: f32, y1: f32, w: f32) -> Shape {
-    Shape { prim: Prim::Line { a: [x0, y0], b: [x1, y1], w }, alpha: 1.0 }
-}
-fn disc(x: f32, y: f32, r: f32) -> Shape {
-    Shape { prim: Prim::Disc { c: [x, y], r }, alpha: 1.0 }
-}
-fn ring(x: f32, y: f32, r: f32, w: f32) -> Shape {
-    Shape { prim: Prim::Ring { c: [x, y], r, w }, alpha: 1.0 }
-}
-fn ellipse(x: f32, y: f32, rx: f32, ry: f32, w: f32) -> Shape {
-    Shape { prim: Prim::Ellipse { c: [x, y], r: [rx, ry], w }, alpha: 1.0 }
-}
-fn poly(pts: &[[f32; 2]]) -> Shape {
-    Shape { prim: Prim::Poly(pts.to_vec()), alpha: 1.0 }
-}
-fn polyline(pts: &[[f32; 2]], w: f32, closed: bool) -> Shape {
-    Shape { prim: Prim::PolyLine { pts: pts.to_vec(), w, closed }, alpha: 1.0 }
-}
-
-/// Points of the arc of the circle `(cx, cy, r)` from `a0` to `a1` degrees (0 = +x, 90 = down).
-fn arc(cx: f32, cy: f32, r: f32, a0: f32, a1: f32, steps: usize) -> Vec<[f32; 2]> {
-    (0..=steps)
-        .map(|i| {
-            let t = (a0 + (a1 - a0) * i as f32 / steps as f32).to_radians();
-            [cx + r * t.cos(), cy + r * t.sin()]
-        })
-        .collect()
-}
-
-/// `n` short rays around the point (8, 8), from radius `r0` to `r1`.
-fn rays(n: usize, r0: f32, r1: f32, w: f32) -> Vec<Shape> {
-    (0..n)
-        .map(|i| {
-            let t = std::f32::consts::TAU * i as f32 / n as f32;
-            line(8.0 + r0 * t.cos(), 8.0 + r0 * t.sin(), 8.0 + r1 * t.cos(), 8.0 + r1 * t.sin(), w)
-        })
-        .collect()
-}
-
-fn sphere_outline() -> Vec<Shape> {
-    vec![ring(8.0, 8.0, 5.8, 1.2), ellipse(8.0, 8.0, 5.8, 2.2, 1.0), ellipse(8.0, 8.0, 2.2, 5.8, 1.0)]
-}
-
-fn cone_outline() -> Vec<Shape> {
-    vec![polyline(&[[3.0, 12.0], [8.0, 2.0], [13.0, 12.0], [8.0, 14.0]], 1.2, true)]
-}
-
-fn cube_outline(w: f32) -> Vec<Shape> {
-    vec![
-        polyline(&[[8.0, 1.5], [14.0, 4.75], [14.0, 11.25], [8.0, 14.5], [2.0, 11.25], [2.0, 4.75]], w, true),
-        polyline(&[[2.0, 4.75], [8.0, 8.0], [14.0, 4.75]], w, false),
-        line(8.0, 8.0, 8.0, 14.5, w),
-    ]
-}
-
-fn shapes(icon: Icon) -> Vec<Shape> {
-    match icon {
-        Icon::View3D => {
-            let mut v = vec![poly(&[[8.0, 1.5], [14.0, 4.75], [8.0, 8.0], [2.0, 4.75]]).a(0.45)];
-            v.extend(cube_outline(1.3));
-            v
-        }
-        Icon::ObjectMode => {
-            let mut v = vec![poly(&[[8.0, 1.5], [14.0, 4.75], [8.0, 8.0], [2.0, 4.75]]).a(0.45)];
-            v.extend(cube_outline(1.3));
-            v
-        }
-        Icon::SculptMode => vec![
-            poly(&[[10.5, 2.0], [14.0, 5.5], [8.5, 11.0], [5.0, 7.5]]).a(0.45),
-            poly(&[[5.0, 7.5], [8.5, 11.0], [5.5, 14.0], [2.0, 10.5]]),
-        ],
-        Icon::DownArrow => vec![poly(&[[4.0, 6.0], [12.0, 6.0], [8.0, 10.5]])],
-        Icon::ObMesh => vec![
-            polyline(&[[8.0, 2.5], [14.0, 13.0], [2.0, 13.0]], 1.2, true),
-            disc(8.0, 2.5, 1.6),
-            disc(14.0, 13.0, 1.6),
-            disc(2.0, 13.0, 1.6),
-        ],
-        Icon::ObCamera => vec![
-            polyline(&[[1.5, 4.5], [10.0, 4.5], [10.0, 11.5], [1.5, 11.5]], 1.3, true),
-            poly(&[[10.0, 7.0], [14.5, 4.5], [14.5, 11.5], [10.0, 9.0]]),
-        ],
-        Icon::ObLight => vec![ring(8.0, 6.5, 3.6, 1.3), line(6.3, 11.5, 9.7, 11.5, 1.2), line(6.8, 13.7, 9.2, 13.7, 1.2)],
-        Icon::ObEmpty => vec![line(8.0, 1.5, 8.0, 14.5, 1.2), line(1.5, 8.0, 14.5, 8.0, 1.2), line(3.0, 13.0, 13.0, 3.0, 1.2)],
-        Icon::MeshPlane => vec![polyline(&[[1.5, 10.0], [8.0, 5.0], [14.5, 10.0], [8.0, 14.5]], 1.3, true)],
-        Icon::MeshCube | Icon::Cube => cube_outline(1.3),
-        Icon::MeshCircle => vec![ring(8.0, 8.0, 5.8, 1.3)],
-        Icon::MeshUvSphere | Icon::Sphere => sphere_outline(),
-        Icon::MeshIcoSphere => {
-            let mut v = vec![ring(8.0, 8.0, 5.8, 1.2), polyline(&[[8.0, 2.2], [13.0, 11.0], [3.0, 11.0]], 1.0, true)];
-            v.push(polyline(&[[8.0, 13.8], [3.0, 5.0], [13.0, 5.0]], 1.0, true));
-            v
-        }
-        Icon::MeshCylinder => vec![
-            ellipse(8.0, 4.5, 5.0, 2.0, 1.2),
-            line(3.0, 4.5, 3.0, 11.5, 1.2),
-            line(13.0, 4.5, 13.0, 11.5, 1.2),
-            polyline(&[[3.0, 11.5], [8.0, 13.5], [13.0, 11.5]], 1.2, false),
-        ],
-        Icon::MeshCone | Icon::Cone => cone_outline(),
-        Icon::MeshTorus => vec![ellipse(8.0, 8.0, 6.2, 4.6, 1.3), ellipse(8.0, 8.0, 2.6, 1.6, 1.1)],
-        Icon::MeshGrid => vec![
-            polyline(&[[2.0, 2.0], [14.0, 2.0], [14.0, 14.0], [2.0, 14.0]], 1.2, true),
-            line(6.0, 2.0, 6.0, 14.0, 1.0),
-            line(10.0, 2.0, 10.0, 14.0, 1.0),
-            line(2.0, 6.0, 14.0, 6.0, 1.0),
-            line(2.0, 10.0, 14.0, 10.0, 1.0),
-        ],
-        Icon::EmptyAxis => shapes(Icon::ObEmpty),
-        Icon::EmptyArrows => vec![
-            line(8.0, 3.0, 8.0, 14.0, 1.2),
-            line(2.0, 8.0, 13.0, 8.0, 1.2),
-            line(3.0, 13.0, 11.0, 5.0, 1.2),
-            poly(&[[8.0, 1.0], [10.5, 4.5], [5.5, 4.5]]),
-            poly(&[[15.0, 8.0], [11.5, 10.5], [11.5, 5.5]]),
-        ],
-        Icon::EmptySingleArrow => vec![line(8.0, 4.0, 8.0, 14.5, 1.3), poly(&[[8.0, 1.0], [11.0, 5.5], [5.0, 5.5]])],
-        Icon::LightPoint => {
-            let mut v = vec![ring(8.0, 8.0, 3.0, 1.3)];
-            v.extend(rays(4, 5.2, 7.2, 1.1));
-            v
-        }
-        Icon::LightSun => {
-            let mut v = vec![disc(8.0, 8.0, 3.0)];
-            v.extend(rays(8, 4.8, 7.2, 1.1));
-            v
-        }
-        Icon::LightSpot => vec![
-            polyline(&[[8.0, 2.0], [14.0, 11.0], [8.0, 13.5], [2.0, 11.0]], 1.2, true),
-            ellipse(8.0, 11.5, 5.0, 2.0, 1.0),
-        ],
-        Icon::LightArea => vec![
-            polyline(&[[2.0, 3.0], [14.0, 3.0], [14.0, 9.0], [2.0, 9.0]], 1.3, true),
-            line(5.0, 11.5, 5.0, 14.5, 1.1),
-            line(8.0, 11.5, 8.0, 14.5, 1.1),
-            line(11.0, 11.5, 11.0, 14.5, 1.1),
-        ],
-        Icon::OutlinerCollection => vec![
-            polyline(&[[2.5, 12.5], [2.5, 3.5], [13.5, 3.5], [13.5, 12.5]], 1.3, false),
-            line(2.5, 12.5, 13.5, 12.5, 1.3),
-            line(2.5, 7.0, 13.5, 7.0, 1.3),
-        ],
-        Icon::OrientationGlobal => vec![
-            ring(8.0, 8.0, 6.2, 1.3),
-            ellipse(8.0, 8.0, 2.8, 6.2, 1.1),
-            line(1.8, 8.0, 14.2, 8.0, 1.1),
-        ],
-        Icon::PivotMedian => vec![
-            disc(8.0, 8.0, 2.0),
-            disc(3.5, 12.0, 1.6),
-            disc(12.5, 12.0, 1.6),
-            disc(8.0, 3.2, 1.6),
-            polyline(&[[3.5, 12.0], [12.5, 12.0], [8.0, 3.2]], 0.9, true).a(0.5),
-        ],
-        Icon::PivotCursor => vec![
-            ring(8.0, 8.0, 4.4, 1.4),
-            line(8.0, 1.5, 8.0, 5.0, 1.3),
-            line(8.0, 11.0, 8.0, 14.5, 1.3),
-            line(1.5, 8.0, 5.0, 8.0, 1.3),
-            line(11.0, 8.0, 14.5, 8.0, 1.3),
-        ],
-        Icon::PivotIndividual => vec![
-            ring(4.8, 8.0, 3.2, 1.2),
-            disc(4.8, 8.0, 1.1),
-            ring(11.2, 8.0, 3.2, 1.2),
-            disc(11.2, 8.0, 1.1),
-        ],
-        Icon::Snap => {
-            let mut u = vec![[4.5, 2.0], [4.5, 8.0]];
-            u.extend(arc(8.0, 8.0, 3.5, 180.0, 0.0, 12));
-            u.push([11.5, 2.0]);
-            vec![
-                polyline(&u, 3.0, false),
-                line(4.5, 2.0, 4.5, 4.2, 1.2).a(0.35),
-                line(11.5, 2.0, 11.5, 4.2, 1.2).a(0.35),
-            ]
-        }
-        Icon::Proportional => vec![ring(8.0, 8.0, 6.3, 1.2), ring(8.0, 8.0, 3.4, 1.2), disc(8.0, 8.0, 1.2)],
-        Icon::Overlays => vec![ring(6.0, 8.0, 4.6, 1.3), ring(10.0, 8.0, 4.6, 1.3)],
-        Icon::Xray => {
-            let mut v = vec![poly(&[[8.0, 1.5], [14.0, 4.75], [8.0, 8.0], [2.0, 4.75]]).a(0.25)];
-            v.push(polyline(&[[8.0, 1.5], [14.0, 4.75], [14.0, 11.25], [8.0, 14.5], [2.0, 11.25], [2.0, 4.75]], 1.3, true));
-            v.push(polyline(&[[2.0, 4.75], [8.0, 8.0], [14.0, 4.75]], 1.0, false).a(0.55));
-            v.push(line(8.0, 8.0, 8.0, 14.5, 1.0).a(0.55));
-            v
-        }
-        Icon::ShadingWire => vec![
-            ring(8.0, 8.0, 6.2, 1.2),
-            ellipse(8.0, 8.0, 2.8, 6.2, 1.0),
-            ellipse(8.0, 8.0, 6.2, 2.4, 1.0),
-            line(8.0, 1.8, 8.0, 14.2, 1.0),
-        ],
-        Icon::ShadingSolid => vec![disc(8.0, 8.0, 6.2)],
-        Icon::ShadingMaterial => vec![
-            disc(8.0, 8.0, 6.2).a(0.5),
-            ring(8.0, 8.0, 6.2, 1.3),
-            disc(5.6, 5.6, 2.1),
-            disc(10.4, 10.4, 2.1),
-        ],
-        Icon::LeftArrow => vec![poly(&[[10.0, 3.8], [10.0, 12.2], [5.2, 8.0]])],
-        Icon::RightArrow => vec![poly(&[[6.0, 3.8], [6.0, 12.2], [10.8, 8.0]])],
-        Icon::Monitor => vec![
-            polyline(&[[2.0, 3.0], [14.0, 3.0], [14.0, 10.5], [2.0, 10.5]], 1.4, true),
-            poly(&[[3.6, 4.6], [12.4, 4.6], [12.4, 8.9], [3.6, 8.9]]).a(0.3),
-            line(8.0, 10.5, 8.0, 12.6, 1.4),
-            line(4.8, 12.9, 11.2, 12.9, 1.4),
-        ],
-        Icon::Camera => vec![
-            polyline(&[[1.8, 4.0], [10.2, 4.0], [10.2, 12.0], [1.8, 12.0]], 1.4, true),
-            poly(&[[3.4, 5.6], [8.6, 5.6], [8.6, 10.4], [3.4, 10.4]]).a(0.3),
-            poly(&[[10.2, 7.0], [14.4, 4.6], [14.4, 11.4], [10.2, 9.0]]),
-        ],
-        Icon::Eye => vec![
-            ellipse(8.0, 8.0, 6.4, 3.6, 1.3),
-            disc(8.0, 8.0, 2.4),
-        ],
-        Icon::EditMode => vec![
-            polyline(&[[3.4, 3.4], [12.6, 3.4], [12.6, 12.6], [3.4, 12.6]], 1.2, true).a(0.8),
-            poly(&[[4.6, 4.6], [11.4, 4.6], [11.4, 11.4], [4.6, 11.4]]).a(0.25),
-            disc(3.4, 3.4, 1.9),
-            disc(12.6, 3.4, 1.9),
-            disc(12.6, 12.6, 1.9),
-            disc(3.4, 12.6, 1.9),
-        ],
-        Icon::Grip => vec![
-            disc(6.0, 3.8, 1.25),
-            disc(10.0, 3.8, 1.25),
-            disc(6.0, 8.0, 1.25),
-            disc(10.0, 8.0, 1.25),
-            disc(6.0, 12.2, 1.25),
-            disc(10.0, 12.2, 1.25),
-        ],
-        Icon::ModWrench => vec![
-            line(3.6, 12.4, 9.0, 7.0, 2.4),
-            polyline(&arc(10.6, 5.4, 3.2, 110.0, 400.0, 14), 1.7, false),
-        ],
-        Icon::ModArray => vec![
-            polyline(&[[1.2, 5.5], [5.0, 5.5], [5.0, 10.5], [1.2, 10.5]], 1.3, true),
-            polyline(&[[6.2, 5.5], [10.0, 5.5], [10.0, 10.5], [6.2, 10.5]], 1.3, true).a(0.75),
-            polyline(&[[11.2, 5.5], [15.0, 5.5], [15.0, 10.5], [11.2, 10.5]], 1.3, true).a(0.5),
-        ],
-        Icon::ModMirror => vec![
-            line(8.0, 1.5, 8.0, 14.5, 1.2),
-            poly(&[[1.8, 4.6], [6.6, 8.0], [1.8, 11.4]]).a(0.55),
-            polyline(&[[14.2, 4.6], [9.4, 8.0], [14.2, 11.4]], 1.3, true),
-        ],
-        Icon::ModSolidify => vec![
-            polyline(&[[2.0, 2.0], [14.0, 2.0], [14.0, 14.0], [2.0, 14.0]], 1.4, true),
-            poly(&[[5.0, 5.0], [11.0, 5.0], [11.0, 11.0], [5.0, 11.0]]).a(0.45),
-        ],
-        Icon::ModBevel => vec![
-            poly(&[[2.0, 14.0], [2.0, 6.0], [6.0, 2.0], [14.0, 2.0], [14.0, 14.0]]).a(0.3),
-            polyline(&[[2.0, 14.0], [2.0, 6.0], [6.0, 2.0], [14.0, 2.0], [14.0, 14.0]], 1.4, true),
-        ],
-        Icon::ModSmooth => vec![polyline(&[[1.5, 9.5], [3.6, 6.2], [6.0, 5.4], [8.0, 8.0], [10.0, 10.6], [12.4, 9.8], [14.5, 6.5]], 1.7, false)],
-        Icon::ModDeform => vec![
-            polyline(&arc(8.0, 17.0, 10.0, 235.0, 305.0, 10), 1.4, false),
-            polyline(&arc(8.0, 12.0, 10.0, 235.0, 305.0, 10), 1.4, false).a(0.75),
-            polyline(&arc(8.0, 7.0, 10.0, 235.0, 305.0, 10), 1.4, false).a(0.5),
-        ],
-        Icon::ModTriangulate => vec![
-            polyline(&[[2.0, 2.0], [14.0, 2.0], [14.0, 14.0], [2.0, 14.0]], 1.4, true),
-            line(2.0, 14.0, 14.0, 2.0, 1.3),
-        ],
-        Icon::ModBoolean => vec![ring(5.8, 8.0, 4.6, 1.4), ring(10.2, 8.0, 4.6, 1.4).a(0.75)],
-        Icon::ModWireframe => cube_outline(1.2),
-        Icon::ModDecimate => vec![
-            polyline(&[[8.0, 2.0], [14.0, 13.5], [2.0, 13.5]], 1.4, true),
-            line(8.0, 2.0, 8.0, 13.5, 1.2).a(0.7),
-        ],
-        Icon::ModRemesh => {
-            let mut v = vec![poly(&[[8.0, 1.5], [14.0, 4.75], [8.0, 8.0], [2.0, 4.75]]).a(0.35)];
-            v.extend(cube_outline(1.2));
-            v
-        }
-        Icon::ShadingRendered => vec![disc(8.0, 8.0, 6.2).a(0.7), ring(8.0, 8.0, 6.2, 1.3), disc(5.8, 5.8, 2.3)],
-    }
-}
-
-fn seg_dist(p: [f32; 2], a: [f32; 2], b: [f32; 2]) -> f32 {
-    let (pa, ba) = ([p[0] - a[0], p[1] - a[1]], [b[0] - a[0], b[1] - a[1]]);
-    let len2 = ba[0] * ba[0] + ba[1] * ba[1];
-    let h = if len2 > 0.0 { ((pa[0] * ba[0] + pa[1] * ba[1]) / len2).clamp(0.0, 1.0) } else { 0.0 };
-    let d = [pa[0] - ba[0] * h, pa[1] - ba[1] * h];
-    (d[0] * d[0] + d[1] * d[1]).sqrt()
-}
-
-/// Signed distance to a prim in design units (negative inside / on the stroke).
-fn sdf(prim: &Prim, p: [f32; 2]) -> f32 {
-    match prim {
-        Prim::Line { a, b, w } => seg_dist(p, *a, *b) - w * 0.5,
-        Prim::Disc { c, r } => ((p[0] - c[0]).powi(2) + (p[1] - c[1]).powi(2)).sqrt() - r,
-        Prim::Ring { c, r, w } => (((p[0] - c[0]).powi(2) + (p[1] - c[1]).powi(2)).sqrt() - r).abs() - w * 0.5,
-        Prim::Ellipse { c, r, w } => {
-            let q = [(p[0] - c[0]) / r[0], (p[1] - c[1]) / r[1]];
-            ((q[0] * q[0] + q[1] * q[1]).sqrt() - 1.0).abs() * r[0].min(r[1]) - w * 0.5
-        }
-        Prim::Poly(pts) => {
-            let n = pts.len();
-            let mut d = f32::MAX;
-            let mut inside = false;
-            for i in 0..n {
-                let (a, b) = (pts[i], pts[(i + 1) % n]);
-                d = d.min(seg_dist(p, a, b));
-                if (a[1] > p[1]) != (b[1] > p[1]) && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0] {
-                    inside = !inside;
-                }
-            }
-            if inside {
-                -d
-            } else {
-                d
-            }
-        }
-        Prim::PolyLine { pts, w, closed } => {
-            let n = pts.len();
-            let count = if *closed { n } else { n.saturating_sub(1) };
-            (0..count).map(|i| seg_dist(p, pts[i], pts[(i + 1) % n])).fold(f32::MAX, f32::min) - w * 0.5
-        }
-    }
-}
-
-/// Side length in pixels of an icon at the current UI scale: 16 px at 1x.
 pub fn icon_size(user: &UserDef) -> i32 {
     ((GRID * user.scale_factor).round() as i32).max(1)
 }
 
-/// Draws `icon` centred in `rect` (window pixels, y up) with `color` (its alpha scales every shape).
+/// Draws `icon` centred in `rect` (window pixels, y up) with `color` (its alpha scales the mask).
 pub fn draw_icon(buf: &mut [u32], width: usize, height: usize, user: &UserDef, rect: Rcti, icon: Icon, color: Rgba) {
     if width == 0 || height == 0 || buf.len() < width * height {
         return;
     }
     let size = icon_size(user);
-    let k = size as f32 / GRID;
     let x0 = rect.xmin + (rect.size_x() + 1 - size) / 2;
     let y0 = rect.ymin + (rect.size_y() + 1 - size) / 2;
-    let list = shapes(icon);
+    let mask = icon.mask();
+    let flip = icon == Icon::LeftArrow;
     let base_a = color.a as f32 / 255.0;
+    const N: usize = 4;
+    let k = MASK as f32 / size as f32;
     for py in 0..size {
-        let wy = y0 + py;
+        let wy = y0 + (size - 1 - py); /* mask row 0 is the top, window y is up */
         if wy < 0 || wy >= height as i32 {
             continue;
         }
@@ -479,14 +211,18 @@ pub fn draw_icon(buf: &mut [u32], width: usize, height: usize, user: &UserDef, r
             if wx < 0 || wx >= width as i32 {
                 continue;
             }
-            /* Design space is y down, window space is y up: the top of the icon is its largest y. */
-            let p = [(px as f32 + 0.5) / k, (size - 1 - py) as f32 / k + 0.5 / k];
-            let mut cov = 0.0f32;
-            for s in &list {
-                let c = (0.5 - sdf(&s.prim, p) * k).clamp(0.0, 1.0) * s.alpha;
-                cov = cov + c * (1.0 - cov);
+            let mut sum = 0u32;
+            for sy in 0..N {
+                let my = (((py as f32) + (sy as f32 + 0.5) / N as f32) * k) as usize;
+                for sx in 0..N {
+                    let mut mx = (((px as f32) + (sx as f32 + 0.5) / N as f32) * k) as usize;
+                    if flip {
+                        mx = MASK - 1 - mx;
+                    }
+                    sum += mask[my.min(MASK - 1) * MASK + mx.min(MASK - 1)] as u32;
+                }
             }
-            let a = cov * base_a;
+            let a = sum as f32 / (255.0 * (N * N) as f32) * base_a;
             if a > 0.0 {
                 let px = &mut buf[row + wx as usize];
                 *px = blend_px(*px, color, a);
@@ -531,51 +267,35 @@ mod tests {
     fn every_icon_draws_pixels() {
         let user = UserDef::from_window_scale(1.0);
         let rect = Rcti { xmin: 0, xmax: 19, ymin: 0, ymax: 19 };
-        for icon in [
-            Icon::View3D,
-            Icon::ObjectMode,
-            Icon::SculptMode,
-            Icon::DownArrow,
-            Icon::OrientationGlobal,
-            Icon::PivotMedian,
-            Icon::PivotCursor,
-            Icon::PivotIndividual,
-            Icon::Snap,
-            Icon::Proportional,
-            Icon::Overlays,
-            Icon::Xray,
-            Icon::ShadingWire,
-            Icon::ShadingSolid,
-            Icon::ShadingMaterial,
-            Icon::ShadingRendered,
-            Icon::OutlinerCollection,
-            Icon::ObMesh,
-            Icon::ObCamera,
-            Icon::ObLight,
-            Icon::ObEmpty,
-            Icon::MeshPlane,
-            Icon::MeshCube,
-            Icon::MeshCircle,
-            Icon::MeshUvSphere,
-            Icon::MeshIcoSphere,
-            Icon::MeshCylinder,
-            Icon::MeshCone,
-            Icon::MeshTorus,
-            Icon::MeshGrid,
-            Icon::EmptyAxis,
-            Icon::EmptyArrows,
-            Icon::EmptySingleArrow,
-            Icon::Cube,
-            Icon::Sphere,
-            Icon::Cone,
-            Icon::LightPoint,
-            Icon::LightSun,
-            Icon::LightSpot,
-            Icon::LightArea,
-        ] {
+        for &icon in Icon::ALL {
             let mut buf = vec![bg(); 400];
             draw_icon(&mut buf, 20, 20, &user, rect, icon, Rgba::hex(0xffffffff));
             assert!(buf.iter().any(|&p| p != bg()), "{icon:?}");
+        }
+    }
+
+    /* The mask file holds one 64 x 64 mask per name, and every icon has a name in it. */
+    #[test]
+    fn the_mask_file_matches_the_name_list() {
+        assert_eq!(MASK_DATA.len(), MASK_NAMES.lines().count() * MASK * MASK);
+        for &icon in Icon::ALL {
+            assert!(MASK_NAMES.lines().any(|n| n == icon.svg_name()), "{icon:?}");
+            assert!(icon.mask().iter().any(|&a| a > 60), "{icon:?} mask is empty");
+        }
+    }
+
+    /* The mirrored arrow draws its mass on the other side of the box than the right arrow. */
+    #[test]
+    fn left_arrow_mirrors_right_arrow() {
+        let user = UserDef::from_window_scale(1.0);
+        let rect = Rcti { xmin: 0, xmax: 19, ymin: 0, ymax: 19 };
+        let (mut l, mut r) = (vec![bg(); 400], vec![bg(); 400]);
+        draw_icon(&mut l, 20, 20, &user, rect, Icon::LeftArrow, Rgba::hex(0xffffffff));
+        draw_icon(&mut r, 20, 20, &user, rect, Icon::RightArrow, Rgba::hex(0xffffffff));
+        for y in 0..20 {
+            for x in 0..20 {
+                assert_eq!(l[y * 20 + x], r[y * 20 + 19 - x]);
+            }
         }
     }
 }
