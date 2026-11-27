@@ -69,3 +69,5 @@ time
 filter
 viewzoom
 collection_new
+mouse_mmb_drag
+mouse_rmb

@@ -125,10 +125,13 @@ pub enum Icon {
     Filter,
     Search,
     CollectionNew,
+    /// `ICON_MOUSE_MMB_DRAG`, `ICON_MOUSE_RMB`: the keymap hints of the status bar.
+    MouseMmbDrag,
+    MouseRmb,
 }
 
 impl Icon {
-    pub const ALL: &'static [Icon] = &[Icon::View3D, Icon::ObjectMode, Icon::SculptMode, Icon::DownArrow, Icon::OrientationGlobal, Icon::PivotMedian, Icon::PivotCursor, Icon::PivotIndividual, Icon::Snap, Icon::Proportional, Icon::Overlays, Icon::Xray, Icon::ShadingWire, Icon::ShadingSolid, Icon::ShadingMaterial, Icon::ShadingRendered, Icon::RightArrow, Icon::LeftArrow, Icon::Monitor, Icon::Camera, Icon::Eye, Icon::Grip, Icon::EditMode, Icon::ModWrench, Icon::ModArray, Icon::ModMirror, Icon::ModSolidify, Icon::ModBevel, Icon::ModSmooth, Icon::ModDeform, Icon::ModTriangulate, Icon::ModBoolean, Icon::ModWireframe, Icon::ModDecimate, Icon::ModRemesh, Icon::OutlinerCollection, Icon::ObMesh, Icon::ObCamera, Icon::ObLight, Icon::ObEmpty, Icon::MeshPlane, Icon::MeshCube, Icon::MeshCircle, Icon::MeshUvSphere, Icon::MeshIcoSphere, Icon::MeshCylinder, Icon::MeshCone, Icon::MeshTorus, Icon::MeshGrid, Icon::EmptyAxis, Icon::EmptyArrows, Icon::EmptySingleArrow, Icon::Cube, Icon::Sphere, Icon::Cone, Icon::LightPoint, Icon::LightSun, Icon::LightSpot, Icon::LightArea, Icon::ChevronRight, Icon::ViewZoom, Icon::ViewPan, Icon::ViewCameraUnselected, Icon::ViewCamera, Icon::ViewPerspective, Icon::ViewOrtho, Icon::EditorOutliner, Icon::EditorProperties, Icon::EditorTimeline, Icon::Filter, Icon::Search, Icon::CollectionNew];
+    pub const ALL: &'static [Icon] = &[Icon::View3D, Icon::ObjectMode, Icon::SculptMode, Icon::DownArrow, Icon::OrientationGlobal, Icon::PivotMedian, Icon::PivotCursor, Icon::PivotIndividual, Icon::Snap, Icon::Proportional, Icon::Overlays, Icon::Xray, Icon::ShadingWire, Icon::ShadingSolid, Icon::ShadingMaterial, Icon::ShadingRendered, Icon::RightArrow, Icon::LeftArrow, Icon::Monitor, Icon::Camera, Icon::Eye, Icon::Grip, Icon::EditMode, Icon::ModWrench, Icon::ModArray, Icon::ModMirror, Icon::ModSolidify, Icon::ModBevel, Icon::ModSmooth, Icon::ModDeform, Icon::ModTriangulate, Icon::ModBoolean, Icon::ModWireframe, Icon::ModDecimate, Icon::ModRemesh, Icon::OutlinerCollection, Icon::ObMesh, Icon::ObCamera, Icon::ObLight, Icon::ObEmpty, Icon::MeshPlane, Icon::MeshCube, Icon::MeshCircle, Icon::MeshUvSphere, Icon::MeshIcoSphere, Icon::MeshCylinder, Icon::MeshCone, Icon::MeshTorus, Icon::MeshGrid, Icon::EmptyAxis, Icon::EmptyArrows, Icon::EmptySingleArrow, Icon::Cube, Icon::Sphere, Icon::Cone, Icon::LightPoint, Icon::LightSun, Icon::LightSpot, Icon::LightArea, Icon::ChevronRight, Icon::ViewZoom, Icon::ViewPan, Icon::ViewCameraUnselected, Icon::ViewCamera, Icon::ViewPerspective, Icon::ViewOrtho, Icon::EditorOutliner, Icon::EditorProperties, Icon::EditorTimeline, Icon::Filter, Icon::Search, Icon::CollectionNew, Icon::MouseMmbDrag, Icon::MouseRmb];
 
     /// The file name (without `.svg`) of the icon in `release/datafiles/icons_svg`.
     pub fn svg_name(self) -> &'static str {
@@ -205,6 +208,8 @@ impl Icon {
             Icon::Filter => "filter",
             Icon::Search => "viewzoom",
             Icon::CollectionNew => "collection_new",
+            Icon::MouseMmbDrag => "mouse_mmb_drag",
+            Icon::MouseRmb => "mouse_rmb",
         }
     }
 
