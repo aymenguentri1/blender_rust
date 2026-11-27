@@ -329,7 +329,7 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
         ];
         /* `draw_aligned_panel`: the header is `PNL_HEADER` high with the buttons centred in it; the body follows. */
         let (first, hdr_top, hh) = (out.len(), top, panel_frame::header_height(user));
-        let (fx0, fx1) = (window.xmin + panel_frame::margins(user).0, window.xmax - panel_frame::margins(user).0);
+        let (fx0, fx1) = (window.xmin + panel_frame::margins(user).0, window.xmax + 1 - panel_frame::margins(user).0);
         let body_top = hdr_top - hh;
         let active = i == st.active;
         top -= (hh - unit) / 2;
