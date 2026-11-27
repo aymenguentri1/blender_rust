@@ -81,6 +81,24 @@ pub enum Style {
     Frame { open: bool, active: bool },
     /// A value field that is being typed into (blue outline).
     Editing,
+    /// The label of a property-split row (`use_property_split`): right aligned in the label column.
+    PropLabel,
+    /// A number field of an aligned column; `corners` is 0 for a single field, 1 top, 2 middle, 3 bottom.
+    PropBox { corners: u8 },
+    /// An enum dropdown: label at the left, `DOWNARROW_HLT` at the right.
+    DropBox,
+    /// A box with only the `DOWNARROW_HLT` icon (`row.menu(..., icon='DOWNARROW_HLT')`).
+    MenuIcon,
+    /// The `lock_*` decorator (`emboss=False`, `DECORATE_UNLOCKED` / `DECORATE_LOCKED`).
+    Lock { locked: bool },
+    /// The animate decorator (`ICON_DOT`, no keyframe).
+    KeyDot,
+    /// A number field whose label (before the `\t` of `label`) is at the left and value (after it) at the right.
+    LabeledBox { corners: u8 },
+    /// The translucent panel of the 3D viewport sidebar (an overlap region): header and body in one box.
+    SideFrame,
+    /// The collapse arrow and drag grip of a panel header (`panel_draw_aligned_widgets`); the widget rect is the header.
+    PanelArrow { open: bool },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -419,6 +437,77 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
             }
             Style::Title => {
                 font::draw_label_pad(buf, width, height, user, w.rect, &w.label, theme::WCOL_PULLDOWN_TEXT, 0);
+                continue;
+            }
+            Style::PropLabel => {
+                let pad = (w.rect.size_x() + 1 - font::string_width(user, &w.label) - (4.0 * user.scale_factor) as i32).max(0);
+                font::draw_label_pad(buf, width, height, user, w.rect, &w.label, theme::WCOL_PULLDOWN_TEXT, pad);
+                continue;
+            }
+            Style::SideFrame => {
+                draw_round_box(buf, width, height, user, w.rect, Rgba::hex(0x2b2b2be6), Rgba::hex(0xffffff11), panel_frame::PANEL_ROUNDNESS * 0.5);
+                continue;
+            }
+            Style::LabeledBox { corners } => {
+                let (inner, text) = crate::hover::colors(w.rect, theme::WCOL_TOOL_INNER, theme::WCOL_PULLDOWN_TEXT);
+                let flags = match corners {
+                    1 => [false, false, true, true],
+                    2 => [false; 4],
+                    3 => [true, true, false, false],
+                    _ => [true; 4],
+                };
+                crate::widget_draw::draw_round_box_corners(buf, width, height, user, w.rect, inner, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS, flags);
+                let (l, r) = w.label.split_once('\t').unwrap_or((&w.label, ""));
+                font::draw_label_pad(buf, width, height, user, w.rect, l, text, (16.0 * user.scale_factor) as i32);
+                let pad = (w.rect.size_x() + 1 - font::string_width(user, r) - (13.0 * user.scale_factor) as i32).max(0);
+                font::draw_label_pad(buf, width, height, user, w.rect, r, text, pad);
+                continue;
+            }
+            Style::PropBox { corners } => {
+                let (inner, text) = crate::hover::colors(w.rect, theme::WCOL_TOOL_INNER, theme::WCOL_PULLDOWN_TEXT);
+                let flags = match corners {
+                    1 => [false, false, true, true],
+                    2 => [false; 4],
+                    3 => [true, true, false, false],
+                    _ => [true; 4],
+                };
+                crate::widget_draw::draw_round_box_corners(buf, width, height, user, w.rect, inner, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS, flags);
+                let pad = ((w.rect.size_x() + 1 - font::string_width(user, &w.label)) / 2).max(0);
+                font::draw_label_pad(buf, width, height, user, w.rect, &w.label, text, pad);
+                continue;
+            }
+            Style::DropBox | Style::MenuIcon => {
+                let (inner, text) = crate::hover::colors(w.rect, theme::WCOL_TOOL_INNER, theme::WCOL_PULLDOWN_TEXT);
+                draw_round_box(buf, width, height, user, w.rect, inner, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS);
+                let size = icons::icon_size(user);
+                if w.style == Style::DropBox {
+                    font::draw_label(buf, width, height, user, w.rect, &w.label, text);
+                    icons::draw_icon(buf, width, height, user, Rcti { xmin: w.rect.xmax - size - (2.0 * user.scale_factor) as i32, ..w.rect }, Icon::DownArrow, text);
+                } else {
+                    icons::draw_icon(buf, width, height, user, w.rect, Icon::DownArrow, text);
+                }
+                continue;
+            }
+            Style::Lock { locked } => {
+                let icon = if locked { Icon::DecorateLocked } else { Icon::DecorateUnlocked };
+                let (_, color) = crate::hover::colors(w.rect, Rgba::hex(0), Rgba::hex(0xffffff59));
+                icons::draw_icon(buf, width, height, user, w.rect, icon, color);
+                continue;
+            }
+            Style::PanelArrow { open } => {
+                let body = Rcti { ymax: w.rect.ymin, ymin: w.rect.ymin, ..w.rect };
+                let f = panel_frame::frame(user, body, open, false);
+                let size = icons::icon_size(user);
+                let at = |x: f32, y: f32| Rcti { xmin: x as i32, xmax: x as i32 + size - 1, ymin: y as i32, ymax: y as i32 + size - 1 };
+                let arrow = if open { Icon::DownArrow } else { Icon::RightArrow };
+                icons::draw_icon(buf, width, height, user, at(f.arrow.x, f.arrow.y), arrow, Rgba { a: (f.arrow.alpha * 255.0) as u8, ..theme::WCOL_PULLDOWN_TEXT });
+                icons::draw_icon(buf, width, height, user, at(f.grip.x, f.grip.y), Icon::Grip, Rgba { a: (f.grip.alpha * 255.0) as u8, ..theme::WCOL_PULLDOWN_TEXT });
+                continue;
+            }
+            Style::KeyDot => {
+                let r = ((2.0 * user.scale_factor) as i32).max(1);
+                let dot = Rcti { xmin: w.rect.cent_x() - r, xmax: w.rect.cent_x() + r - 1, ymin: w.rect.cent_y() - r, ymax: w.rect.cent_y() + r - 1 };
+                draw_round_box(buf, width, height, user, dot, Rgba::hex(0xffffff40), Rgba::hex(0), 1.0);
                 continue;
             }
             Style::Button => (theme::WCOL_TOOL_INNER, theme::WCOL_TOOL_ROUNDNESS),

@@ -171,6 +171,8 @@ mod outliner_iconrow;
 mod icon_theme;
 mod object_tab_context;
 mod object_tab_panels;
+mod object_tab_view;
+mod sidebar;
 mod transform_panel;
 mod select_box;
 mod rename_popup;
@@ -1103,7 +1105,7 @@ impl ApplicationHandler for App {
                 /* The Transform panel of the properties editor: a click on a field starts typing into it; a click
                  * anywhere else applies the text of the open field and then does what it normally does. */
                 let tp_window = modifier_panel::window_rect(user, layout.properties);
-                let tp = tp_window.map(|w| transform_panel::layout(user, w, &self.scene, self.field_edit.as_ref()));
+                let tp = tp_window.map(|w| object_tab_view::layout(user, w, &self.scene, self.field_edit.as_ref()));
                 let clicked_field = match (&tp_window, &tp) {
                     (Some(w), Some(l)) if w.isect_pt_v(self.cursor) => transform_panel::field_at(l, self.cursor),
                     _ => None,
@@ -2493,7 +2495,7 @@ impl ApplicationHandler for App {
                     /* Modifiers panel of the properties editor. */
                     if let Some(user) = self.user.as_ref() {
                         if let Some(window) = modifier_panel::window_rect(user, layout.properties) {
-                            let tp = transform_panel::layout(user, window, &self.scene, self.field_edit.as_ref());
+                            let tp = object_tab_view::layout(user, window, &self.scene, self.field_edit.as_ref());
                             modifier_panel::draw(&mut buf, w, h, user, &tp.widgets);
                             let below = area::Rcti { ymax: tp.bottom, ..window };
                             let widgets = modifier_panel::widgets(user, below, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open).with_edit(self.mod_edit.as_ref()));
@@ -2562,6 +2564,11 @@ impl ApplicationHandler for App {
                         if let Some(user) = self.user.as_ref() {
                             if let Some(tb) = area::view3d_toolbar_rect(user, layout.main) { toolbar::draw_cells(&mut buf, w, h, user, &toolbar::layout(user, tb, "builtin.select_box")); }
                             view3d_navigate::draw(&mut buf, w, h, user, area::view3d_visible_rect(user, layout.main), self.rv3d.ortho, false);
+                            if let Some(sb) = sidebar::region(user, layout.main) {
+                                let sp = sidebar::layout(user, sb, &self.scene, self.field_edit.as_ref());
+                                modifier_panel::draw(&mut buf, w, h, user, &sp.widgets);
+                                sidebar::draw_tabs(&mut buf, w, h, user, sb);
+                            }
                             { let q = view3d::quat_to_mat4(self.rv3d.viewquat); view3d_axis_gizmo::draw(&mut buf, w, h, user, area::view3d_visible_rect(user, layout.main), [[q[0][0], q[0][1], q[0][2]], [q[1][0], q[1][1], q[1][2]], [q[2][0], q[2][1], q[2][2]]]); }
                         }
                         if let Some(user) = self.user.as_ref().filter(|_| !self.overlays_hidden) {
