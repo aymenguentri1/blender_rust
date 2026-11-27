@@ -9,7 +9,7 @@
 //!    `UI_UNIT_X` wide, a text label is the text plus `ceil(UI_UNIT_X * 0.25)` (`text_pad_none`)
 //!  - `Layout::row(true)`     (interface_layout.cc:5155): an aligned row has no spacing between items
 //!
-//! Deviations: the mouse icons are not drawn (no icons yet), their slots keep their width; the text
+//! Deviations: the text
 //! starts at the left edge of its label because the label margin of `interface_widgets.cc` was not
 //! supplied. Only the header of the editor areas is handled: over the top bar and the status bar
 //! Blender shows nothing. The workspace status text, the modal keymap status, the action zones, the
@@ -17,6 +17,7 @@
 
 use crate::area::{self, Rcti};
 use crate::font;
+use crate::icons::{self, Icon};
 use crate::screen::ScreenLayout;
 use crate::theme;
 use crate::ui_layout::HeaderRow;
@@ -25,7 +26,7 @@ use crate::userdef::UserDef;
 /// One item of the aligned row.
 enum Item {
     /// `Layout::label("", icon)`.
-    Icon,
+    Icon(crate::icons::Icon),
     /// `Layout::separator(factor)`.
     Space(f32),
     /// `Layout::label(text, ICON_NONE)`.
@@ -34,11 +35,11 @@ enum Item {
 
 /// `uiTemplateInputStatusHeader()`.
 const HEADER_ITEMS: [Item; 7] = [
-    Item::Icon, /* ICON_MOUSE_MMB_DRAG */
+    Item::Icon(Icon::MouseMmbDrag),
     Item::Space(-0.2),
     Item::Text("Pan"),
     Item::Space(0.6),
-    Item::Icon, /* ICON_MOUSE_RMB */
+    Item::Icon(Icon::MouseRmb),
     Item::Space(-0.9),
     Item::Text("Options"),
 ];
@@ -64,8 +65,10 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, layout
     let mut row = HeaderRow::new_global(user, bar.size_y() + 1);
     for item in &HEADER_ITEMS {
         match *item {
-            Item::Icon => {
-                row.place_packed(user.widget_unit);
+            Item::Icon(icon) => {
+                let mut rect = row.place_packed(user.widget_unit);
+                rect.translate(bar.xmin, bar.ymin);
+                icons::draw_icon(buf, width, height, user, rect, icon, theme::SPACE_STATUSBAR_TEXT);
             }
             Item::Space(factor) => {
                 row.place_packed(space_width(user, factor));
