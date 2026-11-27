@@ -50,7 +50,8 @@ pub fn layout(user: &UserDef, window: Rcti, scene: &Scene, edit: Option<&Edit>) 
     let _ = o;
     let hh = panel_frame::header_height(user);
     let sc = |v: f32| (v * s).round() as i32;
-    let top = window.ymax - pad;
+    /* The context path and the ID row (object_tab_context.rs) sit above the first panel. */
+    let top = crate::object_tab_context::layout(user, window).map_or(window.ymax - pad, |r| r.panels_top);
     let body_top = top - hh;
     let body = Rcti { xmin: x0, xmax: x1, ymin: body_top - sc(BODY_H), ymax: body_top };
     let frame = panel_frame::frame(user, body, true, false);
