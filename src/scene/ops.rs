@@ -86,14 +86,7 @@ impl Default for Randomize {
 }
 
 /// Counts shown by the statistics overlay (`ED_info_draw_stats()`), for the visible objects.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Stats {
-    pub objects: usize,
-    pub selected: usize,
-    pub verts: usize,
-    pub faces: usize,
-    pub tris: usize,
-}
+pub type Stats = crate::info_stats::SceneStats;
 
 /// `BLI_string_flip_side_name()` for the common cases: the name with its left / right token flipped, `None` when it has
 /// none. The token is a prefix or a suffix next to a `.`, `_`, `-` or space, in the case of the original, and a
@@ -583,26 +576,20 @@ impl Scene {
         let mut s = Stats::default();
         for o in self.objects.iter().filter(|o| !o.hidden) {
             s.objects += 1;
-            s.selected += usize::from(o.selected);
+            s.objects_sel += usize::from(o.selected);
             if let Some(m) = o.evaluated() {
-                s.verts += m.verts.len();
-                s.faces += m.faces.len();
-                s.tris += m.faces.iter().map(|f| f.len().saturating_sub(2)).sum::<usize>();
+                let c = crate::info_stats::counts_cached(o.id, m);
+                for (all, v) in [(&mut s.all.verts, c.verts), (&mut s.all.edges, c.edges), (&mut s.all.faces, c.faces), (&mut s.all.tris, c.tris)] {
+                    *all += v;
+                }
+                if o.selected {
+                    for (sel, v) in [(&mut s.sel.verts, c.verts), (&mut s.sel.edges, c.edges), (&mut s.sel.faces, c.faces), (&mut s.sel.tris, c.tris)] {
+                        *sel += v;
+                    }
+                }
             }
         }
         s
-    }
-}
-
-impl Stats {
-    /// The overlay lines, like Blender's `Objects 1/3`, `Vertices 8`, `Edges`, `Faces 6`, `Triangles 12`.
-    pub fn lines(&self) -> Vec<String> {
-        vec![
-            format!("Objects  {}/{}", self.selected, self.objects),
-            format!("Vertices  {}", self.verts),
-            format!("Faces  {}", self.faces),
-            format!("Triangles  {}", self.tris),
-        ]
     }
 }
 
@@ -1337,17 +1324,18 @@ mod tests {
         s.cycle_bevel_segments();
         s.update_eval();
         let round = s.statistics();
-        assert!(round.verts > flat.verts && round.faces > flat.faces);
+        assert!(round.all.verts > flat.all.verts && round.all.faces > flat.all.faces);
     }
 
     #[test]
     fn statistics_count_the_visible_objects() {
         let mut s = Scene::startup();
         let st = s.statistics();
-        assert_eq!(st, Stats { objects: 3, selected: 1, verts: 8, faces: 6, tris: 12 });
+        assert_eq!((st.objects, st.objects_sel), (3, 1));
+        assert_eq!(st.all, crate::info_stats::Counts { verts: 8, edges: 12, faces: 6, tris: 12 });
         s.objects[1].hidden = true;
-        assert_eq!(s.statistics().verts, 0);
-        assert_eq!(st.lines()[0], "Objects  1/3");
+        assert_eq!(s.statistics().all.verts, 0);
+        assert_eq!(st.rows(true)[0], "Objects\t1 / 3");
     }
 
     #[test]
@@ -1356,7 +1344,7 @@ mod tests {
         s.set_subsurf(1);
         s.update_eval();
         let st = s.statistics();
-        assert!(st.verts > 8 && st.faces > 6);
+        assert!(st.all.verts > 8 && st.all.faces > 6);
     }
 
     #[test]

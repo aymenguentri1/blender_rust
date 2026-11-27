@@ -87,6 +87,7 @@ mod transform_constraint_proj;
 mod playback;
 mod scene_fps;
 mod transform_snap;
+mod info_stats;
 mod view3d_snap;
 #[allow(dead_code)]
 mod blend_reader;
@@ -448,6 +449,8 @@ struct App {
     overlays_hidden: bool,
     /// The statistics overlay (Shift + Alt + O): object, vertex, face and triangle counts in the info text.
     show_stats: bool,
+    /// Smoothed milliseconds one redraw takes, shown as the FPS row of the statistics overlay.
+    frame_ms: f32,
     /// The transform pivot point (Period cycles it: Median Point, 3D Cursor, Individual Origins).
     pivot_point: transform::PivotPoint,
     /// The 3D viewport header button under the cursor (drawn lighter).
@@ -2498,6 +2501,7 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::RedrawRequested => {
+                let frame_start = std::time::Instant::now();
                 /* Widgets under an open popup do not light up. */
                 let popup = self.add_menu.is_some() || self.mod_menu.is_some() || self.brush_menu.is_some() || self.add_mod_menu.is_some() || self.rename.is_some();
                 hover::begin_frame((!popup).then_some(self.cursor));
@@ -2709,7 +2713,7 @@ impl ApplicationHandler for App {
                             overlay_cursor::draw_cursor(&mut buf, w, h, layout.main, user, &self.rv3d, self.cursor3d, self.cursor3d_quat);
                             overlay_text::draw(&mut buf, w, h, { let v = area::view3d_visible_rect(user, layout.main); area::view3d_toolbar_rect(user, layout.main).map_or(v, |tb| area::Rcti { xmin: tb.xmax + 1, ..v }) }, user, &self.v3d, &self.rv3d, self.frame.unwrap_or(1), &{ let mut info = overlay_text::ObjectInfo::of(&self.scene); if self.pivot_point != transform::PivotPoint::Median { info.pivot = Some(self.pivot_point.label().to_string()); }
                             info.fps = self.playing.as_ref().and_then(|p| p.fps.calc());
-                            if self.show_stats { info.with_stats(&self.scene) } else { info } });
+                            if self.show_stats { let mut info = info.with_stats(&self.scene); if self.frame_ms > 0.0 { info.stats.push(overlay_text::fps_row(self.frame_ms)); } info } else { info } });
                         }
                     }
                     /* Sculpt Mode: the brush ring at the cursor and the brush line at the bottom left. */
@@ -2899,6 +2903,8 @@ impl ApplicationHandler for App {
                 }
                 self.full_dirty = false;
                 buf.present().expect("present");
+                let ms = frame_start.elapsed().as_secs_f32() * 1000.0;
+                self.frame_ms = if self.frame_ms == 0.0 { ms } else { self.frame_ms * 0.8 + ms * 0.2 };
             }
 
             _ => {}
@@ -2909,5 +2915,5 @@ impl ApplicationHandler for App {
 fn main() {
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Wait); // redraw only on demand
-    event_loop.run_app(&mut App::default()).expect("run");
+    event_loop.run_app(&mut App { show_stats: true, ..App::default() }).expect("run");
 }

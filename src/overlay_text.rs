@@ -47,7 +47,7 @@ pub struct ObjectInfo {
 impl ObjectInfo {
     /// Adds the statistics overlay lines of `scene`.
     pub fn with_stats(mut self, scene: &Scene) -> ObjectInfo {
-        self.stats = scene.statistics().lines();
+        self.stats = scene.statistics().rows(scene.active_object().is_some_and(|o| o.mesh().is_some()));
         self
     }
 
@@ -125,6 +125,11 @@ fn frame_line(frame: i32, fps: Option<FpsState>) -> String {
     }
 }
 
+/// The live frame rate row of the statistics overlay: what the last redraws could sustain, from their cost.
+pub fn fps_row(frame_ms: f32) -> String {
+    format!("FPS\t{:.0} ({:.1} ms)", 1000.0 / frame_ms.max(0.01), frame_ms)
+}
+
 /// The lines of the info text, top to bottom.
 fn lines(v3d: &View3D, rv3d: &RegionView3D, frame: i32, object: &ObjectInfo) -> Vec<String> {
     let mut lines = vec![viewport_name(rv3d)];
@@ -149,8 +154,17 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, region: Rcti, user: &U
     let mut y = region.ymax - (0.1 * user.widget_unit as f32) as i32;
     /* A low frame rate tints the whole frame line. */
     let alert = object.fps.filter(FpsState::is_low).map(|fps| frame_line(frame, Some(fps)));
-    for line in lines(v3d, rv3d, frame, object) {
+    let lines = lines(v3d, rv3d, frame, object);
+    /* `ED_info_draw_stats()`: the second column starts after the longest label. */
+    let longest = lines.iter().filter_map(|l| l.split_once('\t')).map(|(k, _)| font::string_width(user, k)).max().unwrap_or(0);
+    let col2 = x + longest + (0.5 * user.widget_unit as f32) as i32;
+    for line in lines {
         y = (y as f32 - line_height) as i32;
+        if let Some((key, value)) = line.split_once('\t') {
+            font::draw_text(buf, width, height, user, x, y, key, theme::SPACE_VIEW3D_TEXT_HI);
+            font::draw_text(buf, width, height, user, col2, y, value, theme::SPACE_VIEW3D_TEXT_HI);
+            continue;
+        }
         let color = if alert.as_ref() == Some(&line) { scene_fps::low_fps_color() } else { theme::SPACE_VIEW3D_TEXT_HI };
         font::draw_text(buf, width, height, user, x, y, &line, color);
     }
@@ -188,7 +202,7 @@ mod tests {
         let scene = Scene::startup();
         let info = ObjectInfo::of(&scene).with_stats(&scene);
         let l = lines(&View3D::default(), &rv3d, 1, &info);
-        assert_eq!(&l[3..], ["Objects  1/3", "Vertices  8", "Faces  6", "Triangles  12"]);
+        assert_eq!(&l[3..], ["Objects\t1 / 3", "Vertices\t8 / 8", "Edges\t12 / 12", "Faces\t6 / 6", "Triangles\t12 / 12"]);
         assert_eq!(lines(&View3D::default(), &rv3d, 1, &ObjectInfo::of(&scene)).len(), 3);
     }
 
