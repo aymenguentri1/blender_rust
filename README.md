@@ -1,46 +1,55 @@
 # blender_rust
 
 <!-- progress:start -->
-<h2 align="center">Blender in Rust: progress</h2>
+<h2 align="center">Blender in Rust: my port vs Blender's source</h2>
 <p align="center">
-<img alt="progress" src="https://img.shields.io/badge/ported-95.6%25-brightgreen?style=for-the-badge&logo=blender&logoColor=white">
-<img alt="tasks" src="https://img.shields.io/badge/tasks-101%2F106-blue?style=for-the-badge">
-<img alt="epics" src="https://img.shields.io/badge/epics-2%2F26-8a2be2?style=for-the-badge">
+<img alt="covered" src="https://img.shields.io/badge/Blender%20files%20covered-3.7%25-orange?style=for-the-badge&logo=blender&logoColor=white">
+<img alt="left" src="https://img.shields.io/badge/files%20left-6563-red?style=for-the-badge">
+<img alt="rust" src="https://img.shields.io/badge/Rust%20lines-53666-blue?style=for-the-badge">
 </p>
 
-**`▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱` 95.6 %** is the mean completion of the 26 epics (101 of 106 planned tasks merged).
+**`▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱` 3.7 %** of Blender is covered: **254 of 6817** files of `source/blender` are referenced by the port (`53666` lines of Rust). **6563 files (about 96 %) are left** to clone Blender 100 %.
 
-| Area | Progress | Done |
-| --- | --- | ---: |
-| Edit mode: mode switch (Tab) and vertex/edge/face select modes | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 5/5 |
-| Edit mode: extrude (E) for vertices, edges and faces | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 2/2 |
-| Edit mode: bevel (Ctrl+B) and loop cut (Ctrl+R) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 2/2 |
-| Outliner: parity with Blender (hierarchy, visibility toggles, rename, drag parent) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 5/5 |
-| Properties editor: object, transform and modifier tabs layout | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 4/4 |
-| Timeline and keyframes: playback, insert keyframe (I), interpolation | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 5/5 |
-| Graph editor: F-curve display and handle editing | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 3/3 |
-| Sculpt: face sets | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 3/3 |
-| Sculpt: multires modifier | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 3/3 |
-| Modifiers: audit existing modifiers against Blender and add missing ones (Mirror, Array, Solidify, Bevel) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 4/4 |
-| Materials and Material Preview shading mode | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 3/3 |
-| File I/O: OBJ import/export | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 2/2 |
-| File I/O: glTF 2.0 import/export (meshes, materials, transforms) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 3/3 |
-| Core: read .blend files (DNA and file header parsing) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 3/3 |
-| Transform system parity | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 5/5 |
-| Object select operators parity (object_select.cc) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 4/4 |
-| Mesh edit operators, pure functions (editmesh_tools.cc) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 5/5 |
-| BMesh queries and polygon helpers as pure Mesh functions | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 4/4 |
-| Undo system (global and edit-mesh) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 5/5 |
-| Default keymap (Blender 4.x keyconfig) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 4/4 |
-| UV editing: pure UV math ported from uvedit_ops/uvedit_islands | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 4/4 |
-| UI widgets: widget colors, states and radius exactly as Blender | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 5/5 |
-| Open .blend files by drag and drop | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 7/7 |
-| Blender icons on existing UI | `▰▰▰▰▰▰▰▰▰▱▱▱` 75 % | 3/4 |
-| Curve objects: evaluation and primitives | `▰▰▰▰▰▰▰▱▱▱▱▱` 60 % | 3/5 |
-| CI health: make cargo fmt and clippy clean, then make them blocking | `▰▰▰▰▰▰▱▱▱▱▱▱` 50 % | 2/4 |
+| Blender module | Progress | Referenced | Total | Covered |
+| --- | --- | ---: | ---: | ---: |
+| `editors` | `▰▱▱▱▱▱▱▱▱▱▱▱` | 117 | 1177 | 9.9 % |
+| `nodes` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 724 | 0.0 % |
+| `gpu` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 2 | 629 | 0.3 % |
+| `blenkernel` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 20 | 590 | 3.4 % |
+| `draw` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 16 | 547 | 2.9 % |
+| `freestyle` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 525 | 0.0 % |
+| `blenlib` | `▰▱▱▱▱▱▱▱▱▱▱▱` | 31 | 512 | 6.1 % |
+| `io` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 4 | 338 | 1.2 % |
+| `compositor` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 212 | 0.0 % |
+| `python` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 203 | 0.0 % |
+| `bmesh` | `▰▱▱▱▱▱▱▱▱▱▱▱` | 15 | 149 | 10.1 % |
+| `imbuf` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 143 | 0.0 % |
+| `makesrna` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 4 | 138 | 2.9 % |
+| `depsgraph` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 128 | 0.0 % |
+| `geometry` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 117 | 0.0 % |
+| `makesdna` | `▰▰▱▱▱▱▱▱▱▱▱▱` | 22 | 110 | 20.0 % |
+| `modifiers` | `▰▱▱▱▱▱▱▱▱▱▱▱` | 8 | 108 | 7.4 % |
+| `sequencer` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 95 | 0.0 % |
+| `windowmanager` | `▰▱▱▱▱▱▱▱▱▱▱▱` | 5 | 80 | 6.2 % |
+| `animrig` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 2 | 52 | 3.8 % |
+| `asset_system` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 46 | 0.0 % |
+| `functions` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 43 | 0.0 % |
+| `blenloader` | `▰▱▱▱▱▱▱▱▱▱▱▱` | 3 | 42 | 7.1 % |
+| `render` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 42 | 0.0 % |
+| `blenfont` | `▰▰▱▱▱▱▱▱▱▱▱▱` | 2 | 14 | 14.3 % |
+| `shader_fx` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 14 | 0.0 % |
+| `blentranslation` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 9 | 0.0 % |
+| `simulation` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 8 | 0.0 % |
+| `blendthumb` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 7 | 0.0 % |
+| `ikplugin` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 7 | 0.0 % |
+| `blenloader_core` | `▰▰▰▰▰▰▱▱▱▱▱▱` | 3 | 6 | 50.0 % |
+| `cpucheck` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 1 | 0.0 % |
+| `datatoc` | `▱▱▱▱▱▱▱▱▱▱▱▱` | 0 | 1 | 0.0 % |
 
-<sub>Every task is ported from a real file in the Blender source tree (about 21 000 files exist, so this is the progress of the planned scope, not of all of Blender). Regenerate with `python3 scripts/progress.py`; the % can drop when new tasks are planned.</sub>
+<sub>File count, not lines: a lower bound of what is ported, and headers count as files. Regenerate with `python3 scripts/parity.py`.</sub>
 <!-- progress:end -->
+
+
 
 ## Object-mode editing
 
