@@ -10,8 +10,8 @@ pub const BUT_INACTIVE: u32 = 1 << 19;
 /// `UI_SEARCH_FILTER_NO_MATCH` (`interface_intern.hh:104`).
 pub const UI_SEARCH_FILTER_NO_MATCH: u32 = 1 << 6;
 
-/// The colour members of `uiWidgetColors` touched by `widget_color_disabled()`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+/// `uiWidgetColors` (DNA_theme_types.h).
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct WidgetColors {
     pub outline: Col4,
     pub inner: Col4,
@@ -20,6 +20,10 @@ pub struct WidgetColors {
     pub text: Col4,
     pub text_sel: Col4,
     pub outline_sel: Col4,
+    pub shaded: u8,
+    pub shadetop: i16,
+    pub shadedown: i16,
+    pub roundness: f32,
 }
 
 /// `shadecolors4()`: returns `(coltop, coldown)`; alpha is copied unchanged.
@@ -92,6 +96,7 @@ mod tests {
             text: [2, 2, 2, 255],
             text_sel: [3, 3, 3, 255],
             outline_sel: [4, 4, 4, 10],
+            ..Default::default()
         };
         widget_color_disabled(&mut w, BUT_DISABLED);
         assert_eq!(w.outline, [1, 2, 3, 127]);
