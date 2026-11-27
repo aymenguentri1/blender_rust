@@ -72,7 +72,7 @@ pub fn layout(user: &UserDef, region: Rcti, scene: &Scene, edit: Option<&Edit>) 
             }
         }
         if prop == TransformProp::Rotation {
-            out.widgets.push(widget(row(6, fx0, px1 - sc(28.0)), "XYZ Euler", Style::DropBox));
+            out.widgets.push(widget(row(6, fx0, px1 - sc(28.0)), "XYZ Euler", Style::DropBoxDark));
             out.widgets.push(widget(row(6, px1 - sc(28.0) + sc(4.0), px1 - sc(6.0)), "", Style::MenuIcon));
         }
     }
@@ -84,36 +84,59 @@ pub fn layout(user: &UserDef, region: Rcti, scene: &Scene, edit: Option<&Edit>) 
 pub fn tabs(user: &UserDef, region: Rcti) -> Vec<(Rcti, &'static str, bool)> {
     let s = user.scale_factor as f32;
     let sc = |v: f32| (v * s).round() as i32;
-    let mut y = region.ymax - sc(4.0 + 3.0);
+    let mut y = region.ymax - sc(6.0);
     let mut out = Vec::new();
     for (i, name) in TABS.iter().enumerate() {
         let h = font::string_width(user, name) + sc(16.0);
-        out.push((Rcti { xmin: region.xmax - sc(TAB_W) + 1, xmax: region.xmax, ymin: y - h + 1, ymax: y }, *name, i == 0));
-        y -= h + sc(8.0);
+        out.push((Rcti { xmin: region.xmax - sc(21.0) + 1, xmax: region.xmax - sc(5.0), ymin: y - h + 1, ymax: y }, *name, i == 0));
+        y -= h + sc(4.0);
     }
     out
 }
 
-/// Draws the tab strip; the text reads from bottom to top.
+/// Draws the tab strip: dark rounded tabs, the active one lighter with white text; the text reads from top to bottom.
 pub fn draw_tabs(buf: &mut [u32], width: usize, height: usize, user: &UserDef, region: Rcti) {
     for (rect, name, active) in tabs(user, region) {
-        let bg = if active { Rgba::hex(0x3d3d3dff) } else { Rgba::hex(0x2b2b2bff) };
-        crate::widget_draw::draw_round_box(buf, width, height, user, rect, bg, Rgba::hex(0), 0.3);
+        let (bg, fg) = if active { (Rgba::hex(0x303030ff), Rgba::hex(0xffffffff)) } else { (Rgba::hex(0x1d1d1dff), Rgba::hex(0x989898ff)) };
+        crate::widget_draw::draw_round_box(buf, width, height, user, rect, bg, Rgba::hex(0x1d1d1dff), 0.4);
         let (tw, th) = ((rect.size_y() + 1) as usize, (rect.size_x() + 1) as usize);
         let px = (bg.r as u32) << 16 | (bg.g as u32) << 8 | bg.b as u32;
         let mut tmp = vec![px; tw * th];
         let text_w = font::string_width(user, name);
-        font::draw_label_pad(&mut tmp, tw, th, user, Rcti { xmin: 0, xmax: tw as i32 - 1, ymin: 0, ymax: th as i32 - 1 }, name, Rgba::hex(0xd9d9d9ff), (tw as i32 - text_w) / 2);
+        font::draw_label_pad(&mut tmp, tw, th, user, Rcti { xmin: 0, xmax: tw as i32 - 1, ymin: 0, ymax: th as i32 - 1 }, name, fg, (tw as i32 - text_w) / 2);
         let (left, top_row) = (rect.xmin, height as i32 - 1 - rect.ymax);
         for r in 0..th {
             for c in 0..tw {
-                let (x, y) = (left + r as i32, top_row + (tw - 1 - c) as i32);
-                if x >= 0 && y >= 0 && (x as usize) < width && (y as usize) < height {
+                /* Rotated 90 degrees clockwise: the start of the text is at the top, the top of the glyphs at the right. */
+                let (x, y) = (left + (th - 1 - r) as i32, top_row + c as i32);
+                if x >= 0 && y >= 0 && (x as usize) < width && (y as usize) < height && tmp[r * tw + c] != px {
                     buf[y as usize * width + x as usize] = tmp[r * tw + c];
                 }
             }
         }
     }
+}
+
+/// The "Options" popover button at the right end of the tool header (`VIEW3D_HT_tool_header`: `layout.popover(
+/// "VIEW3D_PT_tools_object_options"...)`, text "Options" and the dropdown arrow).
+pub fn options_rect(user: &UserDef, main: Rcti) -> Option<Rcti> {
+    let s = user.scale_factor as f32;
+    let sc = |v: f32| (v * s).round() as i32;
+    let th = crate::area::tool_header_rect(user, main)?;
+    let w = font::string_width(user, "Options") + sc(27.0);
+    let h = user.widget_unit - sc(2.0);
+    let ymin = (th.ymin + th.ymax + 1 - h) / 2;
+    Some(Rcti { xmin: th.xmax - sc(6.0) - w + 1, xmax: th.xmax - sc(6.0), ymin, ymax: ymin + h - 1 })
+}
+
+pub fn draw_options(buf: &mut [u32], width: usize, height: usize, user: &UserDef, main: Rcti, cursor: [i32; 2]) {
+    let Some(r) = options_rect(user, main) else { return };
+    let _ = cursor;
+    let (inner, text) = crate::hover::colors(r, Rgba::hex(0x222222ff), Rgba::hex(0xe5e5e5ff));
+    crate::widget_draw::draw_round_box(buf, width, height, user, r, inner, Rgba::hex(0x00000000), crate::theme::WCOL_TOOL_ROUNDNESS);
+    font::draw_label_pad(buf, width, height, user, r, "Options", text, (8.0 * user.scale_factor) as i32);
+    let size = crate::icons::icon_size(user);
+    crate::icons::draw_icon(buf, width, height, user, Rcti { xmin: r.xmax - size - (2.0 * user.scale_factor) as i32, ..r }, crate::icons::Icon::DownArrow, text);
 }
 
 /// The sidebar region of the 3D viewport area `main`.
@@ -135,8 +158,17 @@ mod tests {
             let t = tabs(&user, r);
             assert_eq!(t.len(), 4);
             assert!(t.windows(2).all(|p| p[1].0.ymax < p[0].0.ymin));
-            assert!(t.iter().all(|(rect, _, _)| rect.xmax == r.xmax));
+            assert!(t.iter().all(|(rect, _, _)| rect.xmax == r.xmax - (5.0 * scale) as i32 && rect.size_x() + 1 == (16.0 * scale) as i32), "16 px wide tabs 5 px from the edge");
         }
+    }
+
+    #[test]
+    fn the_options_button_sits_at_the_right_end_of_the_tool_header() {
+        let user = UserDef::from_window_scale(1.0);
+        let main = Rcti { xmin: 0, xmax: 1999, ymin: 0, ymax: 1199 };
+        let (o, th) = (options_rect(&user, main).unwrap(), crate::area::tool_header_rect(&user, main).unwrap());
+        assert_eq!(th.xmax - o.xmax, 6);
+        assert!(o.ymin >= th.ymin && o.ymax <= th.ymax);
     }
 
     #[test]
