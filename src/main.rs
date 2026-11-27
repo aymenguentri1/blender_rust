@@ -12,6 +12,7 @@
 mod area;
 mod area_header;
 mod properties_tabs;
+mod timeline_header;
 #[allow(dead_code)]
 mod blend_header;
 mod screen;
@@ -2444,6 +2445,7 @@ impl ApplicationHandler for App {
                                 rect.translate(header.xmin, header.ymin);
                                 font::draw_label(&mut buf, w, h, user, rect, label, theme::WCOL_PULLDOWN_TEXT);
                             }
+                            timeline_header::draw(&mut buf, w, h, user, header);
                         }
                     }
                     if let Some(user) = self.user.as_ref() {
