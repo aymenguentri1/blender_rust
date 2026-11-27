@@ -357,6 +357,11 @@ fn named_mask(name: &str) -> &'static [u8] {
     &MASK_DATA[k * MASK * MASK..(k + 1) * MASK * MASK]
 }
 
+/// The mask of a menu icon by its `ICON_*` svg name (`topbar_menu.rs` rows), `None` when there is none.
+pub fn mask_by_name(name: &str) -> Option<&'static [u8]> {
+    MASK_NAMES.lines().any(|n| n == name).then(|| named_mask(name))
+}
+
 pub fn icon_size(user: &UserDef) -> i32 {
     ((GRID * user.scale_factor).round() as i32).max(1)
 }
@@ -465,6 +470,15 @@ mod tests {
             assert!(MASK_NAMES.lines().any(|n| n == icon.svg_name()), "{icon:?}");
             assert!(icon.mask().iter().any(|&a| a > 60), "{icon:?} mask is empty");
         }
+    }
+
+    /* The icons of the topbar menus (file_new, link_blend, project, quit, ...) resolve to a non-empty mask. */
+    #[test]
+    fn menu_icons_have_masks() {
+        for n in ["append_blend", "console", "export", "file_folder", "file_new", "file_tick", "fullscreen_enter", "import", "link_blend", "loop_back", "loop_forwards", "preferences", "project", "quit", "recover_last", "render_animation", "render_still", "url"] {
+            assert!(mask_by_name(n).unwrap().iter().any(|&a| a > 60), "{n}");
+        }
+        assert!(mask_by_name("no_such_icon").is_none());
     }
 
     /* The mirrored arrow draws its mass on the other side of the box than the right arrow. */
