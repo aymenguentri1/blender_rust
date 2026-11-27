@@ -160,6 +160,7 @@ mod view3d_navigate;
 mod modifier_menu;
 #[allow(dead_code)]
 mod modifier_panel;
+mod panel_frame;
 mod transform_panel;
 mod select_box;
 mod rename_popup;
