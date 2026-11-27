@@ -42,11 +42,12 @@ pub enum Brush {
     SnakeHook,
     Nudge,
     Blob,
+    Thumb,
 }
 
 impl Brush {
     #[allow(dead_code)]
-    pub const ALL: [Brush; 15] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask, Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob];
+    pub const ALL: [Brush; 16] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask, Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob, Brush::Thumb];
 
     /// The key of the brush in Sculpt Mode, as the brush popup lists it (`Shift X` for `Shift + X`).
     pub fn key_label(self) -> &'static str {
@@ -66,6 +67,7 @@ impl Brush {
             Brush::SnakeHook => "K",
             Brush::Nudge => "N",
             Brush::Blob => "Shift B",
+            Brush::Thumb => "",
         }
     }
 
@@ -86,6 +88,7 @@ impl Brush {
             Brush::SnakeHook => "Snake Hook",
             Brush::Nudge => "Nudge",
             Brush::Blob => "Blob",
+            Brush::Thumb => "Thumb",
         }
     }
 }
@@ -227,7 +230,7 @@ pub fn dab(mesh: &mut Mesh, adj: &Topo, brush: Brush, center: V3, radius: f32, s
 /// `dab()` on a mesh with a mask (one value per vertex); the Mask brush paints it, the others are scaled by it.
 #[allow(clippy::too_many_arguments)]
 pub fn dab_masked(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
-    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge) {
+    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb) {
         return;
     }
     for s in mirror_signs(symmetry) {
@@ -352,7 +355,7 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
                 mesh.verts[i] = add(mesh.verts[i], scale(d, push * BLOB_FACTOR * f * dir));
             }
         }
-        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge => {}
+        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb => {}
     }
 }
 
@@ -371,6 +374,36 @@ fn area_normal(mesh: &Mesh, adj: &Topo, hit: &[(usize, f32)]) -> V3 {
 pub fn nudge(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radius: f32, strength: f32, dir: V3, symmetry: [bool; 3]) {
     for s in mirror_signs(symmetry) {
         let hit = affected(mesh, mask, mirrored(center, s), radius);
+        if hit.is_empty() {
+            continue;
+        }
+        let area = area_normal(mesh, adj, &hit);
+        let d = mirrored(dir, s);
+        let tangent = sub(d, scale(area, dot(d, area)));
+        for &(i, f) in &hit {
+            mesh.verts[i] = add(mesh.verts[i], scale(tangent, radius * strength * NUDGE_FACTOR * f));
+        }
+    }
+}
+
+/// One Thumb dab (`do_thumb_brush()`): Nudge that picks the vertices and their falloff from the surface as it was
+/// when the stroke began (`orig`), so the brush drags the same patch along instead of sweeping up new vertices.
+/// The offset is the stroke direction projected onto the surface, `cross(cross(normal, delta), normal)`.
+#[allow(clippy::too_many_arguments)]
+pub fn thumb(mesh: &mut Mesh, orig: &[V3], mask: &[f32], adj: &Topo, center: V3, radius: f32, strength: f32, dir: V3, symmetry: [bool; 3]) {
+    for s in mirror_signs(symmetry) {
+        let c = mirrored(center, s);
+        let mut hit = Vec::new();
+        for (i, &v) in orig.iter().enumerate().take(mesh.verts.len()) {
+            let d = sub(v, c);
+            let d2 = dot(d, d);
+            if d2 < radius * radius {
+                let f = falloff(d2.sqrt(), radius) * (1.0 - mask_at(mask, i)).clamp(0.0, 1.0);
+                if f > 0.0 {
+                    hit.push((i, f));
+                }
+            }
+        }
         if hit.is_empty() {
             continue;
         }
@@ -526,6 +559,8 @@ struct Active {
     grab: Option<Grab>,
     layer: Option<Layer>,
     hook: Option<Hook>,
+    /// The surface when a Thumb stroke began.
+    orig: Option<Vec<V3>>,
     /// The stroke direction in the local space of the mesh (Nudge), from the last mouse movement.
     dir: V3,
     /// The window depth of the first hit: the mouse moves in the plane at that depth (Snake Hook, Nudge).
@@ -633,7 +668,7 @@ impl Session {
         scene.push_undo();
         let depth = window_depth(rv3d, hit.world);
         let invert = invert != self.settings.subtract;
-        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, layer: None, hook: None, dir: [0.0; 3], depth, inv };
+        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, layer: None, hook: None, orig: None, dir: [0.0; 3], depth, inv };
         let changed = if brush == Brush::Grab {
             let radius = self.local_radius(rv3d, &active, hit.world);
             if let Some((mesh, mask)) = scene.sculpt_mesh_mask_mut(id) {
@@ -645,6 +680,9 @@ impl Session {
             active.hook = Some(Hook { center: hit.local, radius });
             true
         } else {
+            if brush == Brush::Thumb {
+                active.orig = scene.sculpt_mesh_mut(id).map(|m| m.verts.clone());
+            }
             if brush == Brush::Layer {
                 active.layer = scene.sculpt_mesh_mut(id).map(|m| Layer::begin(m));
             }
@@ -671,6 +709,10 @@ impl Session {
         let sym = self.settings.symmetry;
         if let Some(layer) = a.layer.as_mut() {
             layer.dab(mesh, mask, hit.local, radius, self.settings.strength, a.invert, sym);
+            return true;
+        }
+        if let (Brush::Thumb, Some(orig)) = (a.brush, a.orig.as_ref()) {
+            thumb(mesh, orig, mask, &a.adj, hit.local, radius, self.settings.strength, a.dir, sym);
             return true;
         }
         if a.brush == Brush::Nudge {
@@ -710,7 +752,7 @@ impl Session {
             }
             a.last = cur;
         } else {
-            if a.brush == Brush::Nudge {
+            if matches!(a.brush, Brush::Nudge | Brush::Thumb) {
                 let p0 = rv3d.unproject_v3(rw, rh, a.last[0], a.last[1], a.depth);
                 let p1 = rv3d.unproject_v3(rw, rh, cur[0], cur[1], a.depth);
                 if let (Some(p0), Some(p1)) = (p0, p1) {
@@ -842,6 +884,43 @@ mod tests {
 
     fn height_at(m: &Mesh, x: f32, y: f32) -> f32 {
         m.verts.iter().min_by(|a, b| ((a[0] - x).powi(2) + (a[1] - y).powi(2)).partial_cmp(&((b[0] - x).powi(2) + (b[1] - y).powi(2))).unwrap()).unwrap()[2]
+    }
+
+    #[test]
+    fn thumb_drags_along_the_surface_and_never_along_the_normal() {
+        let mut m = grid();
+        let orig = m.verts.clone();
+        let adj = adjacency(&m);
+        thumb(&mut m, &orig, &[], &adj, [0.0; 3], 0.5, 1.0, normalized([1.0, 0.0, 1.0]), [false; 3]);
+        let i = (0..m.verts.len()).min_by(|&a, &b| dot(orig[a], orig[a]).partial_cmp(&dot(orig[b], orig[b])).unwrap()).unwrap();
+        assert!(m.verts[i][0] > orig[i][0] + 1e-4);
+        assert!(m.verts.iter().zip(&orig).all(|(a, b)| (a[2] - b[2]).abs() < 1e-6));
+        let far = (0..m.verts.len()).find(|&k| dot(orig[k], orig[k]) > 0.64).unwrap();
+        assert_eq!(m.verts[far], orig[far]);
+    }
+
+    #[test]
+    fn thumb_keeps_the_stroke_start_patch() {
+        let mut m = grid();
+        let orig = m.verts.clone();
+        let adj = adjacency(&m);
+        for _ in 0..30 {
+            thumb(&mut m, &orig, &[], &adj, [0.0; 3], 0.4, 1.0, [1.0, 0.0, 0.0], [false; 3]);
+        }
+        /* A vertex outside the starting patch is never picked up, however far the patch was dragged. */
+        let far = (0..m.verts.len()).find(|&k| dot(orig[k], orig[k]) > 0.25).unwrap();
+        assert_eq!(m.verts[far], orig[far]);
+    }
+
+    #[test]
+    fn thumb_symmetry_mirrors_the_drag() {
+        let mut m = grid();
+        let orig = m.verts.clone();
+        let adj = adjacency(&m);
+        thumb(&mut m, &orig, &[], &adj, [0.5, 0.0, 0.0], 0.4, 1.0, [1.0, 0.0, 0.0], [true, false, false]);
+        let right = (0..m.verts.len()).filter(|&k| (orig[k][0] - 0.5).abs() < 0.06 && orig[k][1].abs() < 0.06).map(|k| m.verts[k][0] - orig[k][0]).fold(f32::MIN, f32::max);
+        let left = (0..m.verts.len()).filter(|&k| (orig[k][0] + 0.5).abs() < 0.06 && orig[k][1].abs() < 0.06).map(|k| m.verts[k][0] - orig[k][0]).fold(f32::MAX, f32::min);
+        assert!(right > 1e-4 && left < -1e-4, "{right} {left}");
     }
 
     #[test]
@@ -1257,7 +1336,7 @@ mod tests {
 
     #[test]
     fn new_brushes_stroke_through_the_scene_and_undo_in_one_step() {
-        for brush in [Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob] {
+        for brush in [Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob, Brush::Thumb] {
             let (mut scene, rv3d, w, h) = sphere_scene();
             let before = scene.active_object().unwrap().mesh().unwrap().clone();
             let mut session = Session::new();
