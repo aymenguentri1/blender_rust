@@ -2527,12 +2527,16 @@ impl ApplicationHandler for App {
                             let mut row = ui_layout::HeaderRow::new_global(user, header.size_y() + 1);
                             row.place(user.widget_unit * 2);
                             let mut x_end = header.xmin;
-                            for label in ["View", "Marker", "Playback"] {
+                            for label in ["View", "Marker"] {
                                 let mut rect = row.place(font::label_width(user, label));
                                 rect.translate(header.xmin, header.ymin);
                                 font::draw_label(&mut buf, w, h, user, rect, label, theme::WCOL_PULLDOWN_TEXT);
-                                x_end = rect.xmax + 1;
                             }
+                            /* `layout.popover(panel="TIME_PT_playback", text="Playback")`: a boxed dropdown button. */
+                            let mut rect = row.place(timeline_header::popover_width(user, "Playback"));
+                            rect.translate(header.xmin, header.ymin);
+                            timeline_header::draw_popover(&mut buf, w, h, user, rect, "Playback");
+                            x_end = rect.xmax + 1;
                             let items = timeline_header::layout(user, header, x_end, self.playing.is_some(), self.frame.unwrap_or(1), (frame_range::FrameRange::default().start, frame_range::FrameRange::default().end));
                             timeline_header::draw(&mut buf, w, h, user, &items);
                         }
