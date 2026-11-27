@@ -2620,7 +2620,7 @@ impl ApplicationHandler for App {
                         if sample < taa::SAMPLES_LEN && rw > 0 && rh > 0 {
                             let offset = self.taa.offset(sample);
                             let jittered = self.rv3d.taa_jittered(offset, rw, rh);
-                            let mut tmp = vec![theme::SPACE_VIEW3D_BACK.to_xrgb(); (rw * rh) as usize];
+                            let mut tmp = self.taa.take_scratch((rw * rh) as usize, theme::SPACE_VIEW3D_BACK.to_xrgb());
                             let tmp_region = area::Rcti { xmin: 0, xmax: rw - 1, ymin: 0, ymax: rh - 1 };
                             self.scene.update_eval();
                             let render = workbench::draw_scene(&mut tmp, rw as usize, rh as usize, tmp_region, &jittered, self.xray, &self.scene);
@@ -2629,6 +2629,7 @@ impl ApplicationHandler for App {
                                 self.scene_ids = render.ids;
                             }
                             self.taa.accumulate(&tmp, rw as usize, rh as usize, offset);
+                            self.taa.put_scratch(tmp);
                             if self.taa.sample < taa::SAMPLES_LEN {
                                 gfx.window.request_redraw();
                             }
