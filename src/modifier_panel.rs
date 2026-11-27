@@ -87,6 +87,8 @@ pub enum Style {
     PropBox { corners: u8 },
     /// An enum dropdown: label at the left, `DOWNARROW_HLT` at the right.
     DropBox,
+    /// `DropBox` on the dark menu background (`UI_BTYPE_MENU` in the sidebar: `wcol_menu`).
+    DropBoxDark,
     /// A box with only the `DOWNARROW_HLT` icon (`row.menu(..., icon='DOWNARROW_HLT')`).
     MenuIcon,
     /// The `lock_*` decorator (`emboss=False`, `DECORATE_UNLOCKED` / `DECORATE_LOCKED`).
@@ -445,7 +447,7 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
                 continue;
             }
             Style::SideFrame => {
-                draw_round_box(buf, width, height, user, w.rect, Rgba::hex(0x2b2b2be6), Rgba::hex(0xffffff11), panel_frame::PANEL_ROUNDNESS * 0.5);
+                draw_round_box(buf, width, height, user, w.rect, Rgba::hex(0x3d3d3dff), Rgba::hex(0x4a4a4aff), panel_frame::PANEL_ROUNDNESS * 0.5);
                 continue;
             }
             Style::LabeledBox { corners } => {
@@ -476,11 +478,12 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
                 font::draw_label_pad(buf, width, height, user, w.rect, &w.label, text, pad);
                 continue;
             }
-            Style::DropBox | Style::MenuIcon => {
-                let (inner, text) = crate::hover::colors(w.rect, theme::WCOL_TOOL_INNER, theme::WCOL_PULLDOWN_TEXT);
+            Style::DropBox | Style::DropBoxDark | Style::MenuIcon => {
+                let base = if w.style == Style::DropBoxDark { Rgba::hex(0x282828ff) } else { theme::WCOL_TOOL_INNER };
+                let (inner, text) = crate::hover::colors(w.rect, base, theme::WCOL_PULLDOWN_TEXT);
                 draw_round_box(buf, width, height, user, w.rect, inner, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS);
                 let size = icons::icon_size(user);
-                if w.style == Style::DropBox {
+                if w.style != Style::MenuIcon {
                     font::draw_label(buf, width, height, user, w.rect, &w.label, text);
                     icons::draw_icon(buf, width, height, user, Rcti { xmin: w.rect.xmax - size - (2.0 * user.scale_factor) as i32, ..w.rect }, Icon::DownArrow, text);
                 } else {
@@ -490,7 +493,7 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
             }
             Style::Lock { locked } => {
                 let icon = if locked { Icon::DecorateLocked } else { Icon::DecorateUnlocked };
-                let (_, color) = crate::hover::colors(w.rect, Rgba::hex(0), Rgba::hex(0xffffff59));
+                let (_, color) = crate::hover::colors(w.rect, Rgba::hex(0), Rgba::hex(0xfffffff0));
                 icons::draw_icon(buf, width, height, user, w.rect, icon, color);
                 continue;
             }

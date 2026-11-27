@@ -13,7 +13,7 @@ const GIZMO_MINI_SIZE: f32 = 28.0;
 const GIZMO_MINI_OFFSET: f32 = 2.0;
 const GIZMO_SIZE: f32 = 80.0;
 const GIZMO_OFFSET: f32 = 10.0;
-const BACKDROP: Rgba = Rgba::hex(0x3a3a3ab3);
+const BACKDROP: Rgba = Rgba::hex(0x00000020);
 
 /// The buttons below the axis gizmo (`USER_MINI_AXIS_TYPE_GIZMO`, `USER_SHOW_GIZMO_NAVIGATE`, no view lock) as
 /// `GIZMO_MINI_SIZE` squares in window pixels (y up), top to bottom: zoom, pan, the camera toggle and, outside
@@ -39,24 +39,30 @@ pub fn buttons(user: &UserDef, region: Rcti, ortho: bool, camera_view: bool) -> 
         .collect()
 }
 
-/// Draws the buttons: a round backdrop and the icon.
+/// Draws the buttons: one rounded backdrop behind all of them (a capsule as wide as a button) and the icons.
 pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, region: Rcti, ortho: bool, camera_view: bool) {
-    for (rect, icon) in buttons(user, region, ortho, camera_view) {
-        let (cx, cy) = ((rect.xmin + rect.xmax + 1) as f32 / 2.0, (rect.ymin + rect.ymax + 1) as f32 / 2.0);
-        let r = (rect.xmax - rect.xmin + 1) as f32 / 2.0;
-        for y in rect.ymin..=rect.ymax {
-            for x in rect.xmin..=rect.xmax {
-                if x < 0 || y < 0 || x >= width as i32 || y >= height as i32 {
-                    continue;
-                }
-                let d = ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt();
-                let cov = (r - d + 0.5).clamp(0.0, 1.0);
-                if cov > 0.0 {
-                    let i = (height - 1 - y as usize) * width + x as usize;
-                    buf[i] = blend_px(buf[i], BACKDROP, cov * BACKDROP.a as f32 / 255.0);
-                }
+    let buttons = buttons(user, region, ortho, camera_view);
+    let Some(first) = buttons.first().map(|b| b.0) else { return };
+    let last = buttons.last().map(|b| b.0).unwrap_or(first);
+    let pill = Rcti { xmin: first.xmin, xmax: first.xmax, ymin: last.ymin, ymax: first.ymax };
+    let r = (pill.xmax - pill.xmin + 1) as f32 / 2.0;
+    let cx = (pill.xmin + pill.xmax + 1) as f32 / 2.0;
+    let (y_lo, y_hi) = (pill.ymin as f32 + r, pill.ymax as f32 + 1.0 - r);
+    for y in pill.ymin..=pill.ymax {
+        for x in pill.xmin..=pill.xmax {
+            if x < 0 || y < 0 || x >= width as i32 || y >= height as i32 {
+                continue;
+            }
+            let (px, py) = (x as f32 + 0.5, (y as f32 + 0.5).clamp(y_lo, y_hi));
+            let d = ((px - cx).powi(2) + (y as f32 + 0.5 - py).powi(2)).sqrt();
+            let cov = (r - d + 0.5).clamp(0.0, 1.0);
+            if cov > 0.0 {
+                let i = (height - 1 - y as usize) * width + x as usize;
+                buf[i] = blend_px(buf[i], BACKDROP, cov * BACKDROP.a as f32 / 255.0);
             }
         }
+    }
+    for (rect, icon) in buttons {
         draw_icon(buf, width, height, user, rect, icon, Rgba::hex(0xffffffff));
     }
 }

@@ -2723,6 +2723,7 @@ impl ApplicationHandler for App {
                         if let Some(region) = area::tool_header_rect(user, layout.main) {
                             area::blend_rect(&mut buf, w, h, region, theme::SPACE_VIEW3D_HEADER);
                             select_header::draw(&mut buf, w, h, user, &select_header::layout(user, region));
+                            sidebar::draw_options(&mut buf, w, h, user, layout.main, self.cursor);
                         }
                     }
                     /* ED_screen_draw_edges(): the border and outline of every area, `totrct` with the area vertices as scissor. */
