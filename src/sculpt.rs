@@ -19,6 +19,7 @@ use crate::area::Rcti;
 use crate::font;
 use crate::mesh::{add, cross, dot, normalized, scale, sub, Mesh, V3};
 use crate::overlay_cursor::draw_segment;
+use crate::sculpt_clay_thumb;
 use crate::sculpt_elastic;
 use crate::sculpt_rotate::{flip_sign, translation as rotate_translation, vertex_rotation, Dial, DIAL_THRESHOLD_PX};
 use crate::scene::{mat4_mul_dir, mat4_mul_point, ray_triangle, Object, Scene};
@@ -51,11 +52,12 @@ pub enum Brush {
     ElasticDeform,
     MultiplaneScrape,
     Slide,
+    ClayThumb,
 }
 
 impl Brush {
     #[allow(dead_code)]
-    pub const ALL: [Brush; 21] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask, Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob, Brush::Thumb, Brush::DrawSharp, Brush::Rotate, Brush::ElasticDeform, Brush::MultiplaneScrape, Brush::Slide];
+    pub const ALL: [Brush; 22] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask, Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob, Brush::Thumb, Brush::DrawSharp, Brush::Rotate, Brush::ElasticDeform, Brush::MultiplaneScrape, Brush::Slide, Brush::ClayThumb];
 
     /// The key of the brush in Sculpt Mode, as the brush popup lists it (`Shift X` for `Shift + X`).
     pub fn key_label(self) -> &'static str {
@@ -81,6 +83,7 @@ impl Brush {
             Brush::ElasticDeform => "",
             Brush::MultiplaneScrape => "",
             Brush::Slide => "",
+            Brush::ClayThumb => "",
         }
     }
 
@@ -107,6 +110,7 @@ impl Brush {
             Brush::ElasticDeform => "Elastic Deform",
             Brush::MultiplaneScrape => "Multi-plane Scrape",
             Brush::Slide => "Slide",
+            Brush::ClayThumb => "Clay Thumb",
         }
     }
 }
@@ -266,6 +270,19 @@ fn topology_slide(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radius:
     }
 }
 
+/// `do_clay_thumb_brush()` with every mirror of it; `dir` is the stroke direction, `angle` the stroke's `front_angle`.
+#[allow(clippy::too_many_arguments)]
+fn clay_thumb(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radius: f32, strength: f32, dir: V3, invert: bool, angle: f32, symmetry: [bool; 3]) {
+    for s in mirror_signs(symmetry) {
+        let c = mirrored(center, s);
+        let hit = affected(mesh, mask, c, radius);
+        let n = area_normal(mesh, adj, &hit);
+        if let Some(plane) = sculpt_clay_thumb::tilted_plane(n, c, mirrored(dir, s), angle) {
+            sculpt_clay_thumb::dab(&mut mesh.verts, mask, &plane, c, radius, sculpt_clay_thumb::brush_strength(strength, invert), |d| falloff(d, 1.0));
+        }
+    }
+}
+
 /// `do_clay_strips_brush()` with every mirror of it; `dir` is the stroke direction.
 #[allow(clippy::too_many_arguments)]
 fn clay_strips(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radius: f32, strength: f32, dir: V3, invert: bool, symmetry: [bool; 3]) {
@@ -308,7 +325,7 @@ pub fn dab(mesh: &mut Mesh, adj: &Topo, brush: Brush, center: V3, radius: f32, s
 /// `dab()` on a mesh with a mask (one value per vertex); the Mask brush paints it, the others are scaled by it.
 #[allow(clippy::too_many_arguments)]
 pub fn dab_masked(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
-    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide | Brush::Pinch | Brush::Inflate | Brush::Crease) {
+    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide | Brush::ClayThumb | Brush::Pinch | Brush::Inflate | Brush::Crease) {
         return;
     }
     for s in mirror_signs(symmetry) {
@@ -404,7 +421,7 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
                 mesh.verts[i] = add(mesh.verts[i], scale(d, push * BLOB_FACTOR * f * dir));
             }
         }
-        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide | Brush::Pinch | Brush::Inflate | Brush::Crease => {}
+        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide | Brush::ClayThumb | Brush::Pinch | Brush::Inflate | Brush::Crease => {}
     }
 }
 
@@ -675,6 +692,8 @@ struct Active {
     layer: Option<Layer>,
     sharp: Option<Sharp>,
     hook: Option<Hook>,
+    /// Clay Thumb `front_angle`; `None` until the first dab, which is skipped.
+    clay_angle: Option<f32>,
     /// The surface when a Thumb stroke began.
     orig: Option<Vec<V3>>,
     /// Enhance Details (inverted Smooth): the directions taken when the stroke began.
@@ -786,7 +805,7 @@ impl Session {
         scene.push_undo();
         let depth = window_depth(rv3d, hit.world);
         let invert = invert != self.settings.subtract;
-        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, rotate: None, elastic: None, layer: None, sharp: None, hook: None, orig: None, details: None, dir: [0.0; 3], depth, inv };
+        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, rotate: None, elastic: None, layer: None, sharp: None, hook: None, clay_angle: None, orig: None, details: None, dir: [0.0; 3], depth, inv };
         let changed = if brush == Brush::Grab {
             let radius = self.local_radius(rv3d, &active, hit.world);
             if let Some((mesh, mask)) = scene.sculpt_mesh_mask_mut(id) {
@@ -861,6 +880,13 @@ impl Session {
         }
         if a.brush == Brush::MultiplaneScrape {
             multiplane_scrape(mesh, mask, &a.adj, hit.local, radius, self.settings.strength, a.dir, a.invert, sym);
+            return true;
+        }
+        if a.brush == Brush::ClayThumb {
+            /* The first dab of the stroke only resets the angle (the grab delta is not set up yet). */
+            let Some(angle) = a.clay_angle.map(sculpt_clay_thumb::next_front_angle).or_else(|| { a.clay_angle = Some(0.0); None }) else { return false };
+            a.clay_angle = Some(angle);
+            clay_thumb(mesh, mask, &a.adj, hit.local, radius, self.settings.strength, a.dir, a.invert, angle, sym);
             return true;
         }
         if a.brush == Brush::Slide {
@@ -939,7 +965,7 @@ impl Session {
             }
             a.last = cur;
         } else {
-            if matches!(a.brush, Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::MultiplaneScrape | Brush::Slide | Brush::Pinch) {
+            if matches!(a.brush, Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::MultiplaneScrape | Brush::Slide | Brush::ClayThumb | Brush::Pinch) {
                 let p0 = rv3d.unproject_v3(rw, rh, a.last[0], a.last[1], a.depth);
                 let p1 = rv3d.unproject_v3(rw, rh, cur[0], cur[1], a.depth);
                 if let (Some(p0), Some(p1)) = (p0, p1) {

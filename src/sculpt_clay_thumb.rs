@@ -14,6 +14,11 @@ pub const FRONT_ANGLE_MAX: f32 = 60.0;
 /// A plane `(normal, d)` with `dot(normal, p) + d == 0` on it (`plane_from_point_normal_v3`).
 pub type Plane = (V3, f32);
 
+/// `brush_strength()` for `SCULPT_BRUSH_TYPE_CLAY_THUMB`: `alpha * flip * pressure * overlap * 1.3` (pressure and overlap are 1).
+pub fn brush_strength(alpha: f32, invert: bool) -> f32 {
+    alpha * if invert { -1.0 } else { 1.0 } * 1.3
+}
+
 /// `front_angle += 0.8`, clamped to `0..=60`.
 pub fn next_front_angle(angle: f32) -> f32 {
     (angle + FRONT_ANGLE_STEP).clamp(0.0, FRONT_ANGLE_MAX)
@@ -73,6 +78,12 @@ mod tests {
     use super::*;
 
     const N: V3 = [0.0, 0.0, 1.0];
+
+    #[test]
+    fn strength_is_alpha_times_1_3_flipped() {
+        assert!((brush_strength(0.5, false) - 0.65).abs() < 1e-6);
+        assert!((brush_strength(0.5, true) + 0.65).abs() < 1e-6);
+    }
 
     #[test]
     fn front_angle_grows_and_clamps() {
