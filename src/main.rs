@@ -13,6 +13,7 @@ mod area;
 mod area_header;
 mod topbar_id_fields;
 #[allow(dead_code)]
+mod menu_activate;
 mod topbar_menu;
 #[allow(dead_code)]
 mod popup_geometry;
