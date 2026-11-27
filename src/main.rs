@@ -137,6 +137,7 @@ mod armature_select;
 mod edit_bone;
 #[allow(dead_code)]
 mod menu_submenu;
+mod sculpt_crease;
 mod sculpt_inflate;
 mod sculpt_pinch;
 #[allow(dead_code)]
