@@ -275,6 +275,14 @@ impl TaaState {
         self.sample
     }
 
+    /// Is this frame drawn as a single sample without AA? `SceneState::init()` does that while navigating
+    /// (`is_navigating`, workbench_state.cc); an active sculpt stroke is treated the same way here, since every dab
+    /// resets the TAA and the software rasteriser would otherwise queue all the samples behind each mouse move.
+    /// Wireframe has no TAA at all, so it never counts.
+    pub fn single_sample_frame(navigating: bool, sculpt_stroke: bool, wire: bool, rw: i32, rh: i32) -> bool {
+        (navigating || sculpt_stroke) && !wire && rw > 0 && rh > 0
+    }
+
     /// While navigating `SceneState::init()` clamps the sample count to 1 and resets the TAA
     /// (`is_navigating`, workbench_state.cc:210-230): drop the accumulation so it restarts at sample 0
     /// once the view settles.
@@ -434,6 +442,15 @@ mod tests {
 
     /* The first sample is the one closest to the centre, which is moved to exactly (0, 0); all
      * samples are in [-1, 1) and distinct. */
+    #[test]
+    fn strokes_and_navigation_draw_one_sample() {
+        assert!(TaaState::single_sample_frame(true, false, false, 10, 10));
+        assert!(TaaState::single_sample_frame(false, true, false, 10, 10));
+        assert!(!TaaState::single_sample_frame(false, false, false, 10, 10), "idle accumulates");
+        assert!(!TaaState::single_sample_frame(true, true, true, 10, 10), "wireframe is unchanged");
+        assert!(!TaaState::single_sample_frame(false, true, false, 0, 10), "empty region");
+    }
+
     #[test]
     fn navigation_reset_restarts_accumulation() {
         let mut t = TaaState::default();

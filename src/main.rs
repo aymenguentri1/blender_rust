@@ -2626,7 +2626,7 @@ impl ApplicationHandler for App {
                         let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
                         /* `SceneState::init()`: while navigating only one sample without AA is drawn and the TAA
                          * is reset, so no accumulation work is done per navigation frame. */
-                        let navigating = self.nav_init.is_some() && !self.wire && rw > 0 && rh > 0;
+                        let navigating = taa::TaaState::single_sample_frame(self.nav_init.is_some(), self.sculpt.as_ref().is_some_and(|sc| sc.in_stroke()), self.wire, rw, rh);
                         if navigating {
                             self.taa.reset_for_navigation();
                             let mut tmp = self.taa.take_scratch((rw * rh) as usize, theme::SPACE_VIEW3D_BACK.to_xrgb());
