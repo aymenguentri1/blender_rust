@@ -437,6 +437,20 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
                 continue;
             }
         };
+        /* `show_viewport` / `show_render` are `PROP_ICONS_CONSECUTIVE` icon toggles (`ButtonType::IconToggle`, `iconadd` =
+         * selected): no box, the icon itself changes (`RESTRICT_*_OFF` on, `RESTRICT_*_ON` off). The remove button is
+         * `emboss_set(None)` with `ICON_X`. */
+        let on = w.style == Style::Selected;
+        let flat = match w.action {
+            Some(Action::ToggleViewport(_)) => Some(if on { Icon::Monitor } else { Icon::RestrictViewOn }),
+            Some(Action::ToggleRender(_)) => Some(if on { Icon::Camera } else { Icon::RestrictRenderOn }),
+            Some(Action::Remove(_)) => Some(Icon::X),
+            _ => None,
+        };
+        if let Some(icon) = flat {
+            icons::draw_icon(buf, width, height, user, w.rect, icon, theme::WCOL_PULLDOWN_TEXT);
+            continue;
+        }
         draw_round_box(buf, width, height, user, w.rect, inner, theme::WCOL_TOOL_OUTLINE, round);
         if w.action.is_some_and(|a| matches!(a, Action::OpenMenu(_))) {
             icons::draw_icon(buf, width, height, user, w.rect, Icon::DownArrow, theme::WCOL_PULLDOWN_TEXT);
@@ -983,5 +997,21 @@ mod tests {
         assert_eq!(s.active_object().unwrap().modifiers.len(), 2);
         assert!(s.duplicate_active_modifier(), "the chord copies the active one");
         assert_eq!(s.active_object().unwrap().modifiers.len(), 3);
+    }
+
+    #[test]
+    fn viewport_toggle_is_a_boxless_icon_that_changes_with_its_state() {
+        let user = UserDef::from_window_scale(1.0);
+        let rect = Rcti { xmin: 2, xmax: 21, ymin: 2, ymax: 21 };
+        let draw_with = |style| {
+            let mut buf = vec![0xff101010u32; 24 * 24];
+            let w = Widget { rect, label: String::new(), style, action: Some(Action::ToggleViewport(0)), centered: true };
+            draw(&mut buf, 24, 24, &user, &[w]);
+            buf
+        };
+        let (on, off) = (draw_with(Style::Selected), draw_with(Style::Button));
+        assert_ne!(on, off, "RESTRICT_VIEW_OFF and RESTRICT_VIEW_ON differ");
+        /* No box: the corner of the rect keeps the background. */
+        assert_eq!(on[(24 - 1 - 2) * 24 + 2], 0xff101010);
     }
 }
