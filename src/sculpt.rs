@@ -19,6 +19,7 @@ use crate::area::Rcti;
 use crate::font;
 use crate::mesh::{add, cross, dot, normalized, scale, sub, Mesh, V3};
 use crate::overlay_cursor::draw_segment;
+use crate::sculpt_rotate::{flip_sign, translation as rotate_translation, vertex_rotation, Dial, DIAL_THRESHOLD_PX};
 use crate::scene::{mat4_mul_dir, mat4_mul_point, ray_triangle, Object, Scene};
 use crate::theme::Rgba;
 use crate::userdef::UserDef;
@@ -45,11 +46,12 @@ pub enum Brush {
     Blob,
     Thumb,
     DrawSharp,
+    Rotate,
 }
 
 impl Brush {
     #[allow(dead_code)]
-    pub const ALL: [Brush; 17] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask, Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob, Brush::Thumb, Brush::DrawSharp];
+    pub const ALL: [Brush; 18] = [Brush::Draw, Brush::Smooth, Brush::Grab, Brush::Inflate, Brush::Flatten, Brush::Pinch, Brush::Crease, Brush::Clay, Brush::Fill, Brush::Scrape, Brush::Mask, Brush::Layer, Brush::SnakeHook, Brush::Nudge, Brush::Blob, Brush::Thumb, Brush::DrawSharp, Brush::Rotate];
 
     /// The key of the brush in Sculpt Mode, as the brush popup lists it (`Shift X` for `Shift + X`).
     pub fn key_label(self) -> &'static str {
@@ -70,6 +72,8 @@ impl Brush {
             Brush::Nudge => "N",
             Brush::Blob => "Shift B",
             Brush::Thumb | Brush::DrawSharp => "",
+            /* The default keymap has no key for Rotate. */
+            Brush::Rotate => "",
         }
     }
 
@@ -92,6 +96,7 @@ impl Brush {
             Brush::Blob => "Blob",
             Brush::Thumb => "Thumb",
             Brush::DrawSharp => "Draw Sharp",
+            Brush::Rotate => "Rotate",
         }
     }
 }
@@ -243,7 +248,7 @@ pub fn dab(mesh: &mut Mesh, adj: &Topo, brush: Brush, center: V3, radius: f32, s
 /// `dab()` on a mesh with a mask (one value per vertex); the Mask brush paints it, the others are scaled by it.
 #[allow(clippy::too_many_arguments)]
 pub fn dab_masked(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
-    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp) {
+    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate) {
         return;
     }
     for s in mirror_signs(symmetry) {
@@ -352,7 +357,7 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
                 mesh.verts[i] = add(mesh.verts[i], scale(d, push * BLOB_FACTOR * f * dir));
             }
         }
-        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp => {}
+        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate => {}
     }
 }
 
@@ -583,6 +588,44 @@ impl Grab {
     }
 }
 
+/// The vertices a Rotate stroke turns (`do_rotate_brush`): fixed when the stroke starts (anchored), turned about the
+/// area normal through the brush centre by the dial angle of the mouse times the falloff.
+#[derive(Clone, Debug)]
+struct Rotate {
+    /// Per mirror pass: the mirror signs, the centre, the area normal, and the (vertex, falloff) pairs.
+    passes: Vec<(usize, V3, V3, Vec<(usize, f32)>)>,
+    orig: Vec<V3>,
+    dial: Dial,
+}
+
+impl Rotate {
+    fn begin(mesh: &Mesh, mask: &[f32], adj: &Topo, center: V3, radius: f32, symmetry: [bool; 3], start_px: [f32; 2]) -> Rotate {
+        let base = affected(mesh, mask, center, radius);
+        let normal = area_normal(mesh, adj, &base);
+        let mut taken = vec![false; mesh.verts.len()];
+        let mut passes = Vec::new();
+        for s in mirror_signs(symmetry) {
+            let c = mirrored(center, s);
+            let mut set = affected(mesh, mask, c, radius);
+            set.retain(|&(i, _)| !std::mem::replace(&mut taken[i], true));
+            let bits = (s[0] < 0.0) as usize | ((s[1] < 0.0) as usize) << 1 | ((s[2] < 0.0) as usize) << 2;
+            passes.push((bits, c, mirrored(normal, s), set));
+        }
+        Rotate { passes, orig: mesh.verts.clone(), dial: Dial::new(start_px, DIAL_THRESHOLD_PX) }
+    }
+
+    /// The mouse is at `cur` (window pixels): turns the held vertices from their original positions.
+    fn apply(&mut self, mesh: &mut Mesh, cur: [f32; 2], strength: f32) {
+        let rotation = vertex_rotation(self.dial.angle(cur), strength);
+        for (bits, c, n, set) in &self.passes {
+            let angle = rotation * flip_sign(*bits);
+            for &(i, f) in set {
+                mesh.verts[i] = add(self.orig[i], rotate_translation(self.orig[i], *n, angle * f, *c));
+            }
+        }
+    }
+}
+
 /// The running stroke.
 #[derive(Clone, Debug)]
 struct Active {
@@ -594,6 +637,7 @@ struct Active {
     /// Distance walked since the last dab.
     carry: f32,
     grab: Option<Grab>,
+    rotate: Option<Rotate>,
     layer: Option<Layer>,
     sharp: Option<Sharp>,
     hook: Option<Hook>,
@@ -708,11 +752,17 @@ impl Session {
         scene.push_undo();
         let depth = window_depth(rv3d, hit.world);
         let invert = invert != self.settings.subtract;
-        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, layer: None, sharp: None, hook: None, orig: None, details: None, dir: [0.0; 3], depth, inv };
+        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, rotate: None, layer: None, sharp: None, hook: None, orig: None, details: None, dir: [0.0; 3], depth, inv };
         let changed = if brush == Brush::Grab {
             let radius = self.local_radius(rv3d, &active, hit.world);
             if let Some((mesh, mask)) = scene.sculpt_mesh_mask_mut(id) {
                 active.grab = Some(Grab::begin(mesh, mask, hit.local, radius, self.settings.symmetry, px, active.depth));
+            }
+            true
+        } else if brush == Brush::Rotate {
+            let radius = self.local_radius(rv3d, &active, hit.world);
+            if let Some((mesh, mask)) = scene.sculpt_mesh_mask_mut(id) {
+                active.rotate = Some(Rotate::begin(mesh, mask, &active.adj, hit.local, radius, self.settings.symmetry, px));
             }
             true
         } else if brush == Brush::SnakeHook {
@@ -795,6 +845,14 @@ impl Session {
                     grab.apply(mesh, delta);
                     changed = true;
                 }
+            }
+            a.last = cur;
+        } else if a.rotate.is_some() {
+            /* `brush_strength()` of Rotate: alpha squared. */
+            let strength = self.settings.strength * self.settings.strength;
+            if let (Some(rot), Some(mesh)) = (a.rotate.as_mut(), scene.sculpt_mesh_mut(a.id)) {
+                rot.apply(mesh, cur, strength);
+                changed = true;
             }
             a.last = cur;
         } else if a.hook.is_some() {
@@ -942,6 +1000,28 @@ mod tests {
 
     fn height_at(m: &Mesh, x: f32, y: f32) -> f32 {
         m.verts.iter().min_by(|a, b| ((a[0] - x).powi(2) + (a[1] - y).powi(2)).partial_cmp(&((b[0] - x).powi(2) + (b[1] - y).powi(2))).unwrap()).unwrap()[2]
+    }
+
+    #[test]
+    fn rotate_turns_the_vertices_under_the_brush_about_the_normal() {
+        let mut m = grid();
+        let before = m.verts.clone();
+        let adj = adjacency(&m);
+        let mut rot = Rotate::begin(&m, &[], &adj, [0.0; 3], 0.6, [false; 3], [100.0, 100.0]);
+        /* The first move past the threshold fixes the dial, the next one turns a quarter turn. */
+        rot.apply(&mut m, [150.0, 100.0], 1.0);
+        assert_eq!(m.verts, before);
+        rot.apply(&mut m, [100.0, 50.0], 1.0);
+        let mut moved = 0;
+        for (a, b) in before.iter().zip(&m.verts) {
+            assert!((a[2] - b[2]).abs() < 1e-5);
+            assert!(((a[0].powi(2) + a[1].powi(2)).sqrt() - (b[0].powi(2) + b[1].powi(2)).sqrt()).abs() < 1e-4);
+            moved += (a != b) as usize;
+        }
+        assert!(moved > 0);
+        /* Zero strength turns nothing. */
+        rot.apply(&mut m, [100.0, 50.0], 0.0);
+        assert_eq!(m.verts, before);
     }
 
     #[test]
