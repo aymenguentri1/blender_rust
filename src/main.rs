@@ -156,6 +156,7 @@ mod add_modifier_menu;
 mod icons;
 mod view3d_header;
 mod view3d_axis_gizmo;
+mod toolbar;
 mod view3d_navigate;
 mod modifier_menu;
 #[allow(dead_code)]
