@@ -56,3 +56,4 @@ light_point
 light_sun
 light_spot
 light_area
+rightarrow

@@ -234,7 +234,7 @@ pub fn draw_restrict_buttons(buf: &mut [u32], width: usize, height: usize, user:
 
 /// The expand arrow of each outliner row (`outliner_draw_tree_element()`, outliner_draw.cc:3262-3277): none for the
 /// scene collection (`TSE_VIEW_COLLECTION_BASE` cannot be collapsed), `ICON_DOWNARROW_HLT` for an open row with
-/// sub-rows, and `ICON_RIGHTARROW` for an object whose data subtree is collapsed (every object but an empty).
+/// sub-rows, and `ICON_RIGHTARROW` (a chevron) for an object whose data subtree is collapsed (every object but an empty).
 pub fn row_arrows(scene: &crate::scene::Scene) -> Vec<Option<crate::icons::Icon>> {
     use crate::icons::Icon;
     use crate::scene::{ObjectData, RowKind};
@@ -245,7 +245,7 @@ pub fn row_arrows(scene: &crate::scene::Scene) -> Vec<Option<crate::icons::Icon>
             _ if rows.get(i + 1).is_some_and(|n| n.level > rows[i].level) => Some(Icon::DownArrow),
             RowKind::Object(id) => match scene.index_of(id).map(|k| &scene.objects[k].data) {
                 Some(ObjectData::Empty(_)) | None => None,
-                Some(_) => Some(Icon::RightArrow),
+                Some(_) => Some(Icon::ChevronRight),
             },
             _ => None,
         })
@@ -481,7 +481,7 @@ mod tests {
         /* Scene Collection, Collection, Camera, Cube, Light, XGen Guides. */
         assert_eq!(
             row_arrows(&s),
-            [None, Some(Icon::DownArrow), Some(Icon::RightArrow), Some(Icon::RightArrow), Some(Icon::RightArrow), None]
+            [None, Some(Icon::DownArrow), Some(Icon::ChevronRight), Some(Icon::ChevronRight), Some(Icon::ChevronRight), None]
         );
     }
 

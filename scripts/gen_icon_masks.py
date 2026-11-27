@@ -4,7 +4,7 @@
 Writes assets/icon_masks.txt (one svg name per line) and assets/icon_masks.bin (SIZE x SIZE bytes per name, row 0
 on top, in that order). Needs rsvg-convert, PIL and scripts/blender_ref.sh setup. Usage: python3 scripts/gen_icon_masks.py
 """
-import io, subprocess, sys
+import io, re, subprocess, sys
 from PIL import Image
 
 SIZE = 64
@@ -16,7 +16,7 @@ mod_mirror mod_solidify mod_bevel mod_smooth mod_simpledeform mod_triangulate mo
 mod_decim mod_remesh outliner_collection outliner_ob_mesh outliner_ob_camera outliner_ob_light
 outliner_ob_empty mesh_plane mesh_cube mesh_circle mesh_uvsphere mesh_icosphere mesh_cylinder mesh_cone
 mesh_torus mesh_grid empty_axis empty_arrows empty_single_arrow cube sphere cone light_point light_sun
-light_spot light_area""".split()
+light_spot light_area rightarrow""".split()
 
 
 def main():
@@ -26,9 +26,17 @@ def main():
                              check=True, capture_output=True, env={"LIMIT": "100000", "PATH": "/usr/bin:/bin"}).stdout
         if b"<svg" not in svg:
             sys.exit(f"{n}: not an svg")
-        png = subprocess.run(["rsvg-convert", "-w", str(SIZE), "-h", str(SIZE), "-f", "png"], input=svg,
+        # Blender's icons are drawn on a 16 x 16 grid (100 svg units per pixel); an icon whose canvas is smaller
+        # (the arrows, the eye, the grip) keeps its size and is centred, it is not stretched to the grid.
+        m = re.search(rb'viewBox="0 0 ([\d.]+) ([\d.]+)"', svg)
+        w, h = float(m.group(1)), float(m.group(2))
+        k = SIZE / 1600.0
+        pw, ph = max(1, round(w * k)), max(1, round(h * k))
+        png = subprocess.run(["rsvg-convert", "-w", str(pw), "-h", str(ph), "-f", "png"], input=svg,
                              check=True, capture_output=True).stdout
-        img = Image.open(io.BytesIO(png)).convert("RGBA")
+        icon = Image.open(io.BytesIO(png)).convert("RGBA")
+        img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+        img.paste(icon, ((SIZE - pw) // 2, (SIZE - ph) // 2))
         out += img.getchannel("A").tobytes()
     open("assets/icon_masks.bin", "wb").write(out)
     open("assets/icon_masks.txt", "w").write("\n".join(NAMES) + "\n")
