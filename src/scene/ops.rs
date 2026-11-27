@@ -507,7 +507,7 @@ impl Scene {
 
     /// `OBJECT_OT_select_same_collection` with its `collection` name: selects every visible, selectable object that
     /// is in that collection. The scene has one collection holding every object ("Collection", the outliner's
-    /// `RowKind::ActiveCollection`) and the empty "XGen Guides"; any other name finds no collection and does nothing
+    /// `RowKind::ActiveCollection`); any other name finds no collection and does nothing
     /// (`OPERATOR_PASS_THROUGH`). Returns how many objects were newly selected.
     pub fn select_same_collection(&mut self, collection: &str) -> usize {
         if collection != "Collection" {
@@ -1418,7 +1418,6 @@ mod tests {
             o.selected = false;
         }
         assert_eq!(s.select_same_collection("Nope"), 0);
-        assert_eq!(s.select_same_collection("XGen Guides"), 0);
         assert_eq!(s.selected().count(), 0);
     }
 
