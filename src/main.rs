@@ -194,6 +194,7 @@ mod curve_forward_diff;
 mod curve_handles;
 mod curve_knots;
 mod curve_nurb;
+mod curve_prim;
 #[allow(dead_code)]
 mod widget_radius;
 #[allow(dead_code)]
