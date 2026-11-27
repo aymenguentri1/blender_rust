@@ -229,6 +229,13 @@ pub fn draw_restrict_buttons(buf: &mut [u32], width: usize, height: usize, user:
                 let rect = Rcti { xmin: x0, xmax: x0 + unit - 1, ymin, ymax: ymin + unit - 1 };
                 draw_icon(buf, width, height, user, rect, Icon::CheckboxHlt, theme::SPACE_OUTLINER_TEXT);
             }
+            /* The hide (`LayerCollection::hide_viewport`) and render (`Collection::hide_render`) toggles; the model has
+             * no collection hide flags yet, so both show their unrestricted `_OFF` icons. */
+            for (col, icon) in [(RestrictCol::Hide, Icon::Eye), (RestrictCol::Render, Icon::Camera)] {
+                let Some(x0) = restrict_col_x(user, region, &DEFAULT_RESTRICT, col) else { continue };
+                let rect = Rcti { xmin: x0, xmax: x0 + unit - 1, ymin, ymax: ymin + unit - 1 };
+                draw_icon(buf, width, height, user, rect, icon, theme::SPACE_OUTLINER_TEXT);
+            }
             continue;
         }
         let RowKind::Object(id) = row.kind else { continue };
@@ -383,6 +390,20 @@ mod restrict_tests {
         assert!(lit(121, 140));
         assert!(!lit(141, 160));
         assert!(!lit(81, 100), "object rows have no checkbox");
+    }
+
+    #[test]
+    fn collection_rows_get_the_eye_and_camera() {
+        use crate::scene::Scene;
+        let user = UserDef::from_window_scale(1.0);
+        let (w, h) = (200usize, 163usize);
+        let region = Rcti { xmin: 0, xmax: 199, ymin: 0, ymax: 162 };
+        let mut buf = vec![0u32; w * h];
+        draw_restrict_buttons(&mut buf, w, h, &user, region, &Scene::startup());
+        /* Hide column x 149..=168, render column x 169..=188 (see `hit_test_columns`), Collection row y 121..=140. */
+        let lit = |x0: usize, x1: usize, y0: usize, y1: usize| (x0..=x1).any(|x| (y0..=y1).any(|y| buf[(h - 1 - y) * w + x] != 0));
+        assert!(lit(149, 168, 121, 140) && lit(169, 188, 121, 140));
+        assert!(!lit(149, 188, 141, 160), "the scene collection has no restrict buttons");
     }
 
     #[test]
