@@ -232,6 +232,44 @@ pub fn draw_restrict_buttons(buf: &mut [u32], width: usize, height: usize, user:
     }
 }
 
+/// The expand arrow of each outliner row (`outliner_draw_tree_element()`, outliner_draw.cc:3262-3277): none for the
+/// scene collection (`TSE_VIEW_COLLECTION_BASE` cannot be collapsed), `ICON_DOWNARROW_HLT` for an open row with
+/// sub-rows, and `ICON_RIGHTARROW` for an object whose data subtree is collapsed (every object but an empty).
+pub fn row_arrows(scene: &crate::scene::Scene) -> Vec<Option<crate::icons::Icon>> {
+    use crate::icons::Icon;
+    use crate::scene::{ObjectData, RowKind};
+    let rows = scene.outliner_rows();
+    (0..rows.len())
+        .map(|i| match rows[i].kind {
+            RowKind::SceneCollection => None,
+            _ if rows.get(i + 1).is_some_and(|n| n.level > rows[i].level) => Some(Icon::DownArrow),
+            RowKind::Object(id) => match scene.index_of(id).map(|k| &scene.objects[k].data) {
+                Some(ObjectData::Empty(_)) | None => None,
+                Some(_) => Some(Icon::RightArrow),
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+/// Draws `row_arrows()` in the expand slot of each row: the `UI_UNIT_X` square at `startx = level * UI_UNIT_X`.
+pub fn draw_expand_arrows(buf: &mut [u32], width: usize, height: usize, user: &UserDef, region: Rcti, scene: &crate::scene::Scene) {
+    let rh = region.size_y() + 1;
+    let unit = user.widget_unit;
+    let rows = scene.outliner_rows();
+    for (i, arrow) in row_arrows(scene).into_iter().enumerate() {
+        let starty = -OL_Y_OFFSET - unit * (i as i32 + 1);
+        if starty < -rh {
+            break;
+        }
+        let Some(icon) = arrow else { continue };
+        let x0 = region.xmin + rows[i].level * unit;
+        let ymin = region.ymin + rh + starty;
+        let rect = Rcti { xmin: x0, xmax: x0 + unit - 1, ymin, ymax: ymin + unit - 1 };
+        crate::icons::draw_icon(buf, width, height, user, rect, icon, theme::SPACE_OUTLINER_TEXT);
+    }
+}
+
 /// What a click at window `(x, y)` on the restriction columns toggles: the object id and the column.
 pub fn restrict_click(user: &UserDef, region: Rcti, scene: &crate::scene::Scene, x: i32, y: i32) -> Option<(u32, RestrictCol)> {
     let col = restrict_col_at(user, region, &DEFAULT_RESTRICT, x)?;
@@ -386,5 +424,31 @@ mod tests {
         }));
         assert!(orange);
         assert!((0..w).all(|x| (0..40).all(|y| at(x, y) == bg)));
+    }
+
+    #[test]
+    fn expand_arrows_follow_the_row_tree() {
+        use crate::icons::Icon;
+        let s = crate::scene::Scene::startup();
+        /* Scene Collection, Collection, Camera, Cube, Light, XGen Guides. */
+        assert_eq!(
+            row_arrows(&s),
+            [None, Some(Icon::DownArrow), Some(Icon::RightArrow), Some(Icon::RightArrow), Some(Icon::RightArrow), None]
+        );
+    }
+
+    #[test]
+    fn expand_arrow_pixels_land_in_the_slot() {
+        let user = UserDef::from_window_scale(1.0);
+        let (w, h) = (200usize, 200usize);
+        let bg = theme::SPACE_OUTLINER_BACK.to_xrgb();
+        let mut buf = vec![bg; w * h];
+        let region = Rcti { xmin: 0, xmax: 199, ymin: 0, ymax: 199 };
+        draw_expand_arrows(&mut buf, w, h, &user, region, &crate::scene::Scene::startup());
+        let u = user.widget_unit as usize;
+        /* Row 1 (Collection, level 1) slot: x in [u, 2u), nothing left of it. */
+        let drawn = |x0: usize, x1: usize| (0..h).any(|y| (x0..x1).any(|x| buf[y * w + x] != bg));
+        assert!(drawn(u, 2 * u));
+        assert!(!drawn(0, u));
     }
 }
