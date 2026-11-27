@@ -933,7 +933,7 @@ impl ApplicationHandler for App {
                                     scene_changed(&mut self.scene, &mut self.taa);
                                 }
                             }
-                            None => {}
+                            Some(add_modifier_menu::Hit::Inert) | None => {}
                         }
                     }
                     gfx.window.request_redraw();
