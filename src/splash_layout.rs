@@ -2,8 +2,8 @@
 //! the version label, the menu column and the popup bounds centred in the window. Sources: `splash_width =
 //! style->widget.points * 45 * UI_SCALE_FAC` clamped to 70% of the window, `splash_height = width * img_y / img_x`,
 //! the image button at `(0, 0.5 * U.widget_unit)`, the label at `(width - 8s, height - 13s)` one unit high with right
-//! aligned text, the `WM_MT_splash` layout at `x = 26s`, `y = 110s`, `width = splash_width - 52s`
-//! (s = `UI_SCALE_FAC`), and `block_bounds_set_centered(block, 0)`.
+//! aligned text, the menu layout at `x = 26s`, `y = 0`, `width = splash_width - 52s` (s = `UI_SCALE_FAC`; the `110s` argument is
+//! its `em`, not its top, so the menu hangs below the image), and `block_bounds_set_centered(block, 0)`.
 //! Not modelled: the project menu (only shown with projects), the banner image, the Rosetta warning. The height of
 //! the menu column is an input: it comes from the layout of `WM_MT_splash` (space of its rows), not from this file.
 //! Window coordinates are y up.
@@ -20,7 +20,7 @@ pub struct SplashLayout {
     pub image: Rcti,
     /// The version label (right aligned text).
     pub version: Rcti,
-    /// The area of the `WM_MT_splash` layout: its top is `110s` above the block origin.
+    /// The area of the menu layout: its top is the block origin, it hangs below the image.
     pub menu: Rcti,
 }
 
@@ -41,8 +41,7 @@ pub fn layout(user: &UserDef, win_w: i32, win_h: i32, img: [i32; 2], menu_h: i32
     let (label_right, label_y) = ((width as f32 - 8.0 * s) as i32, (height as f32 - 13.0 * s) as i32);
     let version = Rcti { xmin: 0, xmax: label_right, ymin: label_y, ymax: label_y + unit };
     let margin = (26.0 * s) as i32;
-    let top = (110.0 * s) as i32;
-    let menu = Rcti { xmin: margin, xmax: width - margin, ymin: top - menu_h, ymax: top };
+    let menu = Rcti { xmin: margin, xmax: width - margin, ymin: -menu_h, ymax: 0 };
     /* `block_bounds_set_centered`: the bounds of all buttons, centred in the window. */
     let mut bounds = image;
     bounds.union(&version);
@@ -74,10 +73,10 @@ mod tests {
         let u = UserDef::from_window_scale(1.0);
         let l = layout(&u, 1920, 1080, [1000, 500], 200);
         assert_eq!((l.image.size_x(), l.image.size_y()), (495, 247));
-                /* The menu column starts 110 up from the block origin, over the lower part of the image. */
+                /* The menu column starts at the block origin, half a unit below the image. */
         assert_eq!(l.menu.size_x(), 495 - 52);
         assert_eq!(l.menu.xmin - l.image.xmin, 26);
-        assert_eq!(l.menu.ymax - l.image.ymin + 10, 110, "top of the menu is 110 above the origin");
+        assert_eq!(l.image.ymin - l.menu.ymax, 10, "the menu starts half a unit below the image");
         assert!(l.popup.xmin >= 0 && l.popup.xmax <= 1920 && l.popup.ymin >= 0 && l.popup.ymax <= 1080);
         assert!(((l.popup.xmin + l.popup.xmax) / 2 - 1920 / 2).abs() <= 1, "centred");
         for r in [l.image, l.version] {
