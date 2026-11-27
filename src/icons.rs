@@ -73,6 +73,8 @@ pub enum Icon {
     ModWireframe,
     ModDecimate,
     ModRemesh,
+    /// `ICON_OUTLINER_COLLECTION`: the open box of the outliner's collection rows.
+    OutlinerCollection,
 }
 
 #[derive(Clone, Debug)]
@@ -153,6 +155,11 @@ fn shapes(icon: Icon) -> Vec<Shape> {
             poly(&[[5.0, 7.5], [8.5, 11.0], [5.5, 14.0], [2.0, 10.5]]),
         ],
         Icon::DownArrow => vec![poly(&[[4.0, 6.0], [12.0, 6.0], [8.0, 10.5]])],
+        Icon::OutlinerCollection => vec![
+            polyline(&[[2.5, 12.5], [2.5, 3.5], [13.5, 3.5], [13.5, 12.5]], 1.3, false),
+            line(2.5, 12.5, 13.5, 12.5, 1.3),
+            line(2.5, 7.0, 13.5, 7.0, 1.3),
+        ],
         Icon::OrientationGlobal => vec![
             ring(8.0, 8.0, 6.2, 1.3),
             ellipse(8.0, 8.0, 2.8, 6.2, 1.1),
@@ -429,6 +436,7 @@ mod tests {
             Icon::ShadingSolid,
             Icon::ShadingMaterial,
             Icon::ShadingRendered,
+            Icon::OutlinerCollection,
         ] {
             let mut buf = vec![bg(); 400];
             draw_icon(&mut buf, 20, 20, &user, rect, icon, Rgba::hex(0xffffffff));
