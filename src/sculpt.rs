@@ -22,6 +22,7 @@ use crate::overlay_cursor::draw_segment;
 use crate::scene::{mat4_mul_dir, mat4_mul_point, ray_triangle, Object, Scene};
 use crate::theme::Rgba;
 use crate::userdef::UserDef;
+use crate::sculpt_enhance;
 use crate::view3d::{invert_m4_m4, Mat4, RegionView3D};
 
 /// `Brush::sculpt_brush_type` of the default brushes that are modelled.
@@ -146,7 +147,7 @@ fn mask_at(mask: &[f32], i: usize) -> f32 {
 }
 
 /// The vertices of `mesh` within `radius` of `center`, with their falloff times `1 - mask`.
-fn affected(mesh: &Mesh, mask: &[f32], center: V3, radius: f32) -> Vec<(usize, f32)> {
+pub(crate) fn affected(mesh: &Mesh, mask: &[f32], center: V3, radius: f32) -> Vec<(usize, f32)> {
     let mut out = Vec::new();
     for (i, &v) in mesh.verts.iter().enumerate() {
         let d = sub(v, center);
@@ -199,7 +200,7 @@ fn vertex_normal(mesh: &Mesh, topo: &Topo, i: usize) -> V3 {
 }
 
 /// The mirror combinations of the enabled axes (`+++` first), as sign triples.
-fn mirror_signs(sym: [bool; 3]) -> Vec<[f32; 3]> {
+pub(crate) fn mirror_signs(sym: [bool; 3]) -> Vec<[f32; 3]> {
     let mut out = vec![[1.0f32; 3]];
     for axis in 0..3 {
         if sym[axis] {
@@ -214,7 +215,7 @@ fn mirror_signs(sym: [bool; 3]) -> Vec<[f32; 3]> {
     out
 }
 
-fn mirrored(v: V3, s: [f32; 3]) -> V3 {
+pub(crate) fn mirrored(v: V3, s: [f32; 3]) -> V3 {
     [v[0] * s[0], v[1] * s[1], v[2] * s[2]]
 }
 
@@ -561,6 +562,8 @@ struct Active {
     hook: Option<Hook>,
     /// The surface when a Thumb stroke began.
     orig: Option<Vec<V3>>,
+    /// Enhance Details (inverted Smooth): the directions taken when the stroke began.
+    details: Option<Vec<V3>>,
     /// The stroke direction in the local space of the mesh (Nudge), from the last mouse movement.
     dir: V3,
     /// The window depth of the first hit: the mouse moves in the plane at that depth (Snake Hook, Nudge).
@@ -668,7 +671,7 @@ impl Session {
         scene.push_undo();
         let depth = window_depth(rv3d, hit.world);
         let invert = invert != self.settings.subtract;
-        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, layer: None, hook: None, orig: None, dir: [0.0; 3], depth, inv };
+        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, layer: None, hook: None, orig: None, details: None, dir: [0.0; 3], depth, inv };
         let changed = if brush == Brush::Grab {
             let radius = self.local_radius(rv3d, &active, hit.world);
             if let Some((mesh, mask)) = scene.sculpt_mesh_mask_mut(id) {
@@ -682,6 +685,9 @@ impl Session {
         } else {
             if brush == Brush::Thumb {
                 active.orig = scene.sculpt_mesh_mut(id).map(|m| m.verts.clone());
+            }
+            if brush == Brush::Smooth && active.invert {
+                active.details = scene.sculpt_mesh_mut(id).map(|m| sculpt_enhance::detail_directions(m, &active.adj));
             }
             if brush == Brush::Layer {
                 active.layer = scene.sculpt_mesh_mut(id).map(|m| Layer::begin(m));
@@ -709,6 +715,10 @@ impl Session {
         let sym = self.settings.symmetry;
         if let Some(layer) = a.layer.as_mut() {
             layer.dab(mesh, mask, hit.local, radius, self.settings.strength, a.invert, sym);
+            return true;
+        }
+        if let Some(details) = a.details.as_ref() {
+            sculpt_enhance::enhance_details(mesh, mask, details, hit.local, radius, self.settings.strength, sym);
             return true;
         }
         if let (Brush::Thumb, Some(orig)) = (a.brush, a.orig.as_ref()) {
@@ -1353,6 +1363,25 @@ mod tests {
             assert!(scene.undo());
             assert_eq!(scene.active_object().unwrap().mesh().unwrap(), &before, "{brush:?}");
         }
+    }
+
+    #[test]
+    fn inverted_smooth_enhances_details() {
+        let (mut scene, rv3d, w, h) = sphere_scene();
+        let run = |scene: &mut Scene, invert| {
+            let mut session = Session::new();
+            session.settings.brush = Brush::Smooth;
+            session.settings.radius_px = 40.0;
+            assert!(session.begin_stroke(scene, &rv3d, w, h, [w / 2, h / 2], invert, false));
+            session.end_stroke();
+            let mesh = scene.active_object().unwrap().mesh().unwrap().clone();
+            assert!(scene.undo());
+            mesh
+        };
+        let before = scene.active_object().unwrap().mesh().unwrap().clone();
+        let (smooth, enhanced) = (run(&mut scene, false), run(&mut scene, true));
+        assert_ne!(enhanced, before);
+        assert_ne!(enhanced, smooth);
     }
 
     #[test]
