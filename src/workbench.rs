@@ -661,12 +661,15 @@ fn draw_flat_polygon(target: &mut Target, rv3d: &RegionView3D, poly_world: &[V3]
 /// Draws one object's evaluated mesh. Flat shaded faces use their own normal; with `smooth` every triangle fully
 /// inside the view uses the interpolated vertex normals, the rest (cut by the near plane or the clipping border)
 /// fall back to the face normal.
-fn draw_mesh(target: &mut Target, rv3d: &RegionView3D, m: &Mat4, mesh: &Mesh, smooth: bool, mask: Option<&[f32]>) {
+fn draw_mesh(target: &mut Target, rv3d: &RegionView3D, m: &Mat4, mesh: &Mesh, smooth: bool, mask: Option<&[f32]>, id: u32) {
     let nm = normal_matrix(m);
     let to_view = |n_local: V3| normal_to_view(rv3d, normalize(mat3_mul_v3(&nm, n_local)));
     let world: Vec<V3> = mesh.verts.iter().map(|&v| mat4_mul_point(m, v)).collect();
-    /* View space vertex normals, once per vertex instead of once per triangle corner. */
-    let vnormals: Option<Vec<V3>> = smooth.then(|| mesh.vertex_normals().iter().map(|&n| to_view(n)).collect());
+    /* View space vertex normals, once per vertex instead of once per triangle corner; the local ones are cached. */
+    let vnormals: Option<Vec<V3>> = smooth.then(|| {
+        let local = crate::normal_cache::shared().lock().unwrap().get(id, mesh);
+        local.iter().map(|&n| to_view(n)).collect()
+    });
     let p = &rv3d.persmat;
     let (rw, rh) = (target.rw as f32, target.rh as f32);
 
@@ -741,6 +744,8 @@ pub fn draw_scene_threads(buf: &mut [u32], width: usize, height: usize, region: 
         jobs: Vec::new(),
     };
 
+    let live: Vec<u32> = scene.objects.iter().map(|o| o.id as u32).collect();
+    crate::normal_cache::shared().lock().unwrap().retain(&live);
     for o in scene.objects.iter().filter(|o| !o.hidden) {
         let Some(mesh) = o.evaluated() else { continue };
         target.cur_id = o.id + 1;
@@ -755,7 +760,7 @@ pub fn draw_scene_threads(buf: &mut [u32], width: usize, height: usize, region: 
             }
         };
         let mask = (o.mask.len() == mesh.verts.len() && o.mask.iter().any(|&m| m > 0.0)).then_some(o.mask.as_slice());
-        draw_mesh(&mut target, rv3d, &o.world_matrix(), mesh, o.smooth, mask);
+        draw_mesh(&mut target, rv3d, &o.world_matrix(), mesh, o.smooth, mask, o.id);
     }
     target.flush(rv3d, threads);
     target.resolve_xray();
