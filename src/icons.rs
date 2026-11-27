@@ -178,10 +178,18 @@ pub enum Icon {
     SelectDifference,
     /// `ICON_SELECT_INTERSECT`: a mode of `WM_operator_properties_select_operation` (wm_operator_props.cc).
     SelectIntersect,
+    /// `ICON_CHECKMARK`: an entry of the modifier extra menu (`modifier_ops_extra_draw`).
+    Checkmark,
+    /// `ICON_DUPLICATE`: an entry of the modifier extra menu (`modifier_ops_extra_draw`).
+    Duplicate,
+    /// `ICON_TRIA_UP`: an entry of the modifier extra menu (`modifier_ops_extra_draw`).
+    TriaUp,
+    /// `ICON_TRIA_DOWN`: an entry of the modifier extra menu (`modifier_ops_extra_draw`).
+    TriaDown,
 }
 
 impl Icon {
-    pub const ALL: &'static [Icon] = &[Icon::View3D, Icon::ObjectMode, Icon::SculptMode, Icon::DownArrow, Icon::OrientationGlobal, Icon::PivotMedian, Icon::PivotCursor, Icon::PivotIndividual, Icon::Snap, Icon::Proportional, Icon::Overlays, Icon::Xray, Icon::ShadingWire, Icon::ShadingSolid, Icon::ShadingMaterial, Icon::ShadingRendered, Icon::RightArrow, Icon::LeftArrow, Icon::Monitor, Icon::Camera, Icon::Eye, Icon::Grip, Icon::EditMode, Icon::ModWrench, Icon::ModArray, Icon::ModMirror, Icon::ModSolidify, Icon::ModBevel, Icon::ModSmooth, Icon::ModDeform, Icon::ModTriangulate, Icon::ModBoolean, Icon::ModWireframe, Icon::ModDecimate, Icon::ModRemesh, Icon::OutlinerCollection, Icon::ObMesh, Icon::ObCamera, Icon::ObLight, Icon::ObEmpty, Icon::MeshPlane, Icon::MeshCube, Icon::MeshCircle, Icon::MeshUvSphere, Icon::MeshIcoSphere, Icon::MeshCylinder, Icon::MeshCone, Icon::MeshTorus, Icon::MeshGrid, Icon::EmptyAxis, Icon::EmptyArrows, Icon::EmptySingleArrow, Icon::Cube, Icon::Sphere, Icon::Cone, Icon::LightPoint, Icon::LightSun, Icon::LightSpot, Icon::LightArea, Icon::ChevronRight, Icon::ViewZoom, Icon::ViewPan, Icon::ViewCameraUnselected, Icon::ViewCamera, Icon::ViewPerspective, Icon::ViewOrtho, Icon::EditorOutliner, Icon::EditorProperties, Icon::EditorTimeline, Icon::Filter, Icon::Search, Icon::CollectionNew, Icon::MouseMmbDrag, Icon::MouseRmb, Icon::ToolSettings, Icon::TabScene, Icon::Output, Icon::SceneData, Icon::RenderResult, Icon::World, Icon::ObjectData, Icon::Constraint, Icon::Physics, Icon::MeshData, Icon::CameraData, Icon::LightData, Icon::EmptyData, Icon::RadioButOff, Icon::Rew, Icon::FramePrev, Icon::PrevKeyframe, Icon::PlayReverse, Icon::Play, Icon::Pause, Icon::NextKeyframe, Icon::FrameNext, Icon::Ff, Icon::Time, Icon::Gizmo, Icon::Add, Icon::RestrictViewOn, Icon::RestrictRenderOn, Icon::X, Icon::SelectSet, Icon::SelectExtend, Icon::SelectSubtract, Icon::SelectDifference, Icon::SelectIntersect];
+    pub const ALL: &'static [Icon] = &[Icon::View3D, Icon::ObjectMode, Icon::SculptMode, Icon::DownArrow, Icon::OrientationGlobal, Icon::PivotMedian, Icon::PivotCursor, Icon::PivotIndividual, Icon::Snap, Icon::Proportional, Icon::Overlays, Icon::Xray, Icon::ShadingWire, Icon::ShadingSolid, Icon::ShadingMaterial, Icon::ShadingRendered, Icon::RightArrow, Icon::LeftArrow, Icon::Monitor, Icon::Camera, Icon::Eye, Icon::Grip, Icon::EditMode, Icon::ModWrench, Icon::ModArray, Icon::ModMirror, Icon::ModSolidify, Icon::ModBevel, Icon::ModSmooth, Icon::ModDeform, Icon::ModTriangulate, Icon::ModBoolean, Icon::ModWireframe, Icon::ModDecimate, Icon::ModRemesh, Icon::OutlinerCollection, Icon::ObMesh, Icon::ObCamera, Icon::ObLight, Icon::ObEmpty, Icon::MeshPlane, Icon::MeshCube, Icon::MeshCircle, Icon::MeshUvSphere, Icon::MeshIcoSphere, Icon::MeshCylinder, Icon::MeshCone, Icon::MeshTorus, Icon::MeshGrid, Icon::EmptyAxis, Icon::EmptyArrows, Icon::EmptySingleArrow, Icon::Cube, Icon::Sphere, Icon::Cone, Icon::LightPoint, Icon::LightSun, Icon::LightSpot, Icon::LightArea, Icon::ChevronRight, Icon::ViewZoom, Icon::ViewPan, Icon::ViewCameraUnselected, Icon::ViewCamera, Icon::ViewPerspective, Icon::ViewOrtho, Icon::EditorOutliner, Icon::EditorProperties, Icon::EditorTimeline, Icon::Filter, Icon::Search, Icon::CollectionNew, Icon::MouseMmbDrag, Icon::MouseRmb, Icon::ToolSettings, Icon::TabScene, Icon::Output, Icon::SceneData, Icon::RenderResult, Icon::World, Icon::ObjectData, Icon::Constraint, Icon::Physics, Icon::MeshData, Icon::CameraData, Icon::LightData, Icon::EmptyData, Icon::RadioButOff, Icon::Rew, Icon::FramePrev, Icon::PrevKeyframe, Icon::PlayReverse, Icon::Play, Icon::Pause, Icon::NextKeyframe, Icon::FrameNext, Icon::Ff, Icon::Time, Icon::Gizmo, Icon::Add, Icon::RestrictViewOn, Icon::RestrictRenderOn, Icon::X, Icon::SelectSet, Icon::SelectExtend, Icon::SelectSubtract, Icon::SelectDifference, Icon::SelectIntersect, Icon::Checkmark, Icon::Duplicate, Icon::TriaUp, Icon::TriaDown];
 
     /// The file name (without `.svg`) of the icon in `release/datafiles/icons_svg`.
     pub fn svg_name(self) -> &'static str {
@@ -294,6 +302,10 @@ impl Icon {
             Icon::SelectSubtract => "select_subtract",
             Icon::SelectDifference => "select_difference",
             Icon::SelectIntersect => "select_intersect",
+            Icon::Checkmark => "checkmark",
+            Icon::Duplicate => "duplicate",
+            Icon::TriaUp => "tria_up",
+            Icon::TriaDown => "tria_down",
         }
     }
 
