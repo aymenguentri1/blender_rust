@@ -6,6 +6,8 @@ use crate::curve_knots::{knot_count, CU_NURB_CYCLIC};
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NurbPoint {
     pub vec: [f32; 4],
+    /// `f1`: the selection flag.
+    pub f1: u8,
     pub tilt: f32,
     pub radius: f32,
     pub weight: f32,
@@ -144,7 +146,7 @@ mod tests {
     use crate::curve_knots::{calc_knots, CU_NURB_ENDPOINT};
 
     fn pt(x: f32, y: f32, z: f32, w: f32) -> NurbPoint {
-        NurbPoint { vec: [x, y, z, w], tilt: 0.0, radius: 1.0, weight: 1.0 }
+        NurbPoint { vec: [x, y, z, w], f1: 0, tilt: 0.0, radius: 1.0, weight: 1.0 }
     }
 
     #[test]
