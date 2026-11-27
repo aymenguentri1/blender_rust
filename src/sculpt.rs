@@ -354,9 +354,7 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
     let push = radius * strength * DRAW_FACTOR;
     match brush {
         Brush::Draw => {
-            for &(i, f) in &hit {
-                mesh.verts[i] = add(mesh.verts[i], scale(area, push * f * dir));
-            }
+            crate::sculpt_draw::dab(&mut mesh.verts, &hit, area, radius, crate::sculpt_draw::brush_strength(strength, dir < 0.0, crate::sculpt_draw::DEFAULT_OVERLAP));
         }
         Brush::Smooth => crate::sculpt_smooth::smooth(&mut mesh.verts, &adj.adj, &hit, crate::sculpt_smooth::brush_strength(strength)),
         Brush::Flatten => {

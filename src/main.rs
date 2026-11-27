@@ -158,6 +158,7 @@ mod kelvinlet;
 mod sculpt_elastic;
 mod sculpt_clay_thumb;
 mod sculpt_mask;
+mod sculpt_draw;
 mod sculpt_multiplane;
 mod sculpt_smooth;
 mod sculpt_slide;
