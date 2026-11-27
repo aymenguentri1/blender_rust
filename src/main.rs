@@ -10,6 +10,7 @@
 
 #[allow(dead_code)]
 mod area;
+mod area_header;
 #[allow(dead_code)]
 mod blend_header;
 mod screen;
@@ -2415,6 +2416,17 @@ impl ApplicationHandler for App {
                         ] {
                             if let Some(header) = area::top_header_rect(user, area_rect) {
                                 area::fill_rect(&mut buf, w, h, header, header_color.to_xrgb());
+                            }
+                        }
+                    }
+                    if let Some(user) = self.user.as_ref() {
+                        for (area_rect, kind) in [
+                            (layout.outliner, area_header::Kind::Outliner),
+                            (layout.properties, area_header::Kind::Properties),
+                            (layout.timeline, area_header::Kind::Timeline),
+                        ] {
+                            if let Some(header) = area::top_header_rect(user, area_rect) {
+                                area_header::draw(&mut buf, w, h, user, &area_header::layout(user, header, kind));
                             }
                         }
                     }
