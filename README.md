@@ -1,5 +1,47 @@
 # blender_rust
 
+<!-- progress:start -->
+<h2 align="center">Blender in Rust: progress</h2>
+<p align="center">
+<img alt="progress" src="https://img.shields.io/badge/ported-95.6%25-brightgreen?style=for-the-badge&logo=blender&logoColor=white">
+<img alt="tasks" src="https://img.shields.io/badge/tasks-101%2F106-blue?style=for-the-badge">
+<img alt="epics" src="https://img.shields.io/badge/epics-2%2F26-8a2be2?style=for-the-badge">
+</p>
+
+**`▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱` 95.6 %** is the mean completion of the 26 epics (101 of 106 planned tasks merged).
+
+| Area | Progress | Done |
+| --- | --- | ---: |
+| Edit mode: mode switch (Tab) and vertex/edge/face select modes | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 5/5 |
+| Edit mode: extrude (E) for vertices, edges and faces | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 2/2 |
+| Edit mode: bevel (Ctrl+B) and loop cut (Ctrl+R) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 2/2 |
+| Outliner: parity with Blender (hierarchy, visibility toggles, rename, drag parent) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 5/5 |
+| Properties editor: object, transform and modifier tabs layout | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 4/4 |
+| Timeline and keyframes: playback, insert keyframe (I), interpolation | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 5/5 |
+| Graph editor: F-curve display and handle editing | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 3/3 |
+| Sculpt: face sets | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 3/3 |
+| Sculpt: multires modifier | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 3/3 |
+| Modifiers: audit existing modifiers against Blender and add missing ones (Mirror, Array, Solidify, Bevel) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 4/4 |
+| Materials and Material Preview shading mode | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 3/3 |
+| File I/O: OBJ import/export | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 2/2 |
+| File I/O: glTF 2.0 import/export (meshes, materials, transforms) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 3/3 |
+| Core: read .blend files (DNA and file header parsing) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 3/3 |
+| Transform system parity | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 5/5 |
+| Object select operators parity (object_select.cc) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 4/4 |
+| Mesh edit operators, pure functions (editmesh_tools.cc) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 5/5 |
+| BMesh queries and polygon helpers as pure Mesh functions | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 4/4 |
+| Undo system (global and edit-mesh) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 5/5 |
+| Default keymap (Blender 4.x keyconfig) | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 4/4 |
+| UV editing: pure UV math ported from uvedit_ops/uvedit_islands | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 4/4 |
+| UI widgets: widget colors, states and radius exactly as Blender | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 5/5 |
+| Open .blend files by drag and drop | `▰▰▰▰▰▰▰▰▰▰▰▰` 100 % | 7/7 |
+| Blender icons on existing UI | `▰▰▰▰▰▰▰▰▰▱▱▱` 75 % | 3/4 |
+| Curve objects: evaluation and primitives | `▰▰▰▰▰▰▰▱▱▱▱▱` 60 % | 3/5 |
+| CI health: make cargo fmt and clippy clean, then make them blocking | `▰▰▰▰▰▰▱▱▱▱▱▱` 50 % | 2/4 |
+
+<sub>Every task is ported from a real file in the Blender source tree (about 21 000 files exist, so this is the progress of the planned scope, not of all of Blender). Regenerate with `python3 scripts/progress.py`; the % can drop when new tasks are planned.</sub>
+<!-- progress:end -->
+
 ## Object-mode editing
 
 Selection, transforms (G / R / S), duplicate (Shift + D), delete, hide, undo / redo and the Add menu cycle
