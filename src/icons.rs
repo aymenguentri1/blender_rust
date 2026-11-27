@@ -75,6 +75,12 @@ pub enum Icon {
     ModRemesh,
     /// `ICON_OUTLINER_COLLECTION`: the open box of the outliner's collection rows.
     OutlinerCollection,
+    /// `ICON_OUTLINER_OB_MESH`, `ICON_OUTLINER_OB_CAMERA`, `ICON_OUTLINER_OB_LIGHT`, `ICON_OUTLINER_OB_EMPTY`: the
+    /// object type icons of `icon_from_object_type()`.
+    ObMesh,
+    ObCamera,
+    ObLight,
+    ObEmpty,
 }
 
 #[derive(Clone, Debug)]
@@ -155,6 +161,18 @@ fn shapes(icon: Icon) -> Vec<Shape> {
             poly(&[[5.0, 7.5], [8.5, 11.0], [5.5, 14.0], [2.0, 10.5]]),
         ],
         Icon::DownArrow => vec![poly(&[[4.0, 6.0], [12.0, 6.0], [8.0, 10.5]])],
+        Icon::ObMesh => vec![
+            polyline(&[[8.0, 2.5], [14.0, 13.0], [2.0, 13.0]], 1.2, true),
+            disc(8.0, 2.5, 1.6),
+            disc(14.0, 13.0, 1.6),
+            disc(2.0, 13.0, 1.6),
+        ],
+        Icon::ObCamera => vec![
+            polyline(&[[1.5, 4.5], [10.0, 4.5], [10.0, 11.5], [1.5, 11.5]], 1.3, true),
+            poly(&[[10.0, 7.0], [14.5, 4.5], [14.5, 11.5], [10.0, 9.0]]),
+        ],
+        Icon::ObLight => vec![ring(8.0, 6.5, 3.6, 1.3), line(6.3, 11.5, 9.7, 11.5, 1.2), line(6.8, 13.7, 9.2, 13.7, 1.2)],
+        Icon::ObEmpty => vec![line(8.0, 1.5, 8.0, 14.5, 1.2), line(1.5, 8.0, 14.5, 8.0, 1.2), line(3.0, 13.0, 13.0, 3.0, 1.2)],
         Icon::OutlinerCollection => vec![
             polyline(&[[2.5, 12.5], [2.5, 3.5], [13.5, 3.5], [13.5, 12.5]], 1.3, false),
             line(2.5, 12.5, 13.5, 12.5, 1.3),
@@ -437,6 +455,10 @@ mod tests {
             Icon::ShadingMaterial,
             Icon::ShadingRendered,
             Icon::OutlinerCollection,
+            Icon::ObMesh,
+            Icon::ObCamera,
+            Icon::ObLight,
+            Icon::ObEmpty,
         ] {
             let mut buf = vec![bg(); 400];
             draw_icon(&mut buf, 20, 20, &user, rect, icon, Rgba::hex(0xffffffff));
