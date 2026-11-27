@@ -44,6 +44,28 @@ const HEADER_ITEMS: [Item; 7] = [
     Item::Text("Options"),
 ];
 
+/// The cursor keymap status of the 3D viewport in Object Mode (`uiTemplateInputStatus()`, the loop over
+/// `WM_window_cursor_keymap_status_get`): LMB `Select`, MMB drag `Rotate View`, RMB `Options`.
+const VIEWPORT_ITEMS: [Item; 12] = [
+    Item::Icon(Icon::MouseLmb),
+    Item::Space(-0.9),
+    Item::Text("Select"),
+    Item::Space(0.6),
+    Item::Icon(Icon::MouseMmbDrag),
+    Item::Space(-0.4),
+    Item::Text("Rotate View"),
+    Item::Space(0.6),
+    Item::Icon(Icon::MouseRmb),
+    Item::Space(-0.9),
+    Item::Text("Options"),
+    Item::Space(0.6),
+];
+
+/// True when `xy` is over the main region of the 3D viewport (below its header).
+pub fn over_viewport(user: &UserDef, layout: &ScreenLayout, xy: [i32; 2]) -> bool {
+    layout.main.isect_pt_v(xy) && !over_editor_header(user, layout, xy)
+}
+
 /// Width of `Layout::separator(factor)` outside menus.
 fn space_width(user: &UserDef, factor: f32) -> i32 {
     (6.0 * user.scale_factor * factor) as i32
@@ -59,11 +81,15 @@ pub fn over_editor_header(user: &UserDef, layout: &ScreenLayout, xy: [i32; 2]) -
 
 /// Draws the input status into the status bar header `bar` when the cursor is over an editor header.
 pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, layout: &ScreenLayout, cursor: [i32; 2], bar: Rcti) {
-    if !over_editor_header(user, layout, cursor) {
+    let items: &[Item] = if over_editor_header(user, layout, cursor) {
+        &HEADER_ITEMS
+    } else if over_viewport(user, layout, cursor) {
+        &VIEWPORT_ITEMS
+    } else {
         return;
-    }
+    };
     let mut row = HeaderRow::new_global(user, bar.size_y() + 1);
-    for item in &HEADER_ITEMS {
+    for item in items {
         match *item {
             Item::Icon(icon) => {
                 let mut rect = row.place_packed(user.widget_unit);
@@ -95,6 +121,16 @@ mod tests {
         assert_eq!(space_width(&user, -0.2), -1);
         assert_eq!(space_width(&user, 0.6), 3);
         assert_eq!(space_width(&user, -0.9), -5);
+    }
+
+    #[test]
+    fn viewport_shows_select_rotate_options() {
+        let user = UserDef::from_window_scale(1.0);
+        let l = screen_layout(&user, 1920, 1080);
+        assert!(over_viewport(&user, &l, [600, 500]));
+        assert!(!over_viewport(&user, &l, [100, 1040]));
+        let texts: Vec<&str> = VIEWPORT_ITEMS.iter().filter_map(|i| if let Item::Text(t) = i { Some(*t) } else { None }).collect();
+        assert_eq!(texts, ["Select", "Rotate View", "Options"]);
     }
 
     /* 1x 1920x1080: the 3D viewport header is y 1027..=1052; the viewport centre and the top bar are not headers. */

@@ -120,3 +120,4 @@ unpinned
 group
 preview_range
 particles
+mouse_lmb
