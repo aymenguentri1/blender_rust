@@ -145,10 +145,24 @@ pub enum Icon {
     CameraData,
     LightData,
     EmptyData,
+    /// The timeline's playback controls (`playback_controls()`, space_time.py): `ICON_RADIOBUT_OFF`, `ICON_REW`,
+    /// `ICON_FRAME_PREV`, `ICON_PREV_KEYFRAME`, `ICON_PLAY_REVERSE`, `ICON_PLAY`, `ICON_PAUSE`, `ICON_NEXT_KEYFRAME`,
+    /// `ICON_FRAME_NEXT`, `ICON_FF`, `ICON_TIME`.
+    RadioButOff,
+    Rew,
+    FramePrev,
+    PrevKeyframe,
+    PlayReverse,
+    Play,
+    Pause,
+    NextKeyframe,
+    FrameNext,
+    Ff,
+    Time,
 }
 
 impl Icon {
-    pub const ALL: &'static [Icon] = &[Icon::View3D, Icon::ObjectMode, Icon::SculptMode, Icon::DownArrow, Icon::OrientationGlobal, Icon::PivotMedian, Icon::PivotCursor, Icon::PivotIndividual, Icon::Snap, Icon::Proportional, Icon::Overlays, Icon::Xray, Icon::ShadingWire, Icon::ShadingSolid, Icon::ShadingMaterial, Icon::ShadingRendered, Icon::RightArrow, Icon::LeftArrow, Icon::Monitor, Icon::Camera, Icon::Eye, Icon::Grip, Icon::EditMode, Icon::ModWrench, Icon::ModArray, Icon::ModMirror, Icon::ModSolidify, Icon::ModBevel, Icon::ModSmooth, Icon::ModDeform, Icon::ModTriangulate, Icon::ModBoolean, Icon::ModWireframe, Icon::ModDecimate, Icon::ModRemesh, Icon::OutlinerCollection, Icon::ObMesh, Icon::ObCamera, Icon::ObLight, Icon::ObEmpty, Icon::MeshPlane, Icon::MeshCube, Icon::MeshCircle, Icon::MeshUvSphere, Icon::MeshIcoSphere, Icon::MeshCylinder, Icon::MeshCone, Icon::MeshTorus, Icon::MeshGrid, Icon::EmptyAxis, Icon::EmptyArrows, Icon::EmptySingleArrow, Icon::Cube, Icon::Sphere, Icon::Cone, Icon::LightPoint, Icon::LightSun, Icon::LightSpot, Icon::LightArea, Icon::ChevronRight, Icon::ViewZoom, Icon::ViewPan, Icon::ViewCameraUnselected, Icon::ViewCamera, Icon::ViewPerspective, Icon::ViewOrtho, Icon::EditorOutliner, Icon::EditorProperties, Icon::EditorTimeline, Icon::Filter, Icon::Search, Icon::CollectionNew, Icon::MouseMmbDrag, Icon::MouseRmb, Icon::ToolSettings, Icon::TabScene, Icon::Output, Icon::SceneData, Icon::RenderResult, Icon::World, Icon::ObjectData, Icon::Constraint, Icon::Physics, Icon::MeshData, Icon::CameraData, Icon::LightData, Icon::EmptyData];
+    pub const ALL: &'static [Icon] = &[Icon::View3D, Icon::ObjectMode, Icon::SculptMode, Icon::DownArrow, Icon::OrientationGlobal, Icon::PivotMedian, Icon::PivotCursor, Icon::PivotIndividual, Icon::Snap, Icon::Proportional, Icon::Overlays, Icon::Xray, Icon::ShadingWire, Icon::ShadingSolid, Icon::ShadingMaterial, Icon::ShadingRendered, Icon::RightArrow, Icon::LeftArrow, Icon::Monitor, Icon::Camera, Icon::Eye, Icon::Grip, Icon::EditMode, Icon::ModWrench, Icon::ModArray, Icon::ModMirror, Icon::ModSolidify, Icon::ModBevel, Icon::ModSmooth, Icon::ModDeform, Icon::ModTriangulate, Icon::ModBoolean, Icon::ModWireframe, Icon::ModDecimate, Icon::ModRemesh, Icon::OutlinerCollection, Icon::ObMesh, Icon::ObCamera, Icon::ObLight, Icon::ObEmpty, Icon::MeshPlane, Icon::MeshCube, Icon::MeshCircle, Icon::MeshUvSphere, Icon::MeshIcoSphere, Icon::MeshCylinder, Icon::MeshCone, Icon::MeshTorus, Icon::MeshGrid, Icon::EmptyAxis, Icon::EmptyArrows, Icon::EmptySingleArrow, Icon::Cube, Icon::Sphere, Icon::Cone, Icon::LightPoint, Icon::LightSun, Icon::LightSpot, Icon::LightArea, Icon::ChevronRight, Icon::ViewZoom, Icon::ViewPan, Icon::ViewCameraUnselected, Icon::ViewCamera, Icon::ViewPerspective, Icon::ViewOrtho, Icon::EditorOutliner, Icon::EditorProperties, Icon::EditorTimeline, Icon::Filter, Icon::Search, Icon::CollectionNew, Icon::MouseMmbDrag, Icon::MouseRmb, Icon::ToolSettings, Icon::TabScene, Icon::Output, Icon::SceneData, Icon::RenderResult, Icon::World, Icon::ObjectData, Icon::Constraint, Icon::Physics, Icon::MeshData, Icon::CameraData, Icon::LightData, Icon::EmptyData, Icon::RadioButOff, Icon::Rew, Icon::FramePrev, Icon::PrevKeyframe, Icon::PlayReverse, Icon::Play, Icon::Pause, Icon::NextKeyframe, Icon::FrameNext, Icon::Ff, Icon::Time];
 
     /// The file name (without `.svg`) of the icon in `release/datafiles/icons_svg`.
     pub fn svg_name(self) -> &'static str {
@@ -240,6 +254,17 @@ impl Icon {
             Icon::CameraData => "camera_data",
             Icon::LightData => "outliner_data_light",
             Icon::EmptyData => "empty_data",
+            Icon::RadioButOff => "radiobut_off",
+            Icon::Rew => "rew",
+            Icon::FramePrev => "frame_prev",
+            Icon::PrevKeyframe => "prev_keyframe",
+            Icon::PlayReverse => "play_reverse",
+            Icon::Play => "play",
+            Icon::Pause => "pause",
+            Icon::NextKeyframe => "next_keyframe",
+            Icon::FrameNext => "frame_next",
+            Icon::Ff => "ff",
+            Icon::Time => "time",
         }
     }
 

@@ -12,6 +12,7 @@
 mod area;
 mod area_header;
 mod properties_tabs;
+mod timeline_header;
 #[allow(dead_code)]
 mod blend_header;
 mod screen;
@@ -2439,11 +2440,15 @@ impl ApplicationHandler for App {
                         if let Some(header) = area::top_header_rect(user, layout.timeline) {
                             let mut row = ui_layout::HeaderRow::new_global(user, header.size_y() + 1);
                             row.place(user.widget_unit * 2);
+                            let mut x_end = header.xmin;
                             for label in ["View", "Marker", "Playback"] {
                                 let mut rect = row.place(font::label_width(user, label));
                                 rect.translate(header.xmin, header.ymin);
                                 font::draw_label(&mut buf, w, h, user, rect, label, theme::WCOL_PULLDOWN_TEXT);
+                                x_end = rect.xmax + 1;
                             }
+                            let items = timeline_header::layout(user, header, x_end, self.playing.is_some(), self.frame.unwrap_or(1), (frame_range::FrameRange::default().start, frame_range::FrameRange::default().end));
+                            timeline_header::draw(&mut buf, w, h, user, &items);
                         }
                     }
                     if let Some(user) = self.user.as_ref() {

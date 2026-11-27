@@ -84,3 +84,14 @@ mesh_data
 camera_data
 outliner_data_light
 empty_data
+radiobut_off
+rew
+frame_prev
+prev_keyframe
+play_reverse
+play
+pause
+next_keyframe
+frame_next
+ff
+time
