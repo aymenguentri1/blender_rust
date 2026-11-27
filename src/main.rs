@@ -172,6 +172,7 @@ mod icon_theme;
 mod object_tab_context;
 mod object_tab_panels;
 mod object_tab_view;
+mod sidebar;
 mod transform_panel;
 mod select_box;
 mod rename_popup;
@@ -2563,6 +2564,11 @@ impl ApplicationHandler for App {
                         if let Some(user) = self.user.as_ref() {
                             if let Some(tb) = area::view3d_toolbar_rect(user, layout.main) { toolbar::draw_cells(&mut buf, w, h, user, &toolbar::layout(user, tb, "builtin.select_box")); }
                             view3d_navigate::draw(&mut buf, w, h, user, area::view3d_visible_rect(user, layout.main), self.rv3d.ortho, false);
+                            if let Some(sb) = sidebar::region(user, layout.main) {
+                                let sp = sidebar::layout(user, sb, &self.scene, self.field_edit.as_ref());
+                                modifier_panel::draw(&mut buf, w, h, user, &sp.widgets);
+                                sidebar::draw_tabs(&mut buf, w, h, user, sb);
+                            }
                             { let q = view3d::quat_to_mat4(self.rv3d.viewquat); view3d_axis_gizmo::draw(&mut buf, w, h, user, area::view3d_visible_rect(user, layout.main), [[q[0][0], q[0][1], q[0][2]], [q[1][0], q[1][1], q[1][2]], [q[2][0], q[2][1], q[2][2]]]); }
                         }
                         if let Some(user) = self.user.as_ref().filter(|_| !self.overlays_hidden) {

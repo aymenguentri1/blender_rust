@@ -93,6 +93,10 @@ pub enum Style {
     Lock { locked: bool },
     /// The animate decorator (`ICON_DOT`, no keyframe).
     KeyDot,
+    /// A number field whose label (before the `\t` of `label`) is at the left and value (after it) at the right.
+    LabeledBox { corners: u8 },
+    /// The translucent panel of the 3D viewport sidebar (an overlap region): header and body in one box.
+    SideFrame,
     /// The collapse arrow and drag grip of a panel header (`panel_draw_aligned_widgets`); the widget rect is the header.
     PanelArrow { open: bool },
 }
@@ -438,6 +442,25 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
             Style::PropLabel => {
                 let pad = (w.rect.size_x() + 1 - font::string_width(user, &w.label) - (4.0 * user.scale_factor) as i32).max(0);
                 font::draw_label_pad(buf, width, height, user, w.rect, &w.label, theme::WCOL_PULLDOWN_TEXT, pad);
+                continue;
+            }
+            Style::SideFrame => {
+                draw_round_box(buf, width, height, user, w.rect, Rgba::hex(0x2b2b2be6), Rgba::hex(0xffffff11), panel_frame::PANEL_ROUNDNESS * 0.5);
+                continue;
+            }
+            Style::LabeledBox { corners } => {
+                let (inner, text) = crate::hover::colors(w.rect, theme::WCOL_TOOL_INNER, theme::WCOL_PULLDOWN_TEXT);
+                let flags = match corners {
+                    1 => [false, false, true, true],
+                    2 => [false; 4],
+                    3 => [true, true, false, false],
+                    _ => [true; 4],
+                };
+                crate::widget_draw::draw_round_box_corners(buf, width, height, user, w.rect, inner, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS, flags);
+                let (l, r) = w.label.split_once('\t').unwrap_or((&w.label, ""));
+                font::draw_label_pad(buf, width, height, user, w.rect, l, text, (16.0 * user.scale_factor) as i32);
+                let pad = (w.rect.size_x() + 1 - font::string_width(user, r) - (13.0 * user.scale_factor) as i32).max(0);
+                font::draw_label_pad(buf, width, height, user, w.rect, r, text, pad);
                 continue;
             }
             Style::PropBox { corners } => {

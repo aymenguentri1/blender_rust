@@ -328,10 +328,25 @@ pub fn tool_header_rect(user: &UserDef, totrct: Rcti) -> Option<Rcti> {
 /// `ED_region_visible_rect()` of the 3D viewport window region: what the overlap header regions leave uncovered.
 /// Overlay text and the navigation gizmos are placed inside it.
 pub fn view3d_visible_rect(user: &UserDef, main: Rcti) -> Rcti {
-    match tool_header_rect(user, main).or_else(|| view3d_header_rect(user, main)) {
+    let r = match tool_header_rect(user, main).or_else(|| view3d_header_rect(user, main)) {
         Some(header) => Rcti { ymax: header.ymin - 1, ..main },
         None => main,
-    }
+    };
+    /* The sidebar is an overlap region too: the navigation gizmos sit left of it. */
+    view3d_sidebar_rect(user, main).map_or(r, |sb| Rcti { xmax: sb.xmin - 1, ..r })
+}
+
+/// `UI_SIDEBAR_PANEL_WIDTH`-like width of the sidebar region (`RGN_TYPE_UI`) of the 3D viewport at scale 1, measured on
+/// a Blender 5.4 screenshot: panel plus the category tab strip.
+pub const SIDEBAR_WIDTH: f32 = 270.0;
+
+/// The sidebar region: the right column of `main`, from the bottom up to the lower edge of the header regions.
+/// `None` when the area is too narrow for it next to the toolbar.
+pub fn view3d_sidebar_rect(user: &UserDef, main: Rcti) -> Option<Rcti> {
+    let top = tool_header_rect(user, main).or_else(|| view3d_header_rect(user, main)).map_or(main.ymax, |h| h.ymin - 1);
+    let w = (SIDEBAR_WIDTH * user.scale_factor as f32).round() as i32;
+    let r = Rcti { xmin: main.xmax - w + 1, xmax: main.xmax, ymin: main.ymin, ymax: top };
+    (main.size_x() + 1 >= 3 * w && r.ymax >= r.ymin).then_some(r)
 }
 
 /// `region_rect_recursive()` for the toolbar (`RGN_TYPE_TOOLS`, `RGN_ALIGN_LEFT`) of the 3D viewport: the left column
@@ -428,7 +443,7 @@ mod visible_rect_tests {
         let user = UserDef::from_window_scale(1.0);
         let main = Rcti { xmin: 0, xmax: 999, ymin: 0, ymax: 799 };
         let tool = tool_header_rect(&user, main).unwrap();
-        assert_eq!(view3d_visible_rect(&user, main), Rcti { ymax: tool.ymin - 1, ..main });
+        assert_eq!(view3d_visible_rect(&user, main).ymax, tool.ymin - 1);
     }
 }
 
