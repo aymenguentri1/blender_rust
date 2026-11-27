@@ -87,6 +87,7 @@ mod transform_constraint_proj;
 mod playback;
 mod scene_fps;
 mod transform_snap;
+mod view3d_snap;
 #[allow(dead_code)]
 mod blend_reader;
 #[allow(dead_code)]

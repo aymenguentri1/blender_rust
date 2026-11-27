@@ -1999,7 +1999,11 @@ impl Scene {
 
     /// `VIEW3D_OT_snap_cursor_to_selected`: where the 3D cursor goes (the median of the selected origins).
     pub fn cursor_target(&self) -> Option<V3> {
-        self.median_origin()
+        let pts: Vec<V3> = self.selected().map(|o| {
+            let w = o.world_matrix()[3];
+            [w[0], w[1], w[2]]
+        }).collect();
+        crate::view3d_snap::cursor_to_selected(&pts, false)
     }
 
     /// `VIEW3D_OT_snap_selected_to_cursor` with `use_offset`: moves the selection so its median lands on `cursor`.
