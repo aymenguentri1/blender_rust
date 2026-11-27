@@ -155,6 +155,7 @@ mod brush_menu;
 mod add_modifier_menu;
 mod icons;
 mod view3d_header;
+mod view3d_axis_gizmo;
 mod view3d_navigate;
 mod modifier_menu;
 #[allow(dead_code)]
@@ -2535,6 +2536,7 @@ impl ApplicationHandler for App {
                         }
                         if let Some(user) = self.user.as_ref() {
                             view3d_navigate::draw(&mut buf, w, h, user, layout.main, self.rv3d.ortho, false);
+                            { let q = view3d::quat_to_mat4(self.rv3d.viewquat); view3d_axis_gizmo::draw(&mut buf, w, h, user, layout.main, [[q[0][0], q[0][1], q[0][2]], [q[1][0], q[1][1], q[1][2]], [q[2][0], q[2][1], q[2][2]]]); }
                         }
                         if let Some(user) = self.user.as_ref().filter(|_| !self.overlays_hidden) {
                             overlay_extra::draw_extras(&mut buf, w, h, layout.main, user, &self.rv3d, &self.scene);
