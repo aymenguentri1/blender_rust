@@ -287,11 +287,8 @@ pub fn widgets(user: &UserDef, window: Rcti, st: &PanelState) -> Vec<Widget> {
         *top -= unit + gap;
         true
     };
-    let title = match &st.object {
-        Some(n) => format!("Modifiers  ({n})"),
-        None => "Modifiers: no mesh object active".to_string(),
-    };
-    row(&mut out, &mut top, vec![(x0, x1, title, Style::Title, None, false)]);
+    /* `DATA_PT_modifiers.poll`: the panel needs an object; it has no title row, the first item is the Add Modifier
+     * operator button (`wm.call_menu`, `icon='ADD'`). */
     if st.object.is_none() {
         return out;
     }
@@ -449,6 +446,16 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, widget
             icons::draw_icon(buf, width, height, user, w.rect, Icon::EditMode, theme::WCOL_PULLDOWN_TEXT);
         } else if w.action.is_some_and(|a| matches!(a, Action::ToggleRender(_))) {
             icons::draw_icon(buf, width, height, user, w.rect, Icon::Camera, theme::WCOL_PULLDOWN_TEXT);
+        } else if w.action == Some(Action::ToggleAddList) {
+            /* `widget_draw_text_icon()`: with text the icon sits `4 * scale` px from the left (`BUT_ICON_LEFT`), the
+             * text is centred in the rest of the button, after the icon and `2 * scale` px of padding. */
+            let s = user.scale_factor;
+            let size = icons::icon_size(user);
+            let cell = Rcti { xmax: w.rect.xmin + (4.0 * s) as i32 + size - 1, ..w.rect };
+            icons::draw_icon(buf, width, height, user, Rcti { xmin: w.rect.xmin + (4.0 * s) as i32, ..cell }, Icon::Add, theme::WCOL_PULLDOWN_TEXT);
+            let rest = Rcti { xmin: cell.xmax + 1 + (2.0 * s).round() as i32, ..w.rect };
+            let pad = ((rest.size_x() + 1 - font::string_width(user, &w.label)) / 2).max(0);
+            font::draw_label_pad(buf, width, height, user, rest, &w.label, theme::WCOL_PULLDOWN_TEXT, pad);
         } else if w.centered {
             let pad = ((w.rect.size_x() + 1 - font::string_width(user, &w.label)) / 2).max(0);
             font::draw_label_pad(buf, width, height, user, w.rect, &w.label, theme::WCOL_PULLDOWN_TEXT, pad);
@@ -519,11 +526,19 @@ mod tests {
     }
 
     #[test]
-    fn without_a_mesh_there_is_only_the_title() {
+    fn without_an_object_there_is_nothing() {
         let user = UserDef::from_window_scale(1.0);
-        let w = widgets(&user, window(), &PanelState::default());
+        assert!(widgets(&user, window(), &PanelState::default()).is_empty());
+    }
+
+    #[test]
+    fn the_first_item_is_the_add_modifier_button_and_there_is_no_title() {
+        let user = UserDef::from_window_scale(1.0);
+        let st = PanelState { object: Some("Cube".into()), ..PanelState::default() };
+        let w = widgets(&user, window(), &st);
         assert_eq!(w.len(), 1);
-        assert_eq!(w[0].style, Style::Title);
+        assert_eq!((w[0].label.as_str(), w[0].action), ("Add Modifier", Some(Action::ToggleAddList)));
+        assert!(w.iter().all(|x| x.style != Style::Title));
     }
 
     #[test]
@@ -537,8 +552,8 @@ mod tests {
             editing: None,
         };
         let ws = widgets(&user, window(), &st);
-        /* title, add, then 2 x (9 header + 3 value) widgets */
-        assert_eq!(ws.len(), 2 + 2 * 12);
+        /* add, then 2 x (9 header + 3 value) widgets */
+        assert_eq!(ws.len(), 1 + 2 * 12);
         assert!(ws.iter().all(|w| window().isect(&w.rect) == Some(w.rect)));
         assert!(ws[1].rect.ymax < ws[0].rect.ymin);
         /* The active modifier's name is the one highlighted name; the monitor toggles are lit too (shown). */
@@ -565,7 +580,7 @@ mod tests {
             ..Default::default()
         };
         let ws = widgets(&user, window(), &st);
-        assert_eq!(ws.len(), 2 + 9 + 3 + 1);
+        assert_eq!(ws.len(), 1 + 9 + 3 + 1);
         let t = ws.iter().find(|w| w.action == Some(Action::CycleTarget(0))).unwrap();
         assert_eq!(t.label, "Target: (none)");
         assert_eq!(t.rect.xmin, ws[0].rect.xmin, "full width");
