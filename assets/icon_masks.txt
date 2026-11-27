@@ -111,3 +111,5 @@ tria_up
 tria_down
 checkbox_hlt
 checkbox_dehlt
+decorate_unlocked
+decorate_locked

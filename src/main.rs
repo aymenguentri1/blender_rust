@@ -30,6 +30,7 @@ mod frame_range;
 #[allow(dead_code)]
 mod buttons_context;
 mod object_tab_layout;
+mod ui_split;
 mod outliner_draw;
 #[allow(dead_code)]
 mod face_set;
