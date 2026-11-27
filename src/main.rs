@@ -16,6 +16,8 @@ mod topbar_id_fields;
 mod topbar_menu;
 #[allow(dead_code)]
 mod popup_geometry;
+#[allow(dead_code)]
+mod popup_draw;
 mod properties_tabs;
 mod timeline_header;
 #[allow(dead_code)]
