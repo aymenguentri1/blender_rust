@@ -1215,6 +1215,7 @@ impl ApplicationHandler for App {
                             outliner_draw::RestrictCol::Hide | outliner_draw::RestrictCol::Viewport => scene::Restrict::Viewport,
                             outliner_draw::RestrictCol::Select => scene::Restrict::Select,
                             outliner_draw::RestrictCol::Render => scene::Restrict::Render,
+                            outliner_draw::RestrictCol::Enable => unreachable!("restrict_click skips the collection column"),
                         };
                         if self.scene.toggle_restrict(id, which) {
                             scene_changed(&mut self.scene, &mut self.taa);

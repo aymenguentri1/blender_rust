@@ -174,11 +174,13 @@ pub enum RestrictCol {
     Viewport,
     Hide,
     Select,
+    /// `SO_RESTRICT_ENABLE`: the checkbox of a collection (`LayerCollection::exclude`), the leftmost column.
+    Enable,
 }
 
 /// `SpaceOutliner::show_restrict_flags` as the startup file has it (space_outliner.cc:417): `SO_RESTRICT_ENABLE |
-/// SO_RESTRICT_HIDE | SO_RESTRICT_RENDER`; only the columns that exist as object properties are modelled.
-pub const DEFAULT_RESTRICT: [RestrictCol; 2] = [RestrictCol::Hide, RestrictCol::Render];
+/// SO_RESTRICT_HIDE | SO_RESTRICT_RENDER`; only the columns that exist as object or collection properties are modelled.
+pub const DEFAULT_RESTRICT: [RestrictCol; 3] = [RestrictCol::Enable, RestrictCol::Hide, RestrictCol::Render];
 
 /// `V2D_SCROLL_WIDTH` (UI_view2d.hh:79), truncated like the `int` it ends up in.
 fn scroll_width(user: &UserDef) -> i32 {
@@ -187,12 +189,12 @@ fn scroll_width(user: &UserDef) -> i32 {
 
 /// The left edge (window x) of the button of column `col` in `outliner_draw_restrictbuts()`
 /// (outliner_draw.cc:1221-1250): `cur.xmax - offset` with the offset `(++column) * UI_UNIT_X + V2D_SCROLL_WIDTH`,
-/// counting from the right in the order render, viewport, hide, select over the columns in `shown`.
+/// counting from the right in the order render, viewport, hide, select, enable over the columns in `shown`.
 pub fn restrict_col_x(user: &UserDef, region: Rcti, shown: &[RestrictCol], col: RestrictCol) -> Option<i32> {
     if !shown.contains(&col) {
         return None;
     }
-    let order = [RestrictCol::Render, RestrictCol::Viewport, RestrictCol::Hide, RestrictCol::Select];
+    let order = [RestrictCol::Render, RestrictCol::Viewport, RestrictCol::Hide, RestrictCol::Select, RestrictCol::Enable];
     let n = order.iter().take_while(|&&c| c != col).filter(|c| shown.contains(c)).count() as i32 + 1;
     let xmax = region.xmin + region.size_x() + 1;
     Some(xmax - (n * user.widget_unit + scroll_width(user)))
@@ -200,7 +202,7 @@ pub fn restrict_col_x(user: &UserDef, region: Rcti, shown: &[RestrictCol], col: 
 
 /// The column whose button is under window x `x`, if any (each button is `UI_UNIT_X` wide).
 pub fn restrict_col_at(user: &UserDef, region: Rcti, shown: &[RestrictCol], x: i32) -> Option<RestrictCol> {
-    [RestrictCol::Render, RestrictCol::Viewport, RestrictCol::Hide, RestrictCol::Select]
+    [RestrictCol::Render, RestrictCol::Viewport, RestrictCol::Hide, RestrictCol::Select, RestrictCol::Enable]
         .into_iter()
         .find(|&c| restrict_col_x(user, region, shown, c).is_some_and(|x0| x >= x0 && x < x0 + user.widget_unit))
 }
@@ -220,9 +222,17 @@ pub fn draw_restrict_buttons(buf: &mut [u32], width: usize, height: usize, user:
         if starty < -rh {
             break;
         }
+        let ymin = region.ymin + rh + starty;
+        /* `LayerCollection::exclude` toggle (`ICON_CHECKBOX_HLT`, included) of the layer collections; the scene collection has none. */
+        if matches!(row.kind, RowKind::ActiveCollection | RowKind::Collection) {
+            if let Some(x0) = restrict_col_x(user, region, &DEFAULT_RESTRICT, RestrictCol::Enable) {
+                let rect = Rcti { xmin: x0, xmax: x0 + unit - 1, ymin, ymax: ymin + unit - 1 };
+                draw_icon(buf, width, height, user, rect, Icon::CheckboxHlt, theme::SPACE_OUTLINER_TEXT);
+            }
+            continue;
+        }
         let RowKind::Object(id) = row.kind else { continue };
         let Some(o) = scene.index_of(id).map(|k| &scene.objects[k]) else { continue };
-        let ymin = region.ymin + rh + starty;
         for (col, icon, off) in [(RestrictCol::Hide, Icon::Eye, o.hidden), (RestrictCol::Render, Icon::Camera, o.hide_render)] {
             let Some(x0) = restrict_col_x(user, region, &DEFAULT_RESTRICT, col) else { continue };
             let rect = Rcti { xmin: x0, xmax: x0 + unit - 1, ymin, ymax: ymin + unit - 1 };
@@ -319,7 +329,7 @@ pub fn draw_row_icons(buf: &mut [u32], width: usize, height: usize, user: &UserD
 
 /// What a click at window `(x, y)` on the restriction columns toggles: the object id and the column.
 pub fn restrict_click(user: &UserDef, region: Rcti, scene: &crate::scene::Scene, x: i32, y: i32) -> Option<(u32, RestrictCol)> {
-    let col = restrict_col_at(user, region, &DEFAULT_RESTRICT, x)?;
+    let col = restrict_col_at(user, region, &DEFAULT_RESTRICT, x).filter(|&c| c != RestrictCol::Enable)?;
     match scene.outliner_rows().get(row_at(user, region, y)?)?.kind {
         crate::scene::RowKind::Object(id) => Some((id, col)),
         _ => None,
@@ -337,6 +347,8 @@ mod restrict_tests {
         let region = Rcti { xmin: 0, xmax: 199, ymin: 0, ymax: 99 };
         assert_eq!(restrict_col_x(&user, region, &DEFAULT_RESTRICT, RestrictCol::Render), Some(200 - 31));
         assert_eq!(restrict_col_x(&user, region, &DEFAULT_RESTRICT, RestrictCol::Hide), Some(200 - 51));
+        /* The enable checkbox is the leftmost of the three: third slot, 200 - 71. */
+        assert_eq!(restrict_col_x(&user, region, &DEFAULT_RESTRICT, RestrictCol::Enable), Some(200 - 71));
         assert_eq!(restrict_col_x(&user, region, &DEFAULT_RESTRICT, RestrictCol::Select), None);
         let all = [RestrictCol::Select, RestrictCol::Hide, RestrictCol::Viewport, RestrictCol::Render];
         assert_eq!(restrict_col_x(&user, region, &all, RestrictCol::Select), Some(200 - 91));
@@ -355,6 +367,22 @@ mod restrict_tests {
         assert_eq!(restrict_click(&user, region, &s, 155, 90), Some((id, RestrictCol::Hide)));
         assert_eq!(restrict_click(&user, region, &s, 100, 90), None);
         assert_eq!(restrict_click(&user, region, &s, 175, 130), None); /* the Collection row, y 121..=140 */
+        assert_eq!(restrict_click(&user, region, &s, 135, 90), None, "the enable column has no object button");
+    }
+
+    #[test]
+    fn checkbox_is_drawn_for_layer_collections_only() {
+        use crate::scene::Scene;
+        let user = UserDef::from_window_scale(1.0);
+        let (w, h) = (200usize, 163usize);
+        let region = Rcti { xmin: 0, xmax: 199, ymin: 0, ymax: 162 };
+        let mut buf = vec![0u32; w * h];
+        draw_restrict_buttons(&mut buf, w, h, &user, region, &Scene::startup());
+        /* Enable column x 129..=148; Collection row 1 spans y 121..=140, Scene Collection row 0 y 141..=160. */
+        let lit = |y0: usize, y1: usize| (129..149).any(|x| (y0..=y1).any(|y| buf[(h - 1 - y) * w + x] != 0));
+        assert!(lit(121, 140));
+        assert!(!lit(141, 160));
+        assert!(!lit(81, 100), "object rows have no checkbox");
     }
 
     #[test]
