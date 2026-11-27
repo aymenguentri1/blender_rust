@@ -139,6 +139,7 @@ mod edit_bone;
 mod menu_submenu;
 mod sculpt_crease;
 mod sculpt_inflate;
+mod sculpt_layer;
 mod sculpt_pinch;
 #[allow(dead_code)]
 mod topbar_menu_bar;
