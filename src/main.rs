@@ -136,6 +136,8 @@ mod normal_cache;
 mod armature_select;
 mod edit_bone;
 #[allow(dead_code)]
+mod menu_submenu;
+#[allow(dead_code)]
 mod mesh_dissolve_faces;
 #[allow(dead_code)]
 mod mesh_poke;
