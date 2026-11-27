@@ -166,6 +166,7 @@ mod panel_frame;
 mod splash_layout;
 mod outliner_highlight;
 mod outliner_lines;
+mod object_tab_context;
 mod transform_panel;
 mod select_box;
 mod rename_popup;
