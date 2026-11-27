@@ -25,7 +25,7 @@ pub fn theme_color(icon: Icon) -> Option<Rgba> {
         ObMesh | ObCamera | ObLight | ObEmpty | ObjectData => Some(OBJECT),
         MeshData | CameraData | LightData | EmptyData | LightPoint | LightSun | LightSpot | LightArea => Some(OBJECT_DATA),
         ModWrench | ModArray | ModMirror | ModSolidify | ModBevel | ModSmooth | ModDeform | ModTriangulate | ModBoolean
-        | ModWireframe | ModDecimate | ModRemesh | Constraint | Physics => Some(MODIFIER),
+        | ModWireframe | ModDecimate | ModRemesh | Constraint | Physics | Particles => Some(MODIFIER),
         ShadingMaterial | World => Some(SHADING),
         Group => Some(COLLECTION),
         _ => None,

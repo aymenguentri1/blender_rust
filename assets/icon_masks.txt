@@ -119,3 +119,4 @@ renderlayers
 unpinned
 group
 preview_range
+particles
