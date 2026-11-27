@@ -164,6 +164,7 @@ mod modifier_menu;
 mod modifier_panel;
 mod panel_frame;
 mod splash_layout;
+mod outliner_highlight;
 mod transform_panel;
 mod select_box;
 mod rename_popup;
@@ -2460,6 +2461,8 @@ impl ApplicationHandler for App {
                     if let Some(user) = self.user.as_ref() {
                         if let Some(window) = outliner_draw::window_rect(user, layout.outliner) {
                             outliner_draw::draw_row_stripes(&mut buf, w, h, user, window);
+                            let hover = if window.isect_pt_v(self.cursor) { outliner_draw::row_at(user, window, self.cursor[1]) } else { None };
+                            outliner_highlight::draw(&mut buf, w, h, user, window, &outliner_highlight::highlights(user, window, &self.scene, hover));
                             outliner_draw::draw_tree_rows(&mut buf, w, h, user, window, &outliner_draw::scene_rows(&self.scene));
                             outliner_draw::draw_restrict_buttons(&mut buf, w, h, user, window, &self.scene);
                             outliner_draw::draw_expand_arrows(&mut buf, w, h, user, window, &self.scene);
