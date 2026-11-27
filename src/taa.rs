@@ -275,6 +275,15 @@ impl TaaState {
         self.sample
     }
 
+    /// While navigating `SceneState::init()` clamps the sample count to 1 and resets the TAA
+    /// (`is_navigating`, workbench_state.cc:210-230): drop the accumulation so it restarts at sample 0
+    /// once the view settles.
+    pub fn reset_for_navigation(&mut self) {
+        self.key = None;
+        self.sample = 0;
+        self.weight_accum = 0.0;
+    }
+
     /// The kept sample buffer, refilled with `fill` and resized to `len` pixels; give it back with `put_scratch`.
     pub fn take_scratch(&mut self, len: usize, fill: u32) -> Vec<u32> {
         let mut v = std::mem::take(&mut self.scratch);
@@ -355,6 +364,27 @@ impl TaaState {
         self.sample += 1;
     }
 
+    /// The un-accumulated sample shown while navigating (no AA): `img` (`0x00RRGGBB`, row 0 at the top,
+    /// `rw` x `rh`) is copied into `region` (inclusive Blender rect, y up) of `buf`.
+    pub fn blit_sample(img: &[u32], rw: usize, rh: usize, buf: &mut [u32], width: usize, height: usize, region: Rcti) {
+        if img.len() != rw * rh {
+            return;
+        }
+        for row in 0..rh {
+            let y = region.ymax - row as i32;
+            if y < 0 || y as usize >= height {
+                continue;
+            }
+            let dst = (height - 1 - y as usize) * width;
+            for col in 0..rw {
+                let x = region.xmin + col as i32;
+                if x >= 0 && (x as usize) < width {
+                    buf[dst + x as usize] = img[row * rw + col];
+                }
+            }
+        }
+    }
+
     /// `smaa_resolve_ps_` with `mix_factor = 0`: writes the accumulated image into `region`
     /// (inclusive Blender rect, y up) of the `0x00RRGGBB` buffer.
     pub fn resolve(&self, buf: &mut [u32], width: usize, height: usize, region: Rcti) {
@@ -404,6 +434,31 @@ mod tests {
 
     /* The first sample is the one closest to the centre, which is moved to exactly (0, 0); all
      * samples are in [-1, 1) and distinct. */
+    #[test]
+    fn navigation_reset_restarts_accumulation() {
+        let mut t = TaaState::default();
+        let m = [[0.0; 4]; 4];
+        t.begin(m, 4, 4, false);
+        t.accumulate(&[0x00ffffff; 16], 4, 4, [0.0, 0.0]);
+        assert_eq!(t.sample, 1);
+        t.reset_for_navigation();
+        assert_eq!(t.sample, 0);
+        assert_eq!(t.begin(m, 4, 4, false), 0);
+        assert_eq!(t.weight_accum, 0.0);
+    }
+
+    #[test]
+    fn blit_sample_places_rows_y_up_and_clips() {
+        let mut buf = vec![0u32; 4 * 4];
+        let img = [1, 2, 3, 4]; /* 2x2, row 0 at the top */
+        TaaState::blit_sample(&img, 2, 2, &mut buf, 4, 4, Rcti { xmin: 1, xmax: 2, ymin: 0, ymax: 1 });
+        assert_eq!(&buf[8..12], &[0, 1, 2, 0]);
+        assert_eq!(&buf[12..16], &[0, 3, 4, 0]);
+        let mut small = vec![0u32; 4];
+        TaaState::blit_sample(&img, 2, 2, &mut small, 2, 2, Rcti { xmin: 1, xmax: 2, ymin: 0, ymax: 1 });
+        assert_eq!(small, vec![0, 1, 0, 3]);
+    }
+
     #[test]
     fn scratch_is_reused_and_refilled() {
         let mut t = TaaState::default();
