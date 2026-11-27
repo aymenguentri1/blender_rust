@@ -150,6 +150,8 @@ mod transform;
 mod overlay_outline;
 mod overlay_extra;
 mod add_menu;
+#[allow(dead_code)]
+mod splash_layout;
 mod brush_menu;
 #[allow(dead_code)]
 mod add_modifier_menu;
