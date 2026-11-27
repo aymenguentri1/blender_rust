@@ -58,7 +58,7 @@ pub const CATEGORIES: [(&str, &[Entry]); 5] = [
         ("Screw", Some("Screw"), "MOD_SCREW"),
         ("Skin", None, "MOD_SKIN"),
         ("Solidify", Some("Solidify"), "MOD_SOLIDIFY"),
-        ("Subdivision Surface", None, "MOD_SUBSURF"),
+        ("Subdivision Surface", Some("Subdivision Surface"), "MOD_SUBSURF"),
         ("Triangulate", Some("Triangulate"), "MOD_TRIANGULATE"),
         ("Volume to Mesh", None, "VOLUME_DATA"),
         ("Weld", Some("Weld"), "AUTOMERGE_OFF"),

@@ -760,7 +760,7 @@ mod tests {
         let st = PanelState::of(&s, false);
         assert_eq!(st.modifiers.len(), 2);
         /* Only a Shrinkwrap has a target row. */
-        assert!(apply(&mut s, &mut open, Action::Add(Modifier::catalog().len() - 1)));
+        assert!(apply(&mut s, &mut open, Action::Add(crate::add_modifier_menu::catalog_index("Shrinkwrap").unwrap())));
         let st = PanelState::of(&s, false);
         assert_eq!(st.modifiers[2].target.as_deref(), Some("Target: (none)"));
         assert!(st.modifiers[0].target.is_none());

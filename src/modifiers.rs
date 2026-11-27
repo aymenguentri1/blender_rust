@@ -31,6 +31,8 @@ pub enum Modifier {
     Cast { shape: CastShape, factor: f32, radius: f32 },
     /// Collapse decimation keeping `ratio` of the triangles.
     Decimate { ratio: f32 },
+    /// Catmull-Clark subdivision (`MOD_subsurf.cc`): `levels` is Levels Viewport.
+    Subsurf { levels: u32 },
     /// Cut edges sharper than the angle (degrees).
     EdgeSplit { angle: f32 },
     /// Frames of the given thickness instead of faces.
@@ -137,6 +139,11 @@ impl Modifier {
         Modifier::Wireframe { thickness: 0.02 }
     }
 
+    /// Levels Viewport 1 as in `DNA_modifier_defaults.h` (`_DNA_DEFAULT_SubsurfModifierData`).
+    pub fn subsurf() -> Modifier {
+        Modifier::Subsurf { levels: 1 }
+    }
+
     pub fn decimate(ratio: f32) -> Modifier {
         Modifier::Decimate { ratio }
     }
@@ -213,6 +220,7 @@ impl Modifier {
             Modifier::build(),
             Modifier::shrinkwrap(),
             Modifier::boolean(),
+            Modifier::subsurf(),
         ]
     }
 
@@ -233,6 +241,7 @@ impl Modifier {
             Modifier::Triangulate => "Triangulate",
             Modifier::Cast { .. } => "Cast",
             Modifier::Decimate { .. } => "Decimate",
+            Modifier::Subsurf { .. } => "Subdivision Surface",
             Modifier::EdgeSplit { .. } => "Edge Split",
             Modifier::Wireframe { .. } => "Wireframe",
             Modifier::Weld { .. } => "Weld",
@@ -283,6 +292,7 @@ impl Modifier {
             Modifier::Triangulate => String::new(),
             Modifier::Cast { shape, factor, .. } => format!(": {} {}", shape.label(), num(*factor)),
             Modifier::Decimate { ratio } => format!(" {}", num(*ratio)),
+            Modifier::Subsurf { levels } => format!(" level {levels}"),
             Modifier::EdgeSplit { angle } => format!(" {}\u{b0}", num(*angle)),
             Modifier::Wireframe { thickness } => format!(" {} m", num(*thickness)),
             Modifier::Weld { distance } => format!(" {} m", num(*distance)),
@@ -337,6 +347,7 @@ impl Modifier {
             Modifier::Displace { strength, .. } => *strength = round(*strength + 0.05 * n),
             Modifier::Cast { factor, .. } => *factor = round((*factor + 0.1 * n).clamp(0.0, 1.0)),
             Modifier::Decimate { ratio } => *ratio = round((*ratio + 0.05 * n).clamp(0.01, 1.0)),
+            Modifier::Subsurf { levels } => *levels = (*levels as f32 + n).round().clamp(0.0, 6.0) as u32,
             Modifier::EdgeSplit { angle } => *angle = round((*angle + 5.0 * n).clamp(0.0, 180.0)),
             Modifier::Wireframe { thickness } => *thickness = round((*thickness + 0.005 * n).max(0.001)),
             Modifier::Weld { distance } => *distance = round((*distance + 0.001 * n).max(0.0001)),
@@ -371,6 +382,7 @@ impl Modifier {
             Modifier::Displace { strength, .. } => ("Strength", *strength, " m"),
             Modifier::Cast { factor, .. } => ("Factor", *factor, ""),
             Modifier::Decimate { ratio } => ("Ratio", *ratio, ""),
+            Modifier::Subsurf { levels } => ("Levels Viewport", *levels as f32, ""),
             Modifier::EdgeSplit { angle } => ("Angle", *angle, " deg"),
             Modifier::Wireframe { thickness } => ("Thickness", *thickness, " m"),
             Modifier::Weld { distance } => ("Distance", *distance, " m"),
@@ -405,6 +417,7 @@ impl Modifier {
             Modifier::Displace { strength, .. } => *strength = v,
             Modifier::Cast { factor, .. } => *factor = v.clamp(0.0, 1.0),
             Modifier::Decimate { ratio } => *ratio = v.clamp(0.01, 1.0),
+            Modifier::Subsurf { levels } => *levels = v.round().clamp(0.0, 6.0) as u32,
             Modifier::EdgeSplit { angle } => *angle = v.clamp(0.0, 180.0),
             Modifier::Wireframe { thickness } => *thickness = v.max(0.001),
             Modifier::Weld { distance } => *distance = v.max(0.0001),
@@ -467,6 +480,7 @@ impl Modifier {
             Modifier::Triangulate => mesh.triangulated(),
             Modifier::Cast { shape, factor, radius } => mesh.casted(*shape, *factor, *radius),
             Modifier::Decimate { ratio } => mesh.decimated(*ratio),
+            Modifier::Subsurf { levels } => mesh.subdivided(*levels),
             Modifier::EdgeSplit { angle } => mesh.edge_split(*angle),
             Modifier::Wireframe { thickness } => mesh.wireframed(*thickness),
             Modifier::Weld { distance } => mesh.merged_by_distance(*distance).0,
@@ -628,6 +642,18 @@ mod tests {
         let cube = Mesh::cube(2.0).mapped(|v| [v[0] + 3.0, v[1] + 3.0, v[2]], false);
         let m = Modifier::Mirror { axes: [true, true, false], merge: true, threshold: 0.001 };
         assert_eq!(m.apply(&cube).faces.len(), 24);
+    }
+    #[test]
+    fn subsurf_modifier_levels() {
+        let cube = Mesh::cube(2.0);
+        let r = evaluate(&cube, &[Modifier::subsurf()]);
+        assert_eq!((r.verts.len(), r.faces.len()), (26, 24));
+        assert_eq!(evaluate(&cube, &[Modifier::Subsurf { levels: 0 }]).faces.len(), 6);
+        assert_eq!(evaluate(&cube, &[Modifier::Subsurf { levels: 2 }]).faces.len(), 96);
+        assert_eq!(Modifier::subsurf().label(), "Subdivision Surface");
+        let mut m = Modifier::subsurf();
+        m.set_main_value(9.0);
+        assert_eq!(m, Modifier::Subsurf { levels: 6 });
     }
     #[test]
     fn bevel_in_the_stack() {
@@ -826,11 +852,11 @@ mod tests {
     #[test]
     fn the_catalog_has_every_kind_once() {
         let c = Modifier::catalog();
-        assert_eq!(c.len(), 21);
+        assert_eq!(c.len(), 22);
         let mut names: Vec<&str> = c.iter().map(|m| m.label()).collect();
         names.sort();
         names.dedup();
-        assert_eq!(names.len(), 21);
+        assert_eq!(names.len(), 22);
         /* Every entry evaluates on a cube without panicking. */
         for m in &c {
             let _ = m.apply(&Mesh::cube(2.0));
