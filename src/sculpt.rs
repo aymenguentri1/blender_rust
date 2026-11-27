@@ -201,6 +201,16 @@ fn vertex_normal(mesh: &Mesh, topo: &Topo, i: usize) -> V3 {
     normalized(n)
 }
 
+/// `do_clay_strips_brush()` with every mirror of it; `dir` is the stroke direction.
+#[allow(clippy::too_many_arguments)]
+fn clay_strips(mesh: &mut Mesh, mask: &[f32], adj: &Topo, center: V3, radius: f32, strength: f32, dir: V3, invert: bool, symmetry: [bool; 3]) {
+    for s in mirror_signs(symmetry) {
+        let c = mirrored(center, s);
+        let area: Vec<(usize, V3)> = affected(mesh, &[], c, radius).iter().map(|&(i, _)| (i, vertex_normal(mesh, adj, i))).collect();
+        crate::sculpt_clay_strips::dab(&mut mesh.verts, mask, &area, c, mirrored(dir, s), radius, strength, invert, |d| falloff(d, 1.0));
+    }
+}
+
 /// The mirror combinations of the enabled axes (`+++` first), as sign triples.
 pub(crate) fn mirror_signs(sym: [bool; 3]) -> Vec<[f32; 3]> {
     let mut out = vec![[1.0f32; 3]];
@@ -233,7 +243,7 @@ pub fn dab(mesh: &mut Mesh, adj: &Topo, brush: Brush, center: V3, radius: f32, s
 /// `dab()` on a mesh with a mask (one value per vertex); the Mask brush paints it, the others are scaled by it.
 #[allow(clippy::too_many_arguments)]
 pub fn dab_masked(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool, symmetry: [bool; 3]) {
-    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::DrawSharp) {
+    if matches!(brush, Brush::Grab | Brush::SnakeHook | Brush::Layer | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp) {
         return;
     }
     for s in mirror_signs(symmetry) {
@@ -316,22 +326,6 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
             }
             pinch(mesh, &hit, center, area, strength * dir);
         }
-        Brush::Clay => {
-            /* `do_clay_strips_brush()`, simplified: builds up towards a plane a little above the surface, so
-             * only what lies below it rises (the inverted brush cuts what lies above a plane below it). */
-            let (mut sum, mut wsum) = ([0.0f32; 3], 0.0f32);
-            for &(i, f) in &hit {
-                sum = add(sum, scale(mesh.verts[i], f));
-                wsum += f;
-            }
-            let plane = add(scale(sum, 1.0 / wsum.max(1e-12)), scale(area, push * 0.5 * dir));
-            for &(i, f) in &hit {
-                let dist = dot(sub(mesh.verts[i], plane), area) * dir;
-                if dist < 0.0 {
-                    mesh.verts[i] = sub(mesh.verts[i], scale(area, dist * dir * (f * strength * BLEND_FACTOR).min(1.0)));
-                }
-            }
-        }
         Brush::Fill | Brush::Scrape => {
             /* `do_fill_brush()` / `do_scrape_brush()`: Flatten that only raises what lies below the plane (Fill)
              * or only lowers what lies above it (Scrape); the inverted brush swaps the two. */
@@ -358,7 +352,7 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
                 mesh.verts[i] = add(mesh.verts[i], scale(d, push * BLOB_FACTOR * f * dir));
             }
         }
-        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::DrawSharp => {}
+        Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp => {}
     }
 }
 
@@ -775,6 +769,10 @@ impl Session {
             thumb(mesh, orig, mask, &a.adj, hit.local, radius, self.settings.strength, a.dir, sym);
             return true;
         }
+        if a.brush == Brush::Clay {
+            clay_strips(mesh, mask, &a.adj, hit.local, radius, self.settings.strength, a.dir, a.invert, sym);
+            return true;
+        }
         if a.brush == Brush::Nudge {
             nudge(mesh, mask, &a.adj, hit.local, radius, self.settings.strength, a.dir, sym);
             return true;
@@ -812,7 +810,7 @@ impl Session {
             }
             a.last = cur;
         } else {
-            if matches!(a.brush, Brush::Nudge | Brush::Thumb) {
+            if matches!(a.brush, Brush::Nudge | Brush::Thumb | Brush::Clay) {
                 let p0 = rv3d.unproject_v3(rw, rh, a.last[0], a.last[1], a.depth);
                 let p1 = rv3d.unproject_v3(rw, rh, cur[0], cur[1], a.depth);
                 if let (Some(p0), Some(p1)) = (p0, p1) {
@@ -1038,18 +1036,13 @@ mod tests {
     }
 
     #[test]
-    fn clay_fills_a_dent_and_leaves_a_bump() {
+    fn clay_strips_builds_up_the_surface() {
         let mut m = grid();
         let adj = adjacency(&m);
         let i = m.verts.iter().position(|v| v[0].abs() < 1e-3 && v[1].abs() < 1e-3).unwrap();
         let up = m.vertex_normals()[i][2].signum();
-        m.verts[i][2] = -0.2 * up;
-        dab(&mut m, &adj, Brush::Clay, [0.0, 0.0, 0.0], 0.5, 1.0, false, [false; 3]);
-        assert!((m.verts[i][2] * up).abs() < 0.2, "the dent is filled");
-        let mut b = grid();
-        b.verts[i][2] = 0.2 * up;
-        dab(&mut b, &adj, Brush::Clay, [0.0, 0.0, 0.0], 0.5, 1.0, false, [false; 3]);
-        assert_eq!(b.verts[i][2], 0.2 * up, "a bump above the plane is left alone");
+        clay_strips(&mut m, &[], &adj, [0.0; 3], 0.5, 1.0, [1.0, 0.0, 0.0], false, [false; 3]);
+        assert!(m.verts[i][2] * up > 0.0);
     }
 
     #[test]
