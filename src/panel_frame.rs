@@ -8,6 +8,7 @@
 use crate::area::Rcti;
 use crate::theme::Rgba;
 use crate::userdef::UserDef;
+use crate::widget_draw::draw_round_box_corners;
 
 pub const PANEL_HEADER: Rgba = Rgba::hex(0x3d3d3dff);
 pub const PANEL_BACK: Rgba = Rgba::hex(0x3d3d3dff);
@@ -99,6 +100,27 @@ pub fn frame(user: &UserDef, rect: Rcti, open: bool, active: bool) -> Frame {
         ymax: header_rect.ymax,
     };
     Frame { header_rect, boxes, border, arrow, grip, title }
+}
+
+impl Corners {
+    /// `[bottom left, bottom right, top left, top right]` for `draw_round_box_corners`.
+    pub fn flags(self) -> [bool; 4] {
+        match self {
+            Corners::All => [true; 4],
+            Corners::Top => [false, false, true, true],
+            Corners::Bottom => [true, true, false, false],
+        }
+    }
+}
+
+/// Draws `frame()`: the backdrop and header boxes, then the outline over them (`panel_draw_border`).
+pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, f: &Frame) {
+    let none = Rgba::hex(0x00000000);
+    let roundness = f.border.radius / user.widget_unit as f32;
+    for b in &f.boxes {
+        draw_round_box_corners(buf, width, height, user, b.rect, b.color, none, roundness, b.corners.flags());
+    }
+    draw_round_box_corners(buf, width, height, user, f.border.rect, none, f.border.color, roundness, f.border.corners.flags());
 }
 
 #[cfg(test)]

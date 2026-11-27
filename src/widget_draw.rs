@@ -53,6 +53,23 @@ pub fn draw_round_box_sides(
     round_left: bool,
     round_right: bool,
 ) {
+    draw_round_box_corners(buf, width, height, user, rect, inner, outline, roundness, [round_left, round_right, round_left, round_right]);
+}
+
+/// Like `draw_round_box()` with each corner switchable, `[bottom left, bottom right, top left, top right]` (y up),
+/// as `UI_draw_roundbox_corner_set` does for the panel header and body (`UI_CNR_*`).
+#[allow(clippy::too_many_arguments)]
+pub fn draw_round_box_corners(
+    buf: &mut [u32],
+    width: usize,
+    height: usize,
+    user: &UserDef,
+    rect: Rcti,
+    inner: Rgba,
+    outline: Rgba,
+    roundness: f32,
+    corners: [bool; 4],
+) {
     if width == 0 || height == 0 || buf.len() < width * height || rect.is_empty() {
         return;
     }
@@ -71,7 +88,7 @@ pub fn draw_round_box_sides(
         let row = (height - 1 - y as usize) * width;
         for x in vis.xmin..=vis.xmax {
             let u = (x - rect.xmin) as f32 + 0.5;
-            let rounded = if u > size_x * 0.5 { round_right } else { round_left };
+            let rounded = corners[(if v > size_y * 0.5 { 2 } else { 0 }) + usize::from(u > size_x * 0.5)];
             let rad = if rounded { rad_full } else { 0.0 };
             let ux = if u > size_x * 0.5 { size_x - u } else { u } - rad;
             let uy = if v > size_y * 0.5 { size_y - v } else { v } - rad;
@@ -115,5 +132,19 @@ mod tests {
         assert_eq!(at(10, 10), bg);
         assert_eq!(at(5, 20), bg);
         assert_ne!(at(30, 10), bg);
+    }
+
+    #[test]
+    fn single_corners_can_stay_square() {
+        let user = UserDef::from_window_scale(1.0);
+        let (w, h) = (60usize, 40usize);
+        let bg = 0x0018_1818u32;
+        let mut buf = vec![bg; w * h];
+        let rect = Rcti { xmin: 10, xmax: 49, ymin: 10, ymax: 29 };
+        /* Only the top corners round: the bottom corner pixel is covered, the top one is not. */
+        draw_round_box_corners(&mut buf, w, h, &user, rect, WCOL_TOOL_INNER, WCOL_TOOL_OUTLINE, WCOL_TOOL_ROUNDNESS, [false, false, true, true]);
+        let at = |x: usize, y: usize| buf[(h - 1 - y) * w + x];
+        assert_ne!(at(10, 10), bg);
+        assert_eq!(at(10, 29), bg);
     }
 }
