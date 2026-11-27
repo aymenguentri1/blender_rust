@@ -11,6 +11,7 @@
 #[allow(dead_code)]
 mod area;
 mod area_header;
+mod topbar_id_fields;
 mod properties_tabs;
 mod timeline_header;
 #[allow(dead_code)]
@@ -2718,15 +2719,35 @@ impl ApplicationHandler for App {
                         if let Some(header) = area::top_header_rect(user, layout.topbar) {
                             let mut row = ui_layout::HeaderRow::new_global(user, header.size_y() + 1);
                             let offset = row.place(0).xmin;
-                            let field = user.widget_unit * 7;
-                            let spacer = header.size_x() + 1 - 2 * offset - (2 * field + user.button_space_x) - user.button_space_x;
+                            let unit = user.widget_unit;
+                            let fields = [
+                                ("Scene", icons::Icon::TabScene, true),
+                                ("ViewLayer", icons::Icon::RenderLayers, false),
+                            ];
+                            let all: Vec<_> = fields.iter().map(|f| topbar_id_fields::parts(unit, font::string_width(user, f.0), f.2)).collect();
+                            let total: i32 = all.iter().map(|p| topbar_id_fields::total_width(p)).sum::<i32>() + user.button_space_x;
+                            let spacer = header.size_x() + 1 - 2 * offset - total - 2 * user.button_space_x;
                             row.place(spacer);
-                            for label in ["Scene", "ViewLayer"] {
-                                let mut rect = row.place(field);
-                                rect.translate(header.xmin, header.ymin);
-                                let (inner, text) = hover::colors(rect, theme::WCOL_MENU_INNER, theme::WCOL_MENU_TEXT);
-                                widget_draw::draw_round_box(&mut buf, w, h, user, rect, inner, theme::WCOL_MENU_OUTLINE, theme::WCOL_MENU_ROUNDNESS);
-                                font::draw_label(&mut buf, w, h, user, rect, label, text);
+                            for (n, (label, id_icon, pin)) in fields.iter().enumerate() {
+                                for (part, width) in all[n] {
+                                    let mut rect = row.place_packed(width);
+                                    rect.translate(header.xmin, header.ymin);
+                                    let (base, text_base) = if part == topbar_id_fields::Part::Name { (theme::WCOL_MENU_INNER, theme::WCOL_MENU_TEXT) } else { (theme::WCOL_TOOL_INNER, theme::WCOL_PULLDOWN_TEXT) };
+                                    let (inner, text) = hover::colors(rect, base, text_base);
+                                    widget_draw::draw_round_box(&mut buf, w, h, user, rect, inner, theme::WCOL_MENU_OUTLINE, theme::WCOL_MENU_ROUNDNESS);
+                                    match topbar_id_fields::icon(part, *id_icon) {
+                                        Some(ic) => icons::draw_icon(&mut buf, w, h, user, rect, ic, icon_theme::theme_color(ic).unwrap_or(text)),
+                                        None => {
+                                            font::draw_label(&mut buf, w, h, user, rect, label, text);
+                                            if *pin {
+                                                let mut pr = rect;
+                                                pr.xmin = rect.xmax - unit + 1;
+                                                icons::draw_icon(&mut buf, w, h, user, pr, icons::Icon::Unpinned, text);
+                                            }
+                                        }
+                                    }
+                                }
+                                row.place(0);
                             }
                         }
                     }
