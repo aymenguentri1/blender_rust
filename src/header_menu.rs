@@ -262,9 +262,8 @@ mod tests {
             idname: "VIEW3D_MT_random_mask",
             label: "Random Mask"
         }));
-        assert!(rows
-            .iter()
-            .filter(|r| matches!(r, Row::Operator { .. }))
-            .all(|r| !enabled(r)));
+        let op = |label: &str| rows.iter().find(|r| matches!(r, Row::Operator { label: l, .. } if *l == label)).unwrap();
+        assert!(enabled(op("Show All")) && enabled(op("Hide Masked")) && enabled(op("Invert Visible")));
+        assert!(!enabled(op("Toggle Visibility")), "face sets are not available yet");
     }
 }
