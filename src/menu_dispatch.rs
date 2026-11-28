@@ -61,6 +61,8 @@ pub enum Command {
     ShowHidden,
     /// `transform.mirror` in a global axis (0 = X, 1 = Y, 2 = Z).
     MirrorGlobal(usize),
+    /// `transform.mirror` in a local axis.
+    MirrorLocal(usize),
     /// `transform.translate` / `transform.rotate` / `transform.resize`: modal, started by the caller.
     BeginTransform(TransformKind),
     /// `object.origin_clear`.
@@ -183,11 +185,16 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
             "transform.rotate" => TransformKind::Rotate,
             _ => TransformKind::Resize,
         })),
-        "transform.mirror" if prop(props, "orient_type").as_deref() == Some("GLOBAL") => {
-            match prop(props, "constraint_axis")?.as_str() {
-                "[True, False, False]" => Some(Command::MirrorGlobal(0)),
-                "[False, True, False]" => Some(Command::MirrorGlobal(1)),
-                "[False, False, True]" => Some(Command::MirrorGlobal(2)),
+        "transform.mirror" => {
+            let axis = match prop(props, "constraint_axis")?.as_str() {
+                "[True, False, False]" => 0,
+                "[False, True, False]" => 1,
+                "[False, False, True]" => 2,
+                _ => return None,
+            };
+            match prop(props, "orient_type")?.as_str() {
+                "GLOBAL" => Some(Command::MirrorGlobal(axis)),
+                "LOCAL" => Some(Command::MirrorLocal(axis)),
                 _ => None,
             }
         }
@@ -267,6 +274,7 @@ pub fn apply_with_symmetry(scene: &mut Scene, cmd: Command, symm: [bool; 3]) -> 
         Command::HideView { unselected: true } => scene.hide_unselected() > 0,
         Command::ShowHidden => scene.reveal_all() > 0,
         Command::MirrorGlobal(a) => scene.mirror_objects(a) > 0,
+        Command::MirrorLocal(a) => scene.mirror_objects_local(a) > 0,
         Command::BeginTransform(_) => false,
         Command::OriginClear => scene.origin_clear() > 0,
         Command::ParentClear { keep_transform } => scene.parent_clear(keep_transform) > 0,
@@ -586,7 +594,7 @@ mod tests {
     fn mirror_global_rows_flip_the_axis_scale() {
         let find = |l: &str| crate::object_menu::MIRROR.iter().find(|r| matches!(r, Row::Operator { label, .. } if *label == l)).cloned().unwrap();
         assert_eq!(command_of_row(&find("Z Global")), Some(Command::MirrorGlobal(2)));
-        assert_eq!(command_of_row(&find("X Local")), None);
+        assert_eq!(command_of_row(&find("X Local")), Some(Command::MirrorLocal(0)));
         assert_eq!(command_of_row(&find("Interactive Mirror")), None);
         let mut s = Scene::startup();
         s.select_all(crate::scene::SelectAction::Select);
@@ -615,5 +623,18 @@ mod tests {
         assert_eq!(command_of_row(&find("Cursor to Grid")), Some(Command::SnapCursorToGrid));
         /* snap_curs_to_grid_exec: gridf * floorf(0.5 + c / gridf) */
         assert_eq!(cursor_to_grid([0.5, -0.5, 1.49], 1.0), [1.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn mirror_local_keeps_location_of_a_lone_rotated_object() {
+        let mut s = Scene::startup();
+        s.select_all(crate::scene::SelectAction::Deselect);
+        s.objects[0].selected = true;
+        s.objects[0].rot = [0.0, 0.0, 0.7];
+        s.objects[0].loc = [1.0, 2.0, 3.0];
+        let sx = s.objects[0].scale[0];
+        assert!(apply(&mut s, Command::MirrorLocal(0)));
+        let o = &s.objects[0];
+        assert_eq!((o.loc, o.rot, o.scale[0]), ([1.0, 2.0, 3.0], [0.0, 0.0, 0.7], -sx));
     }
 }
