@@ -21,7 +21,7 @@ pub struct ViewState {
     pub quad_view: bool,
 }
 
-fn op(idname: &'static str, label: &'static str, props: &'static [(&'static str, &'static str)]) -> Row {
+const fn op(idname: &'static str, label: &'static str, props: &'static [(&'static str, &'static str)]) -> Row {
     Row::Operator { idname, label, props, checkbox: None }
 }
 
@@ -68,6 +68,67 @@ pub fn rows(s: &ViewState) -> Vec<Row> {
     ]);
     r
 }
+
+/// `VIEW3D_MT_view_local`.
+pub const LOCAL: &[Row] = &[
+    op("view3d.localview", "Toggle Local View", &[]),
+    op("view3d.localview_remove_from", "Remove from Local View", &[]),
+];
+
+/// `VIEW3D_MT_view_cameras`.
+pub const CAMERAS: &[Row] = &[
+    op("view3d.object_as_camera", "Set Active Object as Camera", &[]),
+    op("view3d.view_camera", "Active Camera", &[]),
+    op("view3d.view_center_camera", "Frame Camera Bounds", &[]),
+];
+
+/// `VIEW3D_MT_view_viewpoint`.
+pub const VIEWPOINT: &[Row] = &[
+    op("view3d.view_camera", "Camera", &[]),
+    Row::Separator,
+    op("view3d.view_axis", "Top", &[("type", "TOP")]),
+    op("view3d.view_axis", "Bottom", &[("type", "BOTTOM")]),
+    Row::Separator,
+    op("view3d.view_axis", "Front", &[("type", "FRONT")]),
+    op("view3d.view_axis", "Back", &[("type", "BACK")]),
+    Row::Separator,
+    op("view3d.view_axis", "Right", &[("type", "RIGHT")]),
+    op("view3d.view_axis", "Left", &[("type", "LEFT")]),
+];
+
+/// `VIEW3D_MT_view_align`.
+pub const ALIGN: &[Row] = &[
+    Row::Menu { idname: "VIEW3D_MT_view_align_selected", label: "Align View to Active" },
+    Row::Separator,
+    op("view3d.camera_to_view", "Align Active Camera to View", &[]),
+    op("view3d.camera_to_view_selected", "Align Active Camera to Selected", &[]),
+    Row::Separator,
+    op("view3d.view_all", "Center Cursor and Frame All", &[("center", "True")]),
+    op("view3d.view_center_cursor", "Center View to Cursor", &[]),
+    Row::Separator,
+    op("view3d.view_lock_to_active", "View Lock to Active", &[]),
+    op("view3d.view_lock_clear", "View Lock Clear", &[]),
+];
+
+/// `VIEW3D_MT_view_align_selected`: the six `view_axis` rows with `align_active=True`.
+pub const ALIGN_SELECTED: &[Row] = &[
+    op("view3d.view_axis", "Top", &[("align_active", "True"), ("type", "TOP")]),
+    op("view3d.view_axis", "Bottom", &[("align_active", "True"), ("type", "BOTTOM")]),
+    Row::Separator,
+    op("view3d.view_axis", "Front", &[("align_active", "True"), ("type", "FRONT")]),
+    op("view3d.view_axis", "Back", &[("align_active", "True"), ("type", "BACK")]),
+    Row::Separator,
+    op("view3d.view_axis", "Right", &[("align_active", "True"), ("type", "RIGHT")]),
+    op("view3d.view_axis", "Left", &[("align_active", "True"), ("type", "LEFT")]),
+];
+
+/// `VIEW3D_MT_view_regions`.
+pub const REGIONS: &[Row] = &[
+    op("view3d.clip_border", "Clipping Region...", &[]),
+    op("view3d.render_border", "Render Region...", &[]),
+    Row::Separator,
+    op("view3d.clear_render_border", "Clear Render Region", &[]),
+];
 
 #[cfg(test)]
 mod tests {
@@ -141,5 +202,57 @@ mod tests {
             find("Render Playblast on Keyframes"),
             Row::Operator { props: [("animation", "True"), ("render_keyed_only", "True")], .. }
         ));
+    }
+
+    fn labels_of(rows: &[Row]) -> Vec<&'static str> {
+        rows.iter().map(label).collect()
+    }
+
+    #[test]
+    fn small_submenus_in_blender_order() {
+        assert_eq!(labels_of(LOCAL), ["Toggle Local View", "Remove from Local View"]);
+        assert_eq!(labels_of(CAMERAS), ["Set Active Object as Camera", "Active Camera", "Frame Camera Bounds"]);
+        assert_eq!(
+            labels_of(ALIGN),
+            [
+                "Align View to Active", "-", "Align Active Camera to View", "Align Active Camera to Selected", "-",
+                "Center Cursor and Frame All", "Center View to Cursor", "-", "View Lock to Active", "View Lock Clear",
+            ]
+        );
+        assert_eq!(labels_of(REGIONS), ["Clipping Region...", "Render Region...", "-", "Clear Render Region"]);
+    }
+
+    fn axis_types(rows: &[Row]) -> Vec<(&'static str, bool)> {
+        rows.iter()
+            .filter_map(|r| match r {
+                Row::Operator { idname: "view3d.view_axis", props, .. } => Some((
+                    props.iter().find(|(k, _)| *k == "type").unwrap().1,
+                    props.contains(&("align_active", "True")),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn viewpoint_rows_pair_up_as_blender_does() {
+        assert_eq!(labels_of(VIEWPOINT), ["Camera", "-", "Top", "Bottom", "-", "Front", "Back", "-", "Right", "Left"]);
+        assert_eq!(
+            axis_types(VIEWPOINT),
+            [("TOP", false), ("BOTTOM", false), ("FRONT", false), ("BACK", false), ("RIGHT", false), ("LEFT", false)]
+        );
+    }
+
+    #[test]
+    fn align_to_active_sets_align_active_on_every_axis_row() {
+        let a = axis_types(ALIGN_SELECTED);
+        assert_eq!(a.len(), 6);
+        assert!(a.iter().all(|(_, active)| *active));
+        assert_eq!(labels_of(ALIGN_SELECTED), labels_of(VIEWPOINT)[2..]);
+    }
+
+    #[test]
+    fn align_view_centers_the_cursor_for_frame_all() {
+        assert!(matches!(ALIGN[5], Row::Operator { props: [("center", "True")], .. }));
     }
 }
