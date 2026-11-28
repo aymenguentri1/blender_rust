@@ -4,7 +4,7 @@
 //! `_ensure_index`, `_add_index_notest`, `_remove_group`, `_clear`, `_is_weight_zero`,
 //! `_total_selected_weight`, `_multipaint_collective_weight`, `_calc_lock_relative_weight`,
 //! `_lock_relative_weight`, `_remap`, `_flip`, `_flip_merged`, `_copy_index`, `_copy_subset`, `_sync`,
-//! `_normalize`, `_normalize_subset`, `_normalize_lock_map`, `_normalize_ex`.
+//! `_normalize`, `_normalize_subset`, `_normalize_lock_map`, `_normalize_ex`, `_weight_to_rgb`.
 
 #![allow(dead_code)]
 
@@ -292,6 +292,23 @@ pub fn calc_lock_relative_weight(weight: f32, locked_weight: f32, unlocked_weigh
     weight / (1.0 - locked_weight)
 }
 
+/// `BKE_defvert_weight_to_rgb()` (deform.cc:1559): the weight paint colour ramp blue, cyan, green, yellow, red; weights
+/// above 1 and NaN are magenta (negative weights follow the first branch).
+pub fn weight_to_rgb(weight: f32) -> [f32; 3] {
+    let blend = (weight / 2.0) + 0.5;
+    if weight <= 0.25 {
+        [0.0, blend * weight * 4.0, blend]
+    } else if weight <= 0.50 {
+        [0.0, blend, blend * (1.0 - ((weight - 0.25) * 4.0))]
+    } else if weight <= 0.75 {
+        [blend * ((weight - 0.50) * 4.0), blend, 0.0]
+    } else if weight <= 1.0 {
+        [blend, blend * (1.0 - ((weight - 0.75) * 4.0)), 0.0]
+    } else {
+        [1.0, 0.0, 1.0]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -554,5 +571,21 @@ mod tests {
         assert_eq!(z.find_weight(0), 0.5);
         assert_eq!(z.find_weight(1), 0.5);
         assert_eq!(z.find_weight(2), 0.0);
+    }
+
+    #[test]
+    fn weight_to_rgb_ramp_stops() {
+        assert_eq!(weight_to_rgb(0.0), [0.0, 0.0, 0.5]);
+        assert_eq!(weight_to_rgb(0.25), [0.0, 0.625, 0.625]);
+        assert_eq!(weight_to_rgb(0.5), [0.0, 0.75, 0.0]);
+        assert_eq!(weight_to_rgb(0.75), [0.875, 0.875, 0.0]);
+        assert_eq!(weight_to_rgb(1.0), [1.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn weight_to_rgb_out_of_range_is_magenta() {
+        assert_eq!(weight_to_rgb(1.5), [1.0, 0.0, 1.0]);
+        assert_eq!(weight_to_rgb(f32::NAN), [1.0, 0.0, 1.0]);
+        assert_eq!(weight_to_rgb(f32::INFINITY), [1.0, 0.0, 1.0]);
     }
 }
