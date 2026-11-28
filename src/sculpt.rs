@@ -583,6 +583,17 @@ pub enum MaskFilter {
     Grow,
     /// The smallest of the vertex and its neighbours.
     Shrink,
+    /// `mask_increase_contrast` (sculpt_filter_mask.cc): contrast 0.1.
+    ContrastIncrease,
+    /// `mask_decrease_contrast` (sculpt_filter_mask.cc): contrast -0.1.
+    ContrastDecrease,
+}
+
+/// Gain and offset of the contrast filters (`mask_increase_contrast`, `mask_decrease_contrast`).
+fn contrast_gain_offset(contrast: f32) -> (f32, f32) {
+    let delta = contrast * 0.5;
+    let gain = if contrast > 0.0 { 1.0 / (1.0 - contrast) } else { 1.0 - contrast };
+    (gain, gain * -delta)
 }
 
 /// One pass of `filter` over `mask` (one value per vertex of the mesh `adj` was built from).
@@ -596,6 +607,14 @@ pub fn filter_mask(mask: &mut [f32], adj: &Topo, filter: MaskFilter) {
             MaskFilter::Grow => near.iter().fold(old[i], |a, &n| a.max(old[n as usize])),
             MaskFilter::Shrink => near.iter().fold(old[i], |a, &n| a.min(old[n as usize])),
             MaskFilter::Smooth => old[i],
+            MaskFilter::ContrastIncrease => {
+                let (g, o) = contrast_gain_offset(0.1);
+                old[i] * g + o
+            }
+            MaskFilter::ContrastDecrease => {
+                let (g, o) = contrast_gain_offset(-0.1);
+                old[i] * g + o
+            }
         }
         .clamp(0.0, 1.0);
     }
@@ -1099,6 +1118,18 @@ mod tests {
 
     fn height_at(m: &Mesh, x: f32, y: f32) -> f32 {
         m.verts.iter().min_by(|a, b| ((a[0] - x).powi(2) + (a[1] - y).powi(2)).partial_cmp(&((b[0] - x).powi(2) + (b[1] - y).powi(2))).unwrap()).unwrap()[2]
+    }
+
+    #[test]
+    fn mask_contrast_filters_match_blender() {
+        let a = Topo { adj: vec![vec![]; 4], vfaces: vec![vec![]; 4] };
+        let mut up = vec![0.05f32, 0.5, 0.95, 1.0];
+        filter_mask(&mut up, &a, MaskFilter::ContrastIncrease);
+        assert!(up[0].abs() < 1e-6 && (up[1] - 0.5).abs() < 1e-6 && (up[2] - 1.0).abs() < 1e-6 && up[3] == 1.0);
+        let mut down = vec![0.0f32, 0.5, 1.0, 0.25];
+        filter_mask(&mut down, &a, MaskFilter::ContrastDecrease);
+        assert!((down[0] - 0.055).abs() < 1e-6 && (down[1] - 0.605).abs() < 1e-6 && down[2] == 1.0);
+        assert!((down[3] - (0.25 * 1.1 + 0.055)).abs() < 1e-6);
     }
 
     #[test]

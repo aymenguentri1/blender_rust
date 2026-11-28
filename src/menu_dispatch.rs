@@ -3,7 +3,7 @@
 //! then drawn disabled).
 //!
 //! The Mask menu rows follow `paint.mask_flood_fill` (`mode` VALUE with `value`, or INVERT; paint_mask.cc) and
-//! `sculpt.mask_filter` (`filter_type`). Contrast filters and the other operators are not available yet.
+//! `sculpt.mask_filter` (`filter_type`). Other operators are not available yet.
 
 use crate::scene::Scene;
 use crate::sculpt::MaskFilter;
@@ -40,6 +40,8 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
             "SHARPEN" => Some(Command::MaskFilter(MaskFilter::Sharpen)),
             "GROW" => Some(Command::MaskFilter(MaskFilter::Grow)),
             "SHRINK" => Some(Command::MaskFilter(MaskFilter::Shrink)),
+            "CONTRAST_INCREASE" => Some(Command::MaskFilter(MaskFilter::ContrastIncrease)),
+            "CONTRAST_DECREASE" => Some(Command::MaskFilter(MaskFilter::ContrastDecrease)),
             _ => None,
         },
         _ => None,
@@ -82,6 +84,12 @@ mod tests {
             .iter()
             .find(|r| matches!(r, Row::Operator { label: l, .. } if *l == label))
             .and_then(command_of_row)
+    }
+
+    #[test]
+    fn contrast_rows_map_to_commands() {
+        assert_eq!(cmd("Increase Contrast"), Some(Command::MaskFilter(MaskFilter::ContrastIncrease)));
+        assert_eq!(cmd("Decrease Contrast"), Some(Command::MaskFilter(MaskFilter::ContrastDecrease)));
     }
 
     #[test]
