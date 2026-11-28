@@ -56,7 +56,15 @@ pub fn submenu_rows(idname: &str) -> Option<Vec<Row>> {
 pub fn enabled(row: &Row) -> bool {
     match row {
         Row::Menu { idname, .. } => submenu_rows(idname).is_some(),
-        r => crate::menu_dispatch::command_of_row(r).is_some(),
+        r => crate::menu_dispatch::command_of_row(r).is_some() || view_command_of_row(r).is_some(),
+    }
+}
+
+/// The View menu command of an operator row, if the port can run it.
+pub fn view_command_of_row(row: &Row) -> Option<crate::view_menu_dispatch::ViewCommand> {
+    match row {
+        Row::Operator { idname, props, .. } => crate::view_menu_dispatch::command_of(idname, props),
+        _ => None,
     }
 }
 
