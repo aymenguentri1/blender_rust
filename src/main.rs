@@ -49,6 +49,7 @@ mod gltf_accessor;
 mod gltf_prim_mode;
 #[allow(dead_code)]
 mod face_set_create;
+mod face_set_init;
 mod obj_export;
 #[allow(dead_code)]
 mod keyframe_select;
