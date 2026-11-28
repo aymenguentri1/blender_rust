@@ -57,6 +57,8 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
         "paint.visibility_invert" => Some(Command::VisibilityInvert),
         "sculpt.mesh_filter" => match prop(props, "type")?.as_str() {
             "INFLATE" => Some(Command::MeshFilter(crate::sculpt_mesh_filter::FilterType::Inflate)),
+            "SPHERE" => Some(Command::MeshFilter(crate::sculpt_mesh_filter::FilterType::Sphere)),
+            "RANDOM" => Some(Command::MeshFilter(crate::sculpt_mesh_filter::FilterType::Random)),
             _ => None,
         },
         "sculpt.mask_init" => match prop(props, "mode")?.as_str() {
@@ -190,6 +192,13 @@ mod tests {
     fn inflate_filter_row_maps_to_the_modal() {
         assert_eq!(command_of("sculpt.mesh_filter", &[("type", "INFLATE")]), Some(Command::MeshFilter(crate::sculpt_mesh_filter::FilterType::Inflate)));
         assert_eq!(command_of("sculpt.mesh_filter", &[("type", "SMOOTH")]), None);
+    }
+
+    #[test]
+    fn sphere_and_random_filter_rows_map_to_the_modal() {
+        use crate::sculpt_mesh_filter::FilterType;
+        assert_eq!(command_of("sculpt.mesh_filter", &[("type", "SPHERE")]), Some(Command::MeshFilter(FilterType::Sphere)));
+        assert_eq!(command_of("sculpt.mesh_filter", &[("type", "RANDOM")]), Some(Command::MeshFilter(FilterType::Random)));
     }
 
     #[test]
