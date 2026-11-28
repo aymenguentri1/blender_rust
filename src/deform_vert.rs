@@ -1,9 +1,14 @@
 //! Per-vertex vertex-group weights (`MDeformVert` / `MDeformWeight`).
 //!
 //! Ported from Blender `blenkernel/intern/deform.cc`: `BKE_defvert_find_weight`, `_find_index`,
-//! `_ensure_index`, `_add_index_notest`, `_remove_group`, `_clear`, `_is_weight_zero`.
+//! `_ensure_index`, `_add_index_notest`, `_remove_group`, `_clear`, `_is_weight_zero`,
+//! `_total_selected_weight`, `_multipaint_collective_weight`, `_calc_lock_relative_weight`,
+//! `_lock_relative_weight`.
 
 #![allow(dead_code)]
+
+/// `VERTEX_WEIGHT_LOCK_EPSILON` (BKE_deform.hh).
+pub const VERTEX_WEIGHT_LOCK_EPSILON: f32 = 1e-6;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DeformWeight {
@@ -68,6 +73,62 @@ impl DeformVert {
     pub fn is_weight_zero(&self, defgroup_tot: i32) -> bool {
         !self.dw.iter().any(|w| w.weight != 0.0 && w.def_nr < defgroup_tot)
     }
+
+    /// `BKE_defvert_total_selected_weight`: sum of weights of groups `< defbase_num` flagged in `defbase_sel`.
+    /// `None` selection gives 0.
+    pub fn total_selected_weight(&self, defbase_num: i32, defbase_sel: Option<&[bool]>) -> f32 {
+        let Some(sel) = defbase_sel else { return 0.0 };
+        self.dw
+            .iter()
+            .filter(|w| w.def_nr < defbase_num && w.def_nr >= 0 && sel.get(w.def_nr as usize).copied().unwrap_or(false))
+            .map(|w| w.weight)
+            .sum()
+    }
+
+    /// `BKE_defvert_multipaint_collective_weight`: the sum when auto-normalize is active, else the average.
+    pub fn multipaint_collective_weight(
+        &self,
+        defbase_num: i32,
+        defbase_sel: Option<&[bool]>,
+        defbase_sel_num: i32,
+        is_normalized: bool,
+    ) -> f32 {
+        let mut total = self.total_selected_weight(defbase_num, defbase_sel);
+        if !is_normalized {
+            total /= defbase_sel_num as f32;
+        }
+        total
+    }
+
+    /// `BKE_defvert_lock_relative_weight`.
+    pub fn lock_relative_weight(
+        &self,
+        weight: f32,
+        defbase_num: i32,
+        defbase_locked: Option<&[bool]>,
+        defbase_unlocked: Option<&[bool]>,
+    ) -> f32 {
+        let unlocked = self.total_selected_weight(defbase_num, defbase_unlocked);
+        if unlocked > 0.0 {
+            return weight / unlocked;
+        }
+        let locked = self.total_selected_weight(defbase_num, defbase_locked);
+        calc_lock_relative_weight(weight, locked, unlocked)
+    }
+}
+
+/// `BKE_defvert_calc_lock_relative_weight`.
+pub fn calc_lock_relative_weight(weight: f32, locked_weight: f32, unlocked_weight: f32) -> f32 {
+    if unlocked_weight > 0.0 {
+        return weight / unlocked_weight;
+    }
+    if locked_weight <= 0.0 {
+        return weight;
+    }
+    if locked_weight >= 1.0 - VERTEX_WEIGHT_LOCK_EPSILON {
+        return if weight != 0.0 { 1.0 } else { 0.0 };
+    }
+    weight / (1.0 - locked_weight)
 }
 
 #[cfg(test)]
@@ -149,5 +210,42 @@ mod tests {
         assert!(!d.is_weight_zero(7));
         d.add_index_notest(2, 0.1);
         assert!(!d.is_weight_zero(4));
+    }
+
+    #[test]
+    fn total_selected_respects_mask_and_range() {
+        let d = sample(); // groups 2:0.5, 5:0.25, 7:1.0
+        let sel = [false, false, true, false, false, true, false, true];
+        assert_eq!(d.total_selected_weight(8, Some(&sel)), 1.75);
+        assert_eq!(d.total_selected_weight(6, Some(&sel)), 0.75); // group 7 out of range
+        assert_eq!(d.total_selected_weight(8, None), 0.0);
+    }
+
+    #[test]
+    fn multipaint_sum_or_average() {
+        let d = sample();
+        let sel = [false, false, true, false, false, true, false, false];
+        assert_eq!(d.multipaint_collective_weight(8, Some(&sel), 2, true), 0.75);
+        assert_eq!(d.multipaint_collective_weight(8, Some(&sel), 2, false), 0.375);
+    }
+
+    #[test]
+    fn calc_lock_relative_cases() {
+        assert_eq!(calc_lock_relative_weight(0.3, 0.5, 0.6), 0.5); // unlocked normalizes
+        assert_eq!(calc_lock_relative_weight(0.3, 0.0, 0.0), 0.3); // nothing locked
+        assert_eq!(calc_lock_relative_weight(0.3, 1.0, 0.0), 1.0); // fully locked, non-zero
+        assert_eq!(calc_lock_relative_weight(0.0, 1.0, 0.0), 0.0); // 0/0 -> 0
+        assert_eq!(calc_lock_relative_weight(0.25, 0.5, 0.0), 0.5); // 0.25 / (1 - 0.5)
+    }
+
+    #[test]
+    fn lock_relative_uses_masks() {
+        let d = sample(); // 2:0.5, 5:0.25, 7:1.0
+        let locked = [false, false, true, false, false, false, false, false];
+        let unlocked = [false, false, false, false, false, true, false, false];
+        assert_eq!(d.lock_relative_weight(0.125, 8, Some(&locked), Some(&unlocked)), 0.5);
+        // no unlocked weight present: falls back to locked (0.5)
+        let none = [false; 8];
+        assert_eq!(d.lock_relative_weight(0.25, 8, Some(&locked), Some(&none)), 0.5);
     }
 }
