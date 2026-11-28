@@ -192,6 +192,7 @@ mod overlay_outline;
 mod overlay_extra;
 mod add_menu;
 mod brush_menu;
+mod sculpt_menu;
 #[allow(dead_code)]
 mod add_modifier_menu;
 mod icon_geom;
