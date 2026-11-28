@@ -427,6 +427,29 @@ impl Scene {
         targets.len()
     }
 
+    /// `OBJECT_OT_origin_clear` (object_transform.cc, `object_origin_clear_exec`): for every selected object with a
+    /// parent, `parentinv[3] = -(mat3(parentinv) * loc)`, which puts the object's origin at its parent's origin.
+    /// Returns how many objects were changed.
+    pub fn origin_clear(&mut self) -> usize {
+        let targets: Vec<usize> = (0..self.objects.len())
+            .filter(|&i| self.objects[i].selected && !self.objects[i].hidden && self.objects[i].parent.is_some())
+            .collect();
+        if targets.is_empty() {
+            return 0;
+        }
+        self.push_undo();
+        for &i in &targets {
+            let o = &mut self.objects[i];
+            let m = o.parent_inv;
+            let lin = [[m[0][0], m[0][1], m[0][2]], [m[1][0], m[1][1], m[1][2]], [m[2][0], m[2][1], m[2][2]]];
+            let t = mat3_mul_v3(&lin, o.loc);
+            o.parent_inv[3] = [-t[0], -t[1], -t[2], m[3][3]];
+            o.eval = None;
+        }
+        self.refresh_parents();
+        targets.len()
+    }
+
     /// `OBJECT_OT_select_linked` (Object Data): selects every visible object with a mesh equal to the active
     /// object's. Returns how many objects were newly selected.
     pub fn select_linked_data(&mut self) -> usize {

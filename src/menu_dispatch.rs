@@ -52,6 +52,10 @@ pub enum Command {
     HideView { unselected: bool },
     /// `object.hide_view_clear`.
     ShowHidden,
+    /// `object.origin_clear`.
+    OriginClear,
+    /// `object.parent_clear` with `type` CLEAR (false) or CLEAR_KEEP_TRANSFORM (true).
+    ParentClear { keep_transform: bool },
     /// `object.shade_smooth` (true) / `object.shade_flat` (false).
     Shade(bool),
     /// `view3d.snap_selected_to_grid` with the default grid of 1.
@@ -136,7 +140,13 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
             let flag = |n: &str| Some(prop(props, n)? == "True");
             Some(Command::ApplyTransform(crate::scene::ApplyMask { location: flag("location")?, rotation: flag("rotation")?, scale: flag("scale")? }))
         }
-        "object.parent_clear" if prop(props, "type")? == "CLEAR_INVERSE" => Some(Command::ParentClearInverse),
+        "object.parent_clear" => match prop(props, "type")?.as_str() {
+            "CLEAR_INVERSE" => Some(Command::ParentClearInverse),
+            "CLEAR" => Some(Command::ParentClear { keep_transform: false }),
+            "CLEAR_KEEP_TRANSFORM" => Some(Command::ParentClear { keep_transform: true }),
+            _ => None,
+        },
+        "object.origin_clear" => Some(Command::OriginClear),
         "object.duplicate_move" => Some(Command::Duplicate),
         "object.join" => Some(Command::Join),
         "object.delete" => Some(Command::Delete),
@@ -216,6 +226,8 @@ pub fn apply_with_symmetry(scene: &mut Scene, cmd: Command, symm: [bool; 3]) -> 
         Command::HideView { unselected: false } => scene.hide_selected() > 0,
         Command::HideView { unselected: true } => scene.hide_unselected() > 0,
         Command::ShowHidden => scene.reveal_all() > 0,
+        Command::OriginClear => scene.origin_clear() > 0,
+        Command::ParentClear { keep_transform } => scene.parent_clear(keep_transform) > 0,
         Command::Shade(smooth) => scene.set_smooth(smooth) > 0,
         Command::SnapSelectionToGrid => scene.snap_selected_to_grid(1.0) > 0,
         Command::SnapSelectionToCursorOffset | Command::SnapCursorToSelected | Command::SnapCursorToCenter => false,
@@ -461,7 +473,7 @@ mod tests {
         let find = |rows: &[Row], l: &str| rows.iter().find(|r| matches!(r, Row::Operator { label, .. } if *label == l)).cloned().unwrap();
         assert_eq!(command_of_row(&find(CLEAR, "Location")), Some(Command::ClearTransform(crate::scene::ClearKind::Location)));
         assert_eq!(command_of_row(&find(APPLY, "Rotation & Scale")), Some(Command::ApplyTransform(crate::scene::ApplyMask { location: false, rotation: true, scale: true })));
-        assert_eq!(command_of_row(&find(CLEAR, "Origin")), None);
+        assert_eq!(command_of_row(&find(CLEAR, "Origin")), Some(Command::OriginClear));
     }
 
     #[test]
@@ -501,5 +513,20 @@ mod tests {
         assert!(apply(&mut s, command_of_row(&find("Shade Flat")).unwrap()));
         assert!(s.objects.iter().all(|o| !o.smooth));
         assert_eq!(command_of_row(&find("Shade Auto Smooth")), None);
+    }
+
+    #[test]
+    fn origin_clear_matches_blender_parentinv_formula() {
+        let mut s = Scene::startup();
+        let child = s.objects.iter().position(|o| o.selected).unwrap_or(0);
+        let other = (child + 1) % s.objects.len();
+        s.objects[child].parent = Some(s.objects[other].id);
+        s.objects[child].loc = [1.0, 2.0, 3.0];
+        s.objects[child].parent_inv = [[2.0, 0.0, 0.0, 0.0], [0.0, 2.0, 0.0, 0.0], [0.0, 0.0, 2.0, 0.0], [9.0, 9.0, 9.0, 1.0]];
+        s.objects[child].selected = true;
+        assert!(apply(&mut s, Command::OriginClear));
+        assert_eq!(s.objects[child].parent_inv[3][..3], [-2.0, -4.0, -6.0]);
+        assert!(apply(&mut s, Command::ParentClear { keep_transform: false }));
+        assert!(s.objects[child].parent.is_none());
     }
 }
