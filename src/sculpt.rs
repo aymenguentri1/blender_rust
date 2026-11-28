@@ -188,6 +188,9 @@ pub(crate) fn affected(mesh: &Mesh, mask: &[f32], center: V3, radius: f32) -> Ve
 pub struct Topo {
     pub adj: Vec<Vec<u32>>,
     pub vfaces: Vec<Vec<u32>>,
+    /// Spatial tree of the stroke (`pbvh_query`): `dab_one` only tests the vertices of leaves near the brush and
+    /// refreshes the bounds of the leaves it moved. Strokes of the other brushes never touch it.
+    pub(crate) pbvh: std::cell::RefCell<Option<crate::pbvh_query::Pbvh>>,
 }
 
 pub fn adjacency(mesh: &Mesh) -> Topo {
@@ -207,7 +210,24 @@ pub fn adjacency(mesh: &Mesh) -> Topo {
             }
         }
     }
-    Topo { adj, vfaces }
+    let pbvh = std::cell::RefCell::new(Some(crate::pbvh_query::Pbvh::build(mesh, crate::pbvh_query::LEAF_LIMIT)));
+    Topo { adj, vfaces, pbvh }
+}
+
+/// `affected()` through the stroke's PBVH when it has one (same result, fewer vertices tested).
+fn affected_topo(mesh: &Mesh, adj: &Topo, mask: &[f32], center: V3, radius: f32) -> Vec<(usize, f32)> {
+    match adj.pbvh.borrow().as_ref() {
+        Some(p) => crate::pbvh_query::affected_pbvh(mesh, p, mask, center, radius),
+        None => affected(mesh, mask, center, radius),
+    }
+}
+
+/// After a dab moved vertices under the sphere: refresh the bounds of the leaves that hold them.
+fn refresh_pbvh(mesh: &Mesh, adj: &Topo, center: V3, radius: f32) {
+    if let Some(p) = adj.pbvh.borrow_mut().as_mut() {
+        let leaves = p.leaves_near(center, radius);
+        p.update_bounds_mesh(mesh, &leaves);
+    }
 }
 
 /// The smooth shading normal of vertex `i` (what `Mesh::vertex_normals()` gives, for one vertex).
@@ -360,10 +380,10 @@ pub fn dab_masked(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, c
 fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: V3, radius: f32, strength: f32, invert: bool) {
     if brush == Brush::Mask {
         /* `do_mask_brush()`: paints the mask up (Ctrl: erases it) under the brush, the mask itself is not masked. */
-        crate::sculpt_mask::dab(mask, &affected(mesh, &[], center, radius), crate::sculpt_mask::brush_strength(strength, invert));
+        crate::sculpt_mask::dab(mask, &affected_topo(mesh, adj, &[], center, radius), crate::sculpt_mask::brush_strength(strength, invert));
         return;
     }
-    let hit = affected(mesh, mask, center, radius);
+    let hit = affected_topo(mesh, adj, mask, center, radius);
     if hit.is_empty() {
         return;
     }
@@ -422,6 +442,7 @@ fn dab_one(mesh: &mut Mesh, mask: &mut [f32], adj: &Topo, brush: Brush, center: 
         }
         Brush::Grab | Brush::Mask | Brush::Layer | Brush::SnakeHook | Brush::Nudge | Brush::Thumb | Brush::Clay | Brush::DrawSharp | Brush::Rotate | Brush::ElasticDeform | Brush::MultiplaneScrape | Brush::Slide | Brush::ClayThumb | Brush::Plane | Brush::Pinch | Brush::Inflate | Brush::Crease => {}
     }
+    refresh_pbvh(mesh, adj, center, radius);
 }
 
 /// The falloff weighted mean of the vertex normals under a dab (`calc_area_normal()`).
@@ -1141,7 +1162,7 @@ mod tests {
 
     #[test]
     fn mask_contrast_filters_match_blender() {
-        let a = Topo { adj: vec![vec![]; 4], vfaces: vec![vec![]; 4] };
+        let a = Topo { adj: vec![vec![]; 4], vfaces: vec![vec![]; 4], ..Default::default() };
         let mut up = vec![0.05f32, 0.5, 0.95, 1.0];
         filter_mask(&mut up, &a, MaskFilter::ContrastIncrease);
         assert!(up[0].abs() < 1e-6 && (up[1] - 0.5).abs() < 1e-6 && (up[2] - 1.0).abs() < 1e-6 && up[3] == 1.0);
@@ -1234,6 +1255,38 @@ mod tests {
     }
 
     #[test]
+    fn pbvh_stroke_equals_brute_force_stroke() {
+        let n = 24usize;
+        let mut verts = Vec::new();
+        for y in 0..=n {
+            for x in 0..=n {
+                verts.push([x as f32, y as f32, ((x * y) % 5) as f32 * 0.05]);
+            }
+        }
+        let mut faces = Vec::new();
+        for y in 0..n {
+            for x in 0..n {
+                let a = (y * (n + 1) + x) as u32;
+                faces.push(vec![a, a + 1, a + n as u32 + 2, a + n as u32 + 1]);
+            }
+        }
+        let base = Mesh { verts, faces };
+        let with = adjacency(&base);
+        let without = Topo { pbvh: Default::default(), ..with.clone() };
+        assert!(with.pbvh.borrow().is_some() && without.pbvh.borrow().is_none());
+        let (mut a, mut b) = (base.clone(), base.clone());
+        let (mut ma, mut mb) = (vec![0.0; a.verts.len()], vec![0.0; b.verts.len()]);
+        for k in 0..12 {
+            let c = [2.0 + k as f32 * 1.6, 3.0 + (k % 4) as f32 * 4.0, 0.1];
+            for brush in [Brush::Draw, Brush::Smooth, Brush::Flatten] {
+                dab_masked(&mut a, &mut ma, &with, brush, c, 3.5, 0.8, k % 2 == 1, [false; 3]);
+                dab_masked(&mut b, &mut mb, &without, brush, c, 3.5, 0.8, k % 2 == 1, [false; 3]);
+            }
+        }
+        assert_eq!(a.verts, b.verts);
+    }
+
+    #[test]
     fn symmetry_mirrors_the_dab() {
         let mut m = grid();
         let adj = adjacency(&m);
@@ -1320,7 +1373,7 @@ mod tests {
         assert!(smooth[n] > 0.0 && smooth[n] < 1.0, "the neighbours pick up part of it");
 
         let mut soft = vec![0.25f32, 0.5, 0.75, 0.0, 1.0];
-        let a2 = Topo { adj: vec![vec![]; 5], vfaces: vec![vec![]; 5] };
+        let a2 = Topo { adj: vec![vec![]; 5], vfaces: vec![vec![]; 5], ..Default::default() };
         filter_mask(&mut soft, &a2, MaskFilter::Sharpen);
         assert!(soft[0] < 0.25 && soft[2] > 0.75 && (soft[1] - 0.5).abs() < 1e-6);
         assert_eq!((soft[3], soft[4]), (0.0, 1.0));

@@ -9,6 +9,7 @@ use crate::pbvh_search::search_gather;
 /// Leaf size used for the stroke tree.
 pub const LEAF_LIMIT: usize = 10_000 / 100;
 
+#[derive(Clone, Debug, Default)]
 pub struct Pbvh {
     pub nodes: Vec<MeshNode>,
     /// Face indices reordered by the build; leaves reference ranges of it.
@@ -155,9 +156,14 @@ impl Pbvh {
         true
     }
 
+    /// Leaves whose bounds touch the sphere (`search_nodes` with `node_in_sphere`).
+    pub fn leaves_near(&self, center: V3, radius: f32) -> Vec<usize> {
+        search_gather(&self.nodes, |i| self.node_in_sphere(i, center, radius))
+    }
+
     /// Sorted, unique vertex indices of the faces of the leaves touching the sphere.
     pub fn verts_near(&self, mesh: &Mesh, center: V3, radius: f32) -> Vec<usize> {
-        let leaves = search_gather(&self.nodes, |i| self.node_in_sphere(i, center, radius));
+        let leaves = self.leaves_near(center, radius);
         let mut verts = Vec::new();
         for l in leaves {
             for &f in &self.faces[self.nodes[l].faces.clone()] {
