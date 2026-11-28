@@ -73,6 +73,10 @@ pub enum Command {
     SnapSelectionToGrid,
     /// `view3d.snap_selected_to_cursor` with `use_offset` True: needs the 3D cursor, so the caller runs it.
     SnapSelectionToCursorOffset,
+    /// `view3d.snap_selected_to_cursor` with `use_offset` False: needs the 3D cursor, so the caller runs it.
+    SnapSelectionToCursor,
+    /// `view3d.snap_selected_to_active`.
+    SnapSelectionToActive,
     /// `view3d.snap_cursor_to_selected`: moves the 3D cursor, so the caller runs it.
     SnapCursorToSelected,
     /// `view3d.snap_cursor_to_center`: moves the 3D cursor, so the caller runs it.
@@ -162,7 +166,8 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
         "object.join" => Some(Command::Join),
         "object.delete" => Some(Command::Delete),
         "view3d.snap_selected_to_grid" => Some(Command::SnapSelectionToGrid),
-        "view3d.snap_selected_to_cursor" if prop(props, "use_offset")? == "True" => Some(Command::SnapSelectionToCursorOffset),
+        "view3d.snap_selected_to_cursor" => Some(if prop(props, "use_offset")? == "True" { Command::SnapSelectionToCursorOffset } else { Command::SnapSelectionToCursor }),
+        "view3d.snap_selected_to_active" => Some(Command::SnapSelectionToActive),
         "view3d.snap_cursor_to_selected" => Some(Command::SnapCursorToSelected),
         "view3d.snap_cursor_to_center" => Some(Command::SnapCursorToCenter),
         "object.shade_smooth" => Some(Command::Shade(true)),
@@ -256,7 +261,8 @@ pub fn apply_with_symmetry(scene: &mut Scene, cmd: Command, symm: [bool; 3]) -> 
         Command::ParentClear { keep_transform } => scene.parent_clear(keep_transform) > 0,
         Command::Shade(smooth) => scene.set_smooth(smooth) > 0,
         Command::SnapSelectionToGrid => scene.snap_selected_to_grid(1.0) > 0,
-        Command::SnapSelectionToCursorOffset | Command::SnapCursorToSelected | Command::SnapCursorToCenter => false,
+        Command::SnapSelectionToActive => scene.selection_to_active() > 0,
+        Command::SnapSelectionToCursor | Command::SnapSelectionToCursorOffset | Command::SnapCursorToSelected | Command::SnapCursorToCenter => false,
         Command::FaceSetsInit(m) => scene.face_sets_init_active(m),
         Command::FaceSetsRandomizeColors => scene.face_sets_randomize_colors_active(),
         Command::FaceSetsCreate(m) => scene.face_sets_create_active(m),
@@ -520,7 +526,7 @@ mod tests {
     fn snap_rows_map_and_grid_snap_runs() {
         let find = |l: &str| crate::object_menu::SNAP.iter().find(|r| matches!(r, Row::Operator { label, .. } if *label == l)).cloned().unwrap();
         assert_eq!(command_of_row(&find("Selection to Cursor (Keep Offset)")), Some(Command::SnapSelectionToCursorOffset));
-        assert_eq!(command_of_row(&find("Selection to Cursor")), None);
+        assert_eq!(command_of_row(&find("Selection to Cursor")), Some(Command::SnapSelectionToCursor));
         assert_eq!(command_of_row(&find("Cursor to World Origin")), Some(Command::SnapCursorToCenter));
         let mut s = Scene::startup();
         s.select_all(crate::scene::SelectAction::Select);
@@ -576,5 +582,18 @@ mod tests {
         let before = s.objects[0].scale[0];
         assert!(apply(&mut s, command_of_row(&find("X Global")).unwrap()));
         assert_eq!(s.objects[0].scale[0], -before);
+    }
+
+    #[test]
+    fn selection_to_cursor_and_active_move_origins() {
+        let mut s = Scene::startup();
+        s.select_all(crate::scene::SelectAction::Select);
+        assert!(s.selection_each_to_point([1.0, 2.0, 3.0]) > 0);
+        assert!(s.objects.iter().filter(|o| o.selected && o.parent.is_none()).all(|o| o.loc == [1.0, 2.0, 3.0]));
+        let a = s.active_object().map(|o| o.loc);
+        assert!(a.is_some());
+        s.objects.iter_mut().filter(|o| o.selected).for_each(|o| o.loc = [0.0; 3]);
+        s.selection_to_active();
+        assert!(s.objects.iter().filter(|o| o.selected && o.parent.is_none()).all(|o| o.loc == [0.0; 3]));
     }
 }

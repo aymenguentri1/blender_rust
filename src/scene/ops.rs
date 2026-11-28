@@ -427,6 +427,26 @@ impl Scene {
         targets.len()
     }
 
+    /// `VIEW3D_OT_snap_selected_to_cursor` without `use_offset`: every selected object (children of selected
+    /// objects follow their parent) gets its origin at `point`. Returns how many were selected.
+    pub fn selection_each_to_point(&mut self, point: V3) -> usize {
+        let n = self.selected().count();
+        if n == 0 {
+            return 0;
+        }
+        self.push_undo();
+        let skip: Vec<bool> = (0..self.objects.len()).map(|i| self.has_selected_ancestor(i)).collect();
+        for (i, o) in self.objects.iter_mut().enumerate().filter(|(_, o)| o.selected && !o.hidden) {
+            if skip[i] {
+                continue;
+            }
+            let w = o.world_matrix()[3];
+            let d = mat3_mul_v3(&o.parent_lin_inv(), [point[0] - w[0], point[1] - w[1], point[2] - w[2]]);
+            o.loc = [o.loc[0] + d[0], o.loc[1] + d[1], o.loc[2] + d[2]];
+        }
+        n
+    }
+
     /// `OBJECT_OT_origin_clear` (object_transform.cc, `object_origin_clear_exec`): for every selected object with a
     /// parent, `parentinv[3] = -(mat3(parentinv) * loc)`, which puts the object's origin at its parent's origin.
     /// Returns how many objects were changed.
