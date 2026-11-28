@@ -56,6 +56,17 @@ pub fn apply(mesh: &Mesh, orig: &[V3], mask: &[f32], hide_vert: Option<&[bool]>,
         .collect()
 }
 
+/// A running `sculpt.mesh_filter` modal: the object, its positions when the operator started and the mouse x it
+/// started at (`sculpt_mesh_filter_invoke`).
+#[derive(Clone, Debug)]
+pub struct Modal {
+    pub object: u32,
+    pub kind: FilterType,
+    pub orig: Vec<V3>,
+    pub start_x: f32,
+    pub seed: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

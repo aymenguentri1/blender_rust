@@ -511,6 +511,8 @@ struct App {
     add_menu: Option<[i32; 2]>,
     /// The open Sculpt, Mask or Face Sets pull-down of the viewport header.
     header_menu: Option<header_menu::HeaderMenu>,
+    /// A running `sculpt.mesh_filter`: the cursor x sets the strength, click confirms, Esc / right click cancels.
+    mesh_filter: Option<sculpt_mesh_filter::Modal>,
     /// The brush popup of the sculpt tool header, opened at this window position.
     brush_menu: Option<[i32; 2]>,
     /// The Add Modifier list of the properties editor is open.
@@ -715,6 +717,13 @@ impl ApplicationHandler for App {
                     gfx.window.request_redraw();
                 }
                 self.cursor = [x, y];
+                if let Some(m) = self.mesh_filter.as_ref() {
+                    let ui = self.user.as_ref().map_or(1.0, |u| u.scale_factor);
+                    self.scene.mesh_filter_update(m, x as f32, ui);
+                    scene_changed(&mut self.scene, &mut self.taa);
+                    gfx.window.request_redraw();
+                    return;
+                }
                 /* Sculpt Mode: the radius / strength modal follows the cursor, a running stroke dabs along it,
                  * and the brush ring is redrawn at the new position. */
                 if let (Some(sc), Some(action)) = (self.sculpt.as_mut(), self.sculpt_drag) {
@@ -1062,6 +1071,17 @@ impl ApplicationHandler for App {
                 self.cursor_drag = None;
             }
             /* `Transform Modal Map`: CONFIRM on LEFTMOUSE press (any modifier) while the cursor drag runs. */
+            WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } if self.mesh_filter.is_some() => {
+                self.mesh_filter = None;
+                gfx.window.request_redraw();
+            }
+            WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } if self.mesh_filter.is_some() => {
+                if let Some(m) = self.mesh_filter.take() {
+                    self.scene.mesh_filter_cancel(&m);
+                    scene_changed(&mut self.scene, &mut self.taa);
+                }
+                gfx.window.request_redraw();
+            }
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
                 /* The splash image button closes the popup; the click does not reach the editors. */
                 if !self.splash_closed {
@@ -1136,7 +1156,10 @@ impl ApplicationHandler for App {
                     let size = gfx.window.inner_size();
                     match m.click(user, [size.width as i32, size.height as i32], false, self.cursor) {
                         header_menu::Click::Run(row) => {
-                            if let Some(cmd) = menu_dispatch::command_of_row(&row) {
+                            if let Some(menu_dispatch::Command::MeshFilter(kind)) = menu_dispatch::command_of_row(&row) {
+                                let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as u32);
+                                self.mesh_filter = self.scene.mesh_filter_begin(kind, self.cursor[0] as f32, seed);
+                            } else if let Some(cmd) = menu_dispatch::command_of_row(&row) {
                                 if menu_dispatch::apply(&mut self.scene, cmd) {
                                     scene_changed(&mut self.scene, &mut self.taa);
                                 }
@@ -1577,6 +1600,16 @@ impl ApplicationHandler for App {
             /* `view3d.zoom` (`delta = +1 / -1`) on NUMPAD_PLUS / NUMPAD_MINUS without modifiers and
              * `view3d.view_pan` on Ctrl + NUMPAD_2 / 4 / 6 / 8; not over the header region. */
             WindowEvent::KeyboardInput { event: key_event, .. } => {
+                if self.mesh_filter.is_some() && key_event.state == ElementState::Pressed {
+                    if matches!(key_event.physical_key, winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::Escape)) {
+                        if let Some(m) = self.mesh_filter.take() {
+                            self.scene.mesh_filter_cancel(&m);
+                            scene_changed(&mut self.scene, &mut self.taa);
+                        }
+                        gfx.window.request_redraw();
+                    }
+                    return;
+                }
                 if !self.splash_closed && key_event.state == ElementState::Pressed {
                     if matches!(key_event.physical_key, PhysicalKey::Code(KeyCode::Escape)) {
                         self.splash_closed = true;
