@@ -1,5 +1,23 @@
 [
  {
+  "key": "view3d-menus",
+  "title": "3D viewport menus and popovers (View, Select, Add, Object, sculpt mode menus), functional",
+  "dirs": [
+   "scripts/startup/bl_ui/space_view3d.py",
+   "scripts/startup/bl_ui/space_view3d_toolbar.py",
+   "scripts/startup/bl_ui/space_view3d_sidebar.py"
+  ],
+  "note": "Each menu/popover is a pure row model from the Python class plus a drawn, clickable UI. Skip classes already ported (grep src/)."
+ },
+ {
+  "key": "sculpt-pbvh-perf",
+  "title": "Sculpt performance: PBVH node tree for dab queries and partial updates",
+  "dirs": [
+   "source/blender/blenkernel/intern/pbvh"
+  ],
+  "note": "Port the node split/search/bounds logic as pure functions; use them to replace the full-mesh scans in sculpt dabs."
+ },
+ {
   "key": "edit-mode",
   "title": "Edit mode basics (select, extrude, bevel, loop cut)",
   "dirs": [
