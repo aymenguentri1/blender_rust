@@ -21,6 +21,7 @@ pub enum Command {
     HideShowMasked(VisAction),
     VisibilityInvert,
     MaskInit(crate::sculpt_mask_init::InitMode),
+    FaceSetsInit(crate::face_set_init::InitMode),
     /// `sculpt.mesh_filter`: modal, started by the caller (`Scene::mesh_filter_begin`).
     MeshFilter(crate::sculpt_mesh_filter::FilterType),
 }
@@ -55,6 +56,7 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
         "paint.hide_show_all" => vis_action(props).map(Command::HideShowAll),
         "paint.hide_show_masked" => vis_action(props).map(Command::HideShowMasked),
         "paint.visibility_invert" => Some(Command::VisibilityInvert),
+        "sculpt.face_sets_init" => crate::face_set_init::InitMode::from_rna(&prop(props, "mode")?).map(Command::FaceSetsInit),
         "sculpt.mesh_filter" => match prop(props, "type")?.as_str() {
             "INFLATE" => Some(Command::MeshFilter(crate::sculpt_mesh_filter::FilterType::Inflate)),
             "SPHERE" => Some(Command::MeshFilter(crate::sculpt_mesh_filter::FilterType::Sphere)),
@@ -102,6 +104,7 @@ pub fn apply(scene: &mut Scene, cmd: Command) -> bool {
         Command::HideShowAll(a) => scene.visibility_edit_active(|m, v, _| sculpt_hide::hide_show_all(m, v, a)),
         Command::HideShowMasked(a) => scene.visibility_edit_active(|m, v, mask| sculpt_hide::hide_show_masked(m, v, a, Some(mask))),
         Command::MeshFilter(_) => false,
+        Command::FaceSetsInit(m) => scene.face_sets_init_active(m),
         Command::MaskInit(m) => scene.mask_init_active(m, mask_seed()),
         Command::VisibilityInvert => scene.visibility_edit_active(|m, v, _| sculpt_hide::invert_visibility(m, v)),
     }
@@ -199,6 +202,20 @@ mod tests {
         use crate::sculpt_mesh_filter::FilterType;
         assert_eq!(command_of("sculpt.mesh_filter", &[("type", "SPHERE")]), Some(Command::MeshFilter(FilterType::Sphere)));
         assert_eq!(command_of("sculpt.mesh_filter", &[("type", "RANDOM")]), Some(Command::MeshFilter(FilterType::Random)));
+    }
+
+    #[test]
+    fn face_sets_init_rows_run_and_create_the_layer() {
+        use crate::face_set_init::InitMode as M;
+        for (label, mode) in [("By Loose Parts", M::LooseParts), ("By Face Set Boundaries", M::FaceSetBoundaries), ("By Materials", M::Materials), ("By Normals", M::Normals), ("By UV Seams", M::UvSeams), ("By Edge Creases", M::Creases), ("By Edge Bevel Weight", M::BevelWeight), ("By Sharp Edges", M::SharpEdges)] {
+            let row = crate::face_sets_menu::FACE_SETS_INIT.iter().find(|r| matches!(r, Row::Operator { label: l, .. } if *l == label)).unwrap();
+            assert_eq!(command_of_row(row), Some(Command::FaceSetsInit(mode)), "{label}");
+        }
+        let mut s = scene();
+        assert!(apply(&mut s, Command::FaceSetsInit(M::LooseParts)));
+        let o = &s.objects[s.index_of(s.active.unwrap()).unwrap()];
+        assert_eq!(o.face_sets.len(), o.mesh().unwrap().faces.len());
+        assert!(o.face_sets.iter().all(|&f| f == 1), "a sphere is one loose part");
     }
 
     #[test]
