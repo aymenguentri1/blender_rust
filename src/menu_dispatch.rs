@@ -59,6 +59,8 @@ pub enum Command {
     HideView { unselected: bool },
     /// `object.hide_view_clear`.
     ShowHidden,
+    /// `transform.mirror` in a global axis (0 = X, 1 = Y, 2 = Z).
+    MirrorGlobal(usize),
     /// `transform.translate` / `transform.rotate` / `transform.resize`: modal, started by the caller.
     BeginTransform(TransformKind),
     /// `object.origin_clear`.
@@ -170,6 +172,14 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
             "transform.rotate" => TransformKind::Rotate,
             _ => TransformKind::Resize,
         })),
+        "transform.mirror" if prop(props, "orient_type").as_deref() == Some("GLOBAL") => {
+            match prop(props, "constraint_axis")?.as_str() {
+                "[True, False, False]" => Some(Command::MirrorGlobal(0)),
+                "[False, True, False]" => Some(Command::MirrorGlobal(1)),
+                "[False, False, True]" => Some(Command::MirrorGlobal(2)),
+                _ => None,
+            }
+        }
         "object.hide_view_clear" => Some(Command::ShowHidden),
         "object.hide_view_set" => Some(Command::HideView { unselected: prop(props, "unselected")? == "True" }),
         "object.select_hierarchy" => Some(Command::SelectHierarchy {
@@ -240,6 +250,7 @@ pub fn apply_with_symmetry(scene: &mut Scene, cmd: Command, symm: [bool; 3]) -> 
         Command::HideView { unselected: false } => scene.hide_selected() > 0,
         Command::HideView { unselected: true } => scene.hide_unselected() > 0,
         Command::ShowHidden => scene.reveal_all() > 0,
+        Command::MirrorGlobal(a) => scene.mirror_objects(a) > 0,
         Command::BeginTransform(_) => false,
         Command::OriginClear => scene.origin_clear() > 0,
         Command::ParentClear { keep_transform } => scene.parent_clear(keep_transform) > 0,
@@ -552,5 +563,18 @@ mod tests {
         assert_eq!(command_of_row(&find("Scale")), Some(Command::BeginTransform(TransformKind::Resize)));
         assert_eq!(command_of_row(&find("Move Texture Space")), None);
         assert_eq!(command_of_row(&find("Shear")), None);
+    }
+
+    #[test]
+    fn mirror_global_rows_flip_the_axis_scale() {
+        let find = |l: &str| crate::object_menu::MIRROR.iter().find(|r| matches!(r, Row::Operator { label, .. } if *label == l)).cloned().unwrap();
+        assert_eq!(command_of_row(&find("Z Global")), Some(Command::MirrorGlobal(2)));
+        assert_eq!(command_of_row(&find("X Local")), None);
+        assert_eq!(command_of_row(&find("Interactive Mirror")), None);
+        let mut s = Scene::startup();
+        s.select_all(crate::scene::SelectAction::Select);
+        let before = s.objects[0].scale[0];
+        assert!(apply(&mut s, command_of_row(&find("X Global")).unwrap()));
+        assert_eq!(s.objects[0].scale[0], -before);
     }
 }
