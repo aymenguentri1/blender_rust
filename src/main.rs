@@ -96,6 +96,7 @@ mod sculpt_remesh_layout;
 mod sculpt_options_layout;
 mod object_tool_options;
 mod brush_context_menu;
+mod sculpt_symmetry_layout;
 mod sculpt_automask_apply;
 mod sculpt_automask_layout;
 mod sculpt_thumb;
