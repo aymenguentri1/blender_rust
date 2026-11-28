@@ -7,6 +7,7 @@
 
 use crate::scene::Scene;
 use crate::sculpt::MaskFilter;
+use crate::sculpt_hide::{self, VisAction};
 use crate::sculpt_menu::Row;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15,6 +16,9 @@ pub enum Command {
     MaskClear,
     MaskInvert,
     MaskFilter(MaskFilter),
+    HideShowAll(VisAction),
+    HideShowMasked(VisAction),
+    VisibilityInvert,
 }
 
 fn prop(props: &[(&str, &str)], name: &str) -> Option<String> {
@@ -44,6 +48,18 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
             "CONTRAST_DECREASE" => Some(Command::MaskFilter(MaskFilter::ContrastDecrease)),
             _ => None,
         },
+        "paint.hide_show_all" => vis_action(props).map(Command::HideShowAll),
+        "paint.hide_show_masked" => vis_action(props).map(Command::HideShowMasked),
+        "paint.visibility_invert" => Some(Command::VisibilityInvert),
+        _ => None,
+    }
+}
+
+/// The `action` enum of the hide operators (`VisAction`, paint_hide.cc).
+fn vis_action(props: &[(&str, &str)]) -> Option<VisAction> {
+    match prop(props, "action")?.as_str() {
+        "HIDE" => Some(VisAction::Hide),
+        "SHOW" => Some(VisAction::Show),
         _ => None,
     }
 }
@@ -63,6 +79,9 @@ pub fn apply(scene: &mut Scene, cmd: Command) -> bool {
         Command::MaskClear => scene.clear_mask_active(),
         Command::MaskInvert => scene.invert_mask_active(),
         Command::MaskFilter(f) => scene.mask_filter_active(f),
+        Command::HideShowAll(a) => scene.visibility_edit_active(|m, v, _| sculpt_hide::hide_show_all(m, v, a)),
+        Command::HideShowMasked(a) => scene.visibility_edit_active(|m, v, mask| sculpt_hide::hide_show_masked(m, v, a, Some(mask))),
+        Command::VisibilityInvert => scene.visibility_edit_active(|m, v, _| sculpt_hide::invert_visibility(m, v)),
     }
 }
 
@@ -113,6 +132,26 @@ mod tests {
             cmd("Shrink Mask"),
             Some(Command::MaskFilter(MaskFilter::Shrink))
         );
+    }
+
+    #[test]
+    fn hide_rows_map_and_change_visibility() {
+        use crate::sculpt_menu;
+        let find = |label: &str| {
+            sculpt_menu::rows(true).into_iter().find(|r| matches!(r, Row::Operator { label: l, .. } if *l == label)).and_then(|r| command_of_row(&r))
+        };
+        assert_eq!(find("Show All"), Some(Command::HideShowAll(VisAction::Show)));
+        assert_eq!(find("Invert Visible"), Some(Command::VisibilityInvert));
+        assert_eq!(find("Hide Masked"), Some(Command::HideShowMasked(VisAction::Hide)));
+        let mut s = scene();
+        assert!(!apply(&mut s, Command::HideShowAll(VisAction::Show)), "nothing hidden");
+        assert!(!apply(&mut s, Command::HideShowMasked(VisAction::Hide)), "nothing masked");
+        assert!(apply(&mut s, Command::HideShowAll(VisAction::Hide)));
+        assert!(s.active_object().unwrap().vis.hide_vert.as_ref().unwrap().iter().all(|&h| h));
+        assert!(apply(&mut s, Command::HideShowAll(VisAction::Show)));
+        assert_eq!(s.active_object().unwrap().vis, Default::default());
+        assert!(apply(&mut s, Command::VisibilityInvert));
+        assert!(s.undo() && s.active_object().unwrap().vis == Default::default());
     }
 
     #[test]

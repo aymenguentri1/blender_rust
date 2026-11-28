@@ -158,6 +158,8 @@ pub struct Object {
     /// The sculpt mask (`CD_PAINT_MASK`): 0 to 1 per vertex of the base mesh, 1 is fully masked (protected from
     /// brushes). Empty when nothing is masked; a length that differs from the vertex count counts as no mask.
     pub mask: Vec<f32>,
+    /// `.hide_vert` / `.hide_poly` of the base mesh (`sculpt_hide.rs`): what the Show/Hide operators change.
+    pub vis: crate::sculpt_hide::Visibility,
     /// `Object::mat`/`totcol`/`actcol`: indices into `Scene::materials`.
     pub material_slots: crate::material::MaterialSlots,
     eval: Option<Mesh>,
@@ -380,6 +382,7 @@ impl Scene {
             parent_inv: IDENTITY4,
             parent_world: IDENTITY4,
             mask: Vec::new(),
+            vis: Default::default(),
             material_slots: Default::default(),
             eval: None,
             eval_sig: 0,
@@ -480,6 +483,25 @@ impl Scene {
         for m in o.mask.iter_mut() {
             *m = 1.0 - *m;
         }
+        o.eval = None;
+        true
+    }
+
+    /// `paint.hide_show_all`, `paint.hide_show_masked` and `paint.visibility_invert` on the active mesh: `f` edits
+    /// the visibility. One undo step; false (and no step) when nothing changed.
+    pub fn visibility_edit_active(&mut self, f: impl FnOnce(&Mesh, &mut crate::sculpt_hide::Visibility, &[f32])) -> bool {
+        let Some(i) = self.active.and_then(|id| self.index_of(id)) else { return false };
+        let o = &self.objects[i];
+        let Some(mesh) = o.mesh() else { return false };
+        let mut vis = o.vis.clone();
+        let mask = if o.mask.len() == mesh.verts.len() { o.mask.clone() } else { Vec::new() };
+        f(mesh, &mut vis, &mask);
+        if vis == self.objects[i].vis {
+            return false;
+        }
+        self.push_undo();
+        let o = &mut self.objects[i];
+        o.vis = vis;
         o.eval = None;
         true
     }
