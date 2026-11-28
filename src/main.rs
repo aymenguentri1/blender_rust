@@ -210,6 +210,7 @@ mod geo_bounding_box;
 mod overlay_bounds;
 mod overlay_facing;
 mod overlay_origin;
+mod overlay_sculpt;
 mod overlay_fade;
 mod geo_curve_circle;
 mod geo_curve_line;
