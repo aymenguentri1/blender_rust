@@ -186,6 +186,25 @@ pub const MIRROR: &[Row] = &[
     op("transform.mirror", "Z Local", &[("constraint_axis", "[False, False, True]"), ("orient_type", "LOCAL")]),
 ];
 
+/// `VIEW3D_MT_object_cleanup` (space_view3d.py).
+pub const CLEANUP: &[Row] = &[
+    op("object.vertex_group_clean", "Clean Vertex Group Weights", &[("group_select_mode", "ALL")]),
+    op("object.vertex_group_limit_total", "Limit Total Vertex Groups", &[("group_select_mode", "ALL")]),
+    Row::Separator,
+    op("object.material_slot_remove_unused", "Remove Unused Material Slots", &[]),
+    op("object.material_slot_remove_all", "Remove All Materials", &[]),
+];
+
+/// `VIEW3D_MT_object_convert`: `operator_enum("object.convert", "target")` lists `convert_target_itemf`
+/// (object_add.cc) in its order: Mesh, Curve, Curves, Point Cloud, Grease Pencil.
+pub const CONVERT: &[Row] = &[
+    op("object.convert", "Mesh", &[("target", "MESH")]),
+    op("object.convert", "Curve", &[("target", "CURVE")]),
+    op("object.convert", "Curves", &[("target", "CURVES")]),
+    op("object.convert", "Point Cloud", &[("target", "POINTCLOUD")]),
+    op("object.convert", "Grease Pencil", &[("target", "GREASEPENCIL")]),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -314,5 +333,11 @@ mod tests {
         assert!(matches!(PARENT[14], Row::Operator { props: [("keep_transform", "False")], .. }));
         assert!(matches!(PARENT[15], Row::Operator { props: [("keep_transform", "True")], .. }));
         assert_eq!(&l[17..], ["Clear Parent", "Clear and Keep Transformation", "Clear Parent Inverse"]);
+    }
+
+    #[test]
+    fn cleanup_and_convert_rows_in_blender_order() {
+        assert_eq!(labels_of(CLEANUP), ["Clean Vertex Group Weights", "Limit Total Vertex Groups", "-", "Remove Unused Material Slots", "Remove All Materials"]);
+        assert_eq!(labels_of(CONVERT), ["Mesh", "Curve", "Curves", "Point Cloud", "Grease Pencil"]);
     }
 }
