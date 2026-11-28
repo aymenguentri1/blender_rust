@@ -1227,6 +1227,19 @@ impl ApplicationHandler for App {
                             } else if let Some(menu_dispatch::Command::MeshFilter(kind)) = menu_dispatch::command_of_row(&row) {
                                 let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as u32);
                                 self.mesh_filter = self.scene.mesh_filter_begin(kind, self.cursor[0] as f32, seed);
+                            } else if let Some(menu_dispatch::Command::BeginTransform(kind)) = menu_dispatch::command_of_row(&row) {
+                                /* Same as the G / R / S keys, started from the menu. */
+                                if let Some(layout) = self.layout.as_ref() {
+                                    let mode = match kind {
+                                        menu_dispatch::TransformKind::Move => transform::Mode::Translate,
+                                        menu_dispatch::TransformKind::Rotate => transform::Mode::Rotate,
+                                        menu_dispatch::TransformKind::Resize => transform::Mode::Scale,
+                                    };
+                                    let mval = [self.cursor[0] - layout.main.xmin, self.cursor[1] - layout.main.ymin];
+                                    let (rw, rh) = (layout.main.size_x() + 1, layout.main.size_y() + 1);
+                                    self.rv3d.update(&self.v3d, rw, rh);
+                                    self.xform = transform::Transform::begin_with_pivot(mode, &mut self.scene, mval, &self.rv3d, true, self.pivot_point, self.cursor3d);
+                                }
                             } else if let Some(cmd @ (menu_dispatch::Command::SnapSelectionToCursorOffset | menu_dispatch::Command::SnapCursorToSelected | menu_dispatch::Command::SnapCursorToCenter)) = menu_dispatch::command_of_row(&row) {
                                 /* The snap operators that read or move the 3D cursor. */
                                 match cmd {
