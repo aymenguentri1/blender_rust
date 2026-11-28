@@ -151,6 +151,27 @@ pub const SNAP: &[Row] = &[
     op("view3d.snap_cursor_to_active", "Cursor to Active", &[]),
 ];
 
+/// `VIEW3D_MT_transform_object` (space_view3d.py): `VIEW3D_MT_transform_base` rows, then the object extensions.
+/// Labels are the `text=` of the call or else `ot->name` (transform_ops.cc, object_transform.cc).
+pub const TRANSFORM: &[Row] = &[
+    op("transform.translate", "Move", &[]),
+    op("transform.rotate", "Rotate", &[]),
+    op("transform.resize", "Scale", &[]),
+    Row::Separator,
+    op("transform.tosphere", "To Sphere", &[]),
+    op("transform.shear", "Shear", &[]),
+    op("transform.bend", "Bend", &[]),
+    op("transform.push_pull", "Push/Pull", &[]),
+    Row::Separator,
+    op("transform.translate", "Move Texture Space", &[("texture_space", "True")]),
+    op("transform.resize", "Scale Texture Space", &[("texture_space", "True")]),
+    Row::Separator,
+    op("transform.transform", "Align to Transform Orientation", &[("mode", "ALIGN")]),
+    Row::Separator,
+    op("object.randomize_transform", "Randomize Transform", &[]),
+    op("object.align", "Align Objects", &[]),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
