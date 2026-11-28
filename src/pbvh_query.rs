@@ -226,6 +226,25 @@ mod tests {
     }
 
     #[test]
+    fn built_leaf_bounds_contain_their_verts_and_parents_merge_children() {
+        let mesh = grid(12);
+        let pbvh = Pbvh::build(&mesh, 6);
+        for i in 0..pbvh.nodes.len() {
+            if pbvh.nodes[i].leaf {
+                let (lo, hi) = pbvh.bounds[i];
+                for v in pbvh.leaf_verts(&mesh, i) {
+                    for k in 0..3 {
+                        assert!(lo[k] <= mesh.verts[v][k] && mesh.verts[v][k] <= hi[k]);
+                    }
+                }
+            } else {
+                let c = pbvh.nodes[i].children_offset;
+                assert_eq!(pbvh.bounds[i], merge(pbvh.bounds[c], pbvh.bounds[c + 1]));
+            }
+        }
+    }
+
+    #[test]
     fn bounds_refresh_matches_rebuild_after_moving_vertices() {
         let mut mesh = grid(12);
         let mut pbvh = Pbvh::build(&mesh, 6);
