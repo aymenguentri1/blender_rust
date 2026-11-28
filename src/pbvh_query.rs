@@ -14,6 +14,9 @@ pub struct Pbvh {
     /// Face indices reordered by the build; leaves reference ranges of it.
     pub faces: Vec<i32>,
     pub bounds: Vec<(V3, V3)>,
+    /// `Node::FullyMasked` / `Node::FullyHidden` per node (leaves only ever set).
+    pub fully_masked: Vec<bool>,
+    pub fully_hidden: Vec<bool>,
 }
 
 fn merge(a: (V3, V3), b: (V3, V3)) -> (V3, V3) {
@@ -60,7 +63,8 @@ impl Pbvh {
                 bounds[i] = merge(bounds[c], bounds[c + 1]);
             }
         }
-        Pbvh { nodes, faces, bounds }
+        let n = nodes.len();
+        Pbvh { nodes, faces, bounds, fully_masked: vec![false; n], fully_hidden: vec![false; n] }
     }
 
     /// `update_node_bounds_mesh`: bounds of the vertices of the faces of leaf `i`.
@@ -95,6 +99,40 @@ impl Pbvh {
                 pending.push(self.nodes[n].parent as usize);
             }
         }
+    }
+
+    fn leaf_verts(&self, mesh: &Mesh, i: usize) -> Vec<usize> {
+        let mut out = Vec::new();
+        for &f in &self.faces[self.nodes[i].faces.clone()] {
+            out.extend(mesh.faces[f as usize].iter().map(|&v| v as usize));
+        }
+        out
+    }
+
+    /// `update_mask_mesh` / `node_update_mask_mesh`: a leaf is fully masked when every vertex mask is 1.
+    /// An empty `mask` clears the flag (Blender treats the missing attribute as unmasked).
+    pub fn update_mask(&mut self, mesh: &Mesh, mask: &[f32]) {
+        for i in 0..self.nodes.len() {
+            if !self.nodes[i].leaf {
+                continue;
+            }
+            self.fully_masked[i] = !mask.is_empty() && self.leaf_verts(mesh, i).into_iter().all(|v| mask[v] == 1.0);
+        }
+    }
+
+    /// `node_update_visibility_mesh`: a leaf is fully hidden when every vertex is hidden.
+    pub fn update_visibility(&mut self, mesh: &Mesh, hide_vert: &[bool]) {
+        for i in 0..self.nodes.len() {
+            if !self.nodes[i].leaf {
+                continue;
+            }
+            self.fully_hidden[i] = !hide_vert.is_empty() && self.leaf_verts(mesh, i).into_iter().all(|v| hide_vert[v]);
+        }
+    }
+
+    /// `node_fully_masked_or_hidden` (`BKE_pbvh_node_fully_*_get` require the Leaf flag).
+    pub fn node_fully_masked_or_hidden(&self, node: usize) -> bool {
+        self.nodes[node].leaf && (self.fully_hidden[node] || self.fully_masked[node])
     }
 
     /// `node_in_sphere`: nearest point of the node bounds to `center` is closer than `radius`.
@@ -209,6 +247,33 @@ mod tests {
         let pbvh = Pbvh::build(&mesh, 4);
         let ray = crate::math_ray_aabb::dist_ray_aabb_precalc([100.0, 100.0, 100.0], [0.0, 0.0, 1.0]);
         assert!(pbvh.node_in_cylinder(0, &ray, 0.1));
+    }
+
+    #[test]
+    fn fully_masked_or_hidden_nodes_are_flagged() {
+        let mesh = grid(8);
+        let mut pbvh = Pbvh::build(&mesh, 4);
+        let leaf = (0..pbvh.nodes.len()).find(|&i| pbvh.nodes[i].leaf).unwrap();
+        assert!(!pbvh.node_fully_masked_or_hidden(leaf));
+        let mut mask = vec![0.0; mesh.verts.len()];
+        let verts: Vec<usize> = pbvh.leaf_verts(&mesh, leaf);
+        for &v in &verts {
+            mask[v] = 1.0;
+        }
+        pbvh.update_mask(&mesh, &mask);
+        assert!(pbvh.node_fully_masked_or_hidden(leaf));
+        mask[verts[0]] = 0.5;
+        pbvh.update_mask(&mesh, &mask);
+        assert!(!pbvh.node_fully_masked_or_hidden(leaf));
+        let mut hide = vec![false; mesh.verts.len()];
+        for &v in &verts {
+            hide[v] = true;
+        }
+        pbvh.update_visibility(&mesh, &hide);
+        assert!(pbvh.node_fully_masked_or_hidden(leaf));
+        pbvh.update_mask(&mesh, &[]);
+        assert!(pbvh.node_fully_masked_or_hidden(leaf), "hidden stays");
+        assert!(!pbvh.node_fully_masked_or_hidden(0), "inner nodes never skipped");
     }
 
     #[test]
