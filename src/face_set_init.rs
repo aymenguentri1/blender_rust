@@ -234,4 +234,16 @@ mod tests {
         let i = InitInput { hide_poly: Some(&hide), ..inp() };
         assert_eq!(face_sets_init(&m, Some(vec![1, 1, 1]), InitMode::LooseParts, &i), vec![2, 2, 1]);
     }
+
+    #[test]
+    fn two_disjoint_quads_and_two_materials_get_distinct_ids() {
+        let m = Mesh {
+            verts: vec![[0.0; 3]; 8],
+            faces: vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]],
+        };
+        assert_eq!(face_sets_init(&m, None, InitMode::LooseParts, &inp()), vec![1, 2]);
+        let mat = [0, 1];
+        let i = InitInput { material_index: Some(&mat), ..inp() };
+        assert_eq!(face_sets_init(&m, None, InitMode::Materials, &i), vec![1, 2]);
+    }
 }
