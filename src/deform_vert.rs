@@ -3,7 +3,8 @@
 //! Ported from Blender `blenkernel/intern/deform.cc`: `BKE_defvert_find_weight`, `_find_index`,
 //! `_ensure_index`, `_add_index_notest`, `_remove_group`, `_clear`, `_is_weight_zero`,
 //! `_total_selected_weight`, `_multipaint_collective_weight`, `_calc_lock_relative_weight`,
-//! `_lock_relative_weight`, `_remap`, `_flip`, `_flip_merged`, `_copy_index`, `_copy_subset`, `_sync`.
+//! `_lock_relative_weight`, `_remap`, `_flip`, `_flip_merged`, `_copy_index`, `_copy_subset`, `_sync`,
+//! `_normalize`, `_normalize_subset`, `_normalize_lock_map`, `_normalize_ex`.
 
 #![allow(dead_code)]
 
@@ -178,6 +179,101 @@ impl DeformVert {
             if let Some(d) = d {
                 self.dw[d].weight = w.weight;
             }
+        }
+    }
+
+    /// `BKE_defvert_normalize`.
+    pub fn normalize(&mut self) {
+        self.normalize_ex(&[], &[], &[]);
+    }
+
+    /// `BKE_defvert_normalize_subset`.
+    pub fn normalize_subset(&mut self, subset_flags: &[bool]) {
+        self.normalize_ex(subset_flags, &[], &[]);
+    }
+
+    /// `BKE_defvert_normalize_lock_map`.
+    pub fn normalize_lock_map(&mut self, subset_flags: &[bool], lock_flags: &[bool]) {
+        self.normalize_ex(subset_flags, lock_flags, &[]);
+    }
+
+    /// `BKE_defvert_normalize_ex`: scales the (subset) weights so the vertex total is 1. Locked groups keep
+    /// their weight and reduce what is available; soft-locked groups are only scaled when the regular ones
+    /// cannot absorb the change. An empty flag slice means "not used".
+    pub fn normalize_ex(&mut self, subset_flags: &[bool], lock_flags: &[bool], soft_lock_flags: &[bool]) {
+        let flag = |f: &[bool], nr: i32| nr >= 0 && f.get(nr as usize).copied().unwrap_or(false);
+        let use_subset = !subset_flags.is_empty();
+        let use_locks = !lock_flags.is_empty();
+        let use_soft = !soft_lock_flags.is_empty();
+
+        if self.dw.is_empty() {
+            return;
+        }
+        if self.dw.len() == 1 {
+            let dw = &mut self.dw[0];
+            if use_subset && !flag(subset_flags, dw.def_nr) {
+                return;
+            }
+            if !(use_locks && flag(lock_flags, dw.def_nr)) {
+                dw.weight = 1.0;
+            }
+            return;
+        }
+
+        let (mut locked, mut soft_locked, mut regular) = (0.0f32, 0.0f32, 0.0f32);
+        let mut soft_count = 0;
+        for dw in &self.dw {
+            if use_subset && !flag(subset_flags, dw.def_nr) {
+                continue;
+            }
+            if use_locks && flag(lock_flags, dw.def_nr) {
+                locked += dw.weight;
+            } else if use_soft && flag(soft_lock_flags, dw.def_nr) {
+                soft_locked += dw.weight;
+                soft_count += 1;
+            } else {
+                regular += dw.weight;
+            }
+        }
+        let available = (1.0 - locked).max(0.0);
+
+        if regular <= 0.0 && soft_locked <= 0.0 {
+            if soft_count == 0 {
+                return;
+            }
+            let weight = available / soft_count as f32;
+            for dw in &mut self.dw {
+                if use_subset && !flag(subset_flags, dw.def_nr) {
+                    continue;
+                }
+                if use_locks && flag(lock_flags, dw.def_nr) {
+                    continue;
+                }
+                if use_soft && flag(soft_lock_flags, dw.def_nr) {
+                    dw.weight = weight;
+                }
+            }
+            return;
+        }
+
+        let (soft_scale, regular_scale) = if soft_locked >= available || regular <= 0.0 {
+            (available / soft_locked, 0.0)
+        } else {
+            (1.0, (available - soft_locked) / regular)
+        };
+        for dw in &mut self.dw {
+            if use_subset && !flag(subset_flags, dw.def_nr) {
+                continue;
+            }
+            if use_locks && flag(lock_flags, dw.def_nr) {
+                continue;
+            }
+            if use_soft && flag(soft_lock_flags, dw.def_nr) {
+                dw.weight *= soft_scale;
+            } else {
+                dw.weight *= regular_scale;
+            }
+            dw.weight = dw.weight.clamp(0.0, 1.0);
         }
     }
 }
@@ -371,5 +467,92 @@ mod tests {
         let mut empty = DeformVert::default();
         empty.sync(&src, true); // dst without weights: nothing
         assert!(empty.dw.is_empty());
+    }
+
+    fn dv(ws: &[(i32, f32)]) -> DeformVert {
+        let mut d = DeformVert::default();
+        for &(g, w) in ws {
+            d.add_index_notest(g, w);
+        }
+        d
+    }
+    fn total(d: &DeformVert) -> f32 {
+        d.dw.iter().map(|w| w.weight).sum()
+    }
+
+    #[test]
+    fn normalize_sums_to_one_keeping_ratios() {
+        let mut d = dv(&[(0, 0.2), (1, 0.6)]);
+        d.normalize();
+        assert!((d.find_weight(0) - 0.25).abs() < 1e-6);
+        assert!((d.find_weight(1) - 0.75).abs() < 1e-6);
+    }
+
+    #[test]
+    fn normalize_single_group_becomes_one_even_if_zero() {
+        let mut d = dv(&[(3, 0.0)]);
+        d.normalize();
+        assert_eq!(d.find_weight(3), 1.0);
+        let mut e = dv(&[(3, 0.4)]);
+        e.normalize_subset(&[false, false, false, false]); // not in subset: untouched
+        assert_eq!(e.find_weight(3), 0.4);
+        let mut l = dv(&[(1, 0.4)]);
+        l.normalize_lock_map(&[], &[false, true]);
+        assert_eq!(l.find_weight(1), 0.4);
+    }
+
+    #[test]
+    fn normalize_all_zero_is_left_alone() {
+        let mut d = dv(&[(0, 0.0), (1, 0.0)]);
+        d.normalize();
+        assert_eq!(total(&d), 0.0);
+        let mut e = DeformVert::default();
+        e.normalize();
+        assert!(e.dw.is_empty());
+    }
+
+    #[test]
+    fn normalize_subset_only_touches_subset() {
+        let mut d = dv(&[(0, 0.5), (1, 0.5), (2, 0.4)]);
+        d.normalize_subset(&[true, true, false]);
+        assert_eq!(d.find_weight(2), 0.4);
+        assert!((d.find_weight(0) + d.find_weight(1) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn normalize_lock_map_keeps_locked_and_fills_rest() {
+        let mut d = dv(&[(0, 0.5), (1, 0.2), (2, 0.2)]);
+        d.normalize_lock_map(&[], &[true, false, false]);
+        assert_eq!(d.find_weight(0), 0.5);
+        assert!((d.find_weight(1) - 0.25).abs() < 1e-6);
+        assert!((d.find_weight(2) - 0.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn normalize_locked_over_one_zeroes_the_rest() {
+        let mut d = dv(&[(0, 1.5), (1, 0.3)]);
+        d.normalize_lock_map(&[], &[true, false]);
+        assert_eq!(d.find_weight(0), 1.5);
+        assert_eq!(d.find_weight(1), 0.0);
+    }
+
+    #[test]
+    fn normalize_soft_lock_scenarios() {
+        // regular absorbs the change: soft keeps 0.3
+        let mut d = dv(&[(0, 0.3), (1, 0.2), (2, 0.2)]);
+        d.normalize_ex(&[], &[], &[true, false, false]);
+        assert!((d.find_weight(0) - 0.3).abs() < 1e-6);
+        assert!((d.find_weight(1) - 0.35).abs() < 1e-6);
+        // soft too large: it is scaled and regular goes to zero
+        let mut e = dv(&[(0, 1.5), (1, 0.2)]);
+        e.normalize_ex(&[], &[], &[true, false]);
+        assert!((e.find_weight(0) - 1.0).abs() < 1e-6);
+        assert_eq!(e.find_weight(1), 0.0);
+        // all zero but soft-locked groups exist: split equally
+        let mut z = dv(&[(0, 0.0), (1, 0.0), (2, 0.0)]);
+        z.normalize_ex(&[], &[], &[true, true, false]);
+        assert_eq!(z.find_weight(0), 0.5);
+        assert_eq!(z.find_weight(1), 0.5);
+        assert_eq!(z.find_weight(2), 0.0);
     }
 }
