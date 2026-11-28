@@ -157,6 +157,7 @@ mod mesh_merge;
 mod mesh_delete_loose;
 mod sculpt_hide;
 mod sculpt_mask_init;
+mod sculpt_mesh_filter;
 mod sculpt_rotate;
 mod kelvinlet;
 mod sculpt_elastic;
