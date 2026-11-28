@@ -193,6 +193,7 @@ mod overlay_extra;
 mod add_menu;
 mod brush_menu;
 mod sculpt_menu;
+mod sculpt_context_menu;
 mod sculpt_submenus;
 mod face_sets_menu;
 mod mask_menu;
