@@ -208,6 +208,7 @@ mod sculpt_curves_delete;
 mod sculpt_curves_grow_shrink;
 mod geo_bounding_box;
 mod overlay_bounds;
+mod overlay_fade;
 mod geo_curve_circle;
 mod geo_curve_line;
 mod geo_curve_quad;
