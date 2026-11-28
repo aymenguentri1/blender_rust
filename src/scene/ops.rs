@@ -447,6 +447,30 @@ impl Scene {
         n
     }
 
+    /// `TRANSFORM_OT_mirror` with `orient_type` LOCAL in `axis` (0 = X, 1 = Y, 2 = Z) and the median pivot: the
+    /// mirror plane of every object is normal to its own local axis. The origin is reflected through the plane
+    /// of the median, the rotation stays and the scale along that local axis changes sign.
+    pub fn mirror_objects_local(&mut self, axis: usize) -> usize {
+        if axis > 2 {
+            return 0;
+        }
+        let Some(median) = self.median_origin() else { return 0 };
+        self.push_undo();
+        let mut n = 0;
+        for o in self.objects.iter_mut().filter(|o| o.selected && !o.hidden) {
+            let r = euler_to_mat3(o.rot);
+            let normal = [r[axis][0], r[axis][1], r[axis][2]];
+            let w = o.world_matrix()[3];
+            let dist = (w[0] - median[0]) * normal[0] + (w[1] - median[1]) * normal[1] + (w[2] - median[2]) * normal[2];
+            let d = mat3_mul_v3(&o.parent_lin_inv(), [-2.0 * dist * normal[0], -2.0 * dist * normal[1], -2.0 * dist * normal[2]]);
+            o.loc = [o.loc[0] + d[0], o.loc[1] + d[1], o.loc[2] + d[2]];
+            o.scale[axis] = -o.scale[axis];
+            o.eval = None;
+            n += 1;
+        }
+        n
+    }
+
     /// `OBJECT_OT_origin_clear` (object_transform.cc, `object_origin_clear_exec`): for every selected object with a
     /// parent, `parentinv[3] = -(mat3(parentinv) * loc)`, which puts the object's origin at its parent's origin.
     /// Returns how many objects were changed.
