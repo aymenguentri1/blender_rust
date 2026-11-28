@@ -539,6 +539,44 @@ impl Scene {
         true
     }
 
+    /// `sculpt.mesh_filter` invoke: remembers the active mesh and starts one undo step.
+    pub fn mesh_filter_begin(&mut self, kind: crate::sculpt_mesh_filter::FilterType, start_x: f32, seed: u32) -> Option<crate::sculpt_mesh_filter::Modal> {
+        let o = self.active.and_then(|id| self.index_of(id)).map(|i| &self.objects[i])?;
+        let orig = o.mesh()?.verts.clone();
+        let object = o.id;
+        self.push_undo();
+        Some(crate::sculpt_mesh_filter::Modal { object, kind, orig, start_x, seed })
+    }
+
+    /// One modal step: the filter at the strength of mouse x `x`, applied to the positions the operator started with.
+    pub fn mesh_filter_update(&mut self, m: &crate::sculpt_mesh_filter::Modal, x: f32, ui_scale: f32) {
+        let strength = crate::sculpt_mesh_filter::strength_from_mouse(1.0, m.start_x, x, ui_scale);
+        let Some(i) = self.index_of(m.object) else { return };
+        let o = &mut self.objects[i];
+        let n = m.orig.len();
+        let mask = if o.mask.len() == n { o.mask.clone() } else { Vec::new() };
+        let Some(mesh) = o.mesh() else { return };
+        if mesh.verts.len() != n {
+            return;
+        }
+        let verts = crate::sculpt_mesh_filter::apply(mesh, &m.orig, &mask, o.vis.hide_vert.as_deref(), m.kind, strength, m.seed);
+        if let ObjectData::Mesh(mesh) = &mut o.data {
+            mesh.verts = verts;
+        }
+        o.eval = None;
+    }
+
+    /// Cancel of the modal: the positions come back and the undo step goes.
+    pub fn mesh_filter_cancel(&mut self, m: &crate::sculpt_mesh_filter::Modal) {
+        if let Some(i) = self.index_of(m.object) {
+            if let ObjectData::Mesh(mesh) = &mut self.objects[i].data {
+                mesh.verts = m.orig.clone();
+            }
+            self.objects[i].eval = None;
+        }
+        self.pop_undo();
+    }
+
     /// `sculpt.mask_filter`: one pass of `filter` over the mask of the active object. One undo step; false (and
     /// no step) when nothing is masked.
     pub fn mask_filter_active(&mut self, filter: crate::sculpt::MaskFilter) -> bool {
@@ -2806,6 +2844,28 @@ mod tests {
         assert!(s.visibility_edit_active(|m, v, _| crate::sculpt_hide::hide_show_all(m, v, crate::sculpt_hide::VisAction::Show)));
         s.update_eval();
         assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), n);
+    }
+
+    #[test]
+    fn mesh_filter_modal_updates_confirms_and_cancels() {
+        use crate::sculpt_mesh_filter::FilterType;
+        let mut s = Scene::startup();
+        let id = s.add_primitive(Primitive::Cube, [0.0; 3]);
+        s.active = Some(id);
+        let before = s.active_object().unwrap().mesh().unwrap().verts.clone();
+        let m = s.mesh_filter_begin(FilterType::Inflate, 100.0, 0).unwrap();
+        s.mesh_filter_update(&m, 300.0, 1.0);
+        let moved = s.active_object().unwrap().mesh().unwrap().verts.clone();
+        assert_ne!(moved, before);
+        s.mesh_filter_update(&m, 100.0, 1.0);
+        assert_eq!(s.active_object().unwrap().mesh().unwrap().verts, before, "zero strength is the start");
+        s.mesh_filter_update(&m, 300.0, 1.0);
+        s.mesh_filter_cancel(&m);
+        assert_eq!(s.active_object().unwrap().mesh().unwrap().verts, before);
+        let m = s.mesh_filter_begin(FilterType::Inflate, 0.0, 0).unwrap();
+        s.mesh_filter_update(&m, 200.0, 1.0);
+        assert!(s.undo());
+        assert_eq!(s.active_object().unwrap().mesh().unwrap().verts, before, "one undo step");
     }
 
     #[test]

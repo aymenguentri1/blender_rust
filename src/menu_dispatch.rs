@@ -21,6 +21,8 @@ pub enum Command {
     HideShowMasked(VisAction),
     VisibilityInvert,
     MaskInit(crate::sculpt_mask_init::InitMode),
+    /// `sculpt.mesh_filter`: modal, started by the caller (`Scene::mesh_filter_begin`).
+    MeshFilter(crate::sculpt_mesh_filter::FilterType),
 }
 
 fn prop(props: &[(&str, &str)], name: &str) -> Option<String> {
@@ -53,6 +55,10 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
         "paint.hide_show_all" => vis_action(props).map(Command::HideShowAll),
         "paint.hide_show_masked" => vis_action(props).map(Command::HideShowMasked),
         "paint.visibility_invert" => Some(Command::VisibilityInvert),
+        "sculpt.mesh_filter" => match prop(props, "type")?.as_str() {
+            "INFLATE" => Some(Command::MeshFilter(crate::sculpt_mesh_filter::FilterType::Inflate)),
+            _ => None,
+        },
         "sculpt.mask_init" => match prop(props, "mode")?.as_str() {
             "RANDOM_PER_VERTEX" => Some(Command::MaskInit(InitMode::RandomPerVertex)),
             "RANDOM_PER_LOOSE_PART" => Some(Command::MaskInit(InitMode::RandomPerLoosePart)),
@@ -93,6 +99,7 @@ pub fn apply(scene: &mut Scene, cmd: Command) -> bool {
         Command::MaskFilter(f) => scene.mask_filter_active(f),
         Command::HideShowAll(a) => scene.visibility_edit_active(|m, v, _| sculpt_hide::hide_show_all(m, v, a)),
         Command::HideShowMasked(a) => scene.visibility_edit_active(|m, v, mask| sculpt_hide::hide_show_masked(m, v, a, Some(mask))),
+        Command::MeshFilter(_) => false,
         Command::MaskInit(m) => scene.mask_init_active(m, mask_seed()),
         Command::VisibilityInvert => scene.visibility_edit_active(|m, v, _| sculpt_hide::invert_visibility(m, v)),
     }
@@ -177,6 +184,12 @@ mod tests {
         assert!(apply(&mut s, Command::MaskInit(InitMode::RandomPerVertex)));
         assert!(s.has_mask());
         assert!(s.undo() && !s.has_mask());
+    }
+
+    #[test]
+    fn inflate_filter_row_maps_to_the_modal() {
+        assert_eq!(command_of("sculpt.mesh_filter", &[("type", "INFLATE")]), Some(Command::MeshFilter(crate::sculpt_mesh_filter::FilterType::Inflate)));
+        assert_eq!(command_of("sculpt.mesh_filter", &[("type", "SMOOTH")]), None);
     }
 
     #[test]
