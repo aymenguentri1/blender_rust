@@ -193,6 +193,7 @@ mod overlay_extra;
 mod add_menu;
 mod brush_menu;
 mod sculpt_menu;
+mod menu_dispatch;
 mod header_menu;
 mod row_menu;
 mod sculpt_context_menu;
@@ -1132,8 +1133,14 @@ impl ApplicationHandler for App {
                 if let (Some(mut m), Some(user)) = (self.header_menu.take(), self.user.as_ref()) {
                     let size = gfx.window.inner_size();
                     match m.click(user, [size.width as i32, size.height as i32], false, self.cursor) {
-                        /* The operator rows are run by `header_menu::run` once they are wired. */
-                        header_menu::Click::Run(_) | header_menu::Click::Closed => {}
+                        header_menu::Click::Run(row) => {
+                            if let Some(cmd) = menu_dispatch::command_of_row(&row) {
+                                if menu_dispatch::apply(&mut self.scene, cmd) {
+                                    scene_changed(&mut self.scene, &mut self.taa);
+                                }
+                            }
+                        }
+                        header_menu::Click::Closed => {}
                         header_menu::Click::Kept => self.header_menu = Some(m),
                     }
                     gfx.window.request_redraw();

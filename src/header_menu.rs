@@ -41,12 +41,12 @@ pub fn submenu_rows(idname: &str) -> Option<Vec<Row>> {
     Some(rows.to_vec())
 }
 
-/// Whether a row can be used: a submenu row when the submenu exists. Operator rows stay disabled until their
-/// operator is wired (they are drawn dim and a click only closes the menus).
+/// Whether a row can be used: a submenu row when the submenu exists, an operator row when `menu_dispatch` has a
+/// command for it. The others are drawn dim and a click on them only keeps the menus as they are.
 pub fn enabled(row: &Row) -> bool {
     match row {
         Row::Menu { idname, .. } => submenu_rows(idname).is_some(),
-        _ => false,
+        r => crate::menu_dispatch::command_of_row(r).is_some(),
     }
 }
 
@@ -130,7 +130,7 @@ impl HeaderMenu {
         if let Some((rows, l)) = &p.sub {
             if l.panel.isect_pt_v(cursor) {
                 return match row_menu::item_at(l, cursor).map(|i| rows[i].clone()) {
-                    Some(r @ Row::Operator { .. }) => Click::Run(r),
+                    Some(r @ Row::Operator { .. }) if enabled(&r) => Click::Run(r),
                     _ => Click::Kept,
                 };
             }
@@ -138,7 +138,8 @@ impl HeaderMenu {
         if p.root.panel.isect_pt_v(cursor) {
             return match row_menu::item_at(&p.root, cursor) {
                 Some(i) => match &p.root_rows[i] {
-                    r @ Row::Operator { .. } => Click::Run(r.clone()),
+                    r @ Row::Operator { .. } if enabled(r) => Click::Run(r.clone()),
+                    Row::Operator { .. } => Click::Kept,
                     Row::Menu { .. } => {
                         self.sub = Some(i);
                         Click::Kept
@@ -217,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn click_on_a_submenu_row_keeps_it_open_and_a_submenu_operator_runs() {
+    fn click_on_a_submenu_row_keeps_it_open_and_a_disabled_operator_keeps_it() {
         let u = user();
         let mut m = HeaderMenu::open(Which::FaceSets, [100, 800]);
         let pos = row_pos(&m, "Initialize Face Sets");
@@ -225,10 +226,8 @@ mod tests {
         assert!(m.sub.is_some());
         let p = m.panels(&u, WIN, false);
         let (_, l) = p.sub.unwrap();
-        match m.click(&u, WIN, false, center(l.items[2].0)) {
-            Click::Run(Row::Operator { label, .. }) => assert_eq!(label, "By Materials"),
-            c => panic!("{c:?}"),
-        }
+        /* Not wired yet: a disabled operator row keeps the menus open. */
+        assert_eq!(m.click(&u, WIN, false, center(l.items[2].0)), Click::Kept);
     }
 
     #[test]
@@ -253,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn only_submenu_rows_with_a_submenu_are_enabled_for_now() {
+    fn submenu_rows_and_wired_operators_are_enabled() {
         let rows = rows_of(Which::Sculpt, false);
         assert!(rows
             .iter()
