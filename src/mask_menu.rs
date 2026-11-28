@@ -143,6 +143,13 @@ pub const ROWS: &[Row] = &[
     },
 ];
 
+/// `VIEW3D_MT_random_mask`.
+pub const RANDOM_MASK: &[Row] = &[
+    op("sculpt.mask_init", "Per Vertex", &[("mode", "RANDOM_PER_VERTEX")]),
+    op("sculpt.mask_init", "Per Face Set", &[("mode", "RANDOM_PER_FACE_SET")]),
+    op("sculpt.mask_init", "Per Loose Part", &[("mode", "RANDOM_PER_LOOSE_PART")]),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;

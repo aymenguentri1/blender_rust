@@ -36,6 +36,7 @@ pub fn submenu_rows(idname: &str) -> Option<Vec<Row>> {
         "VIEW3D_MT_sculpt_trim" => sculpt_submenus::TRIM,
         "VIEW3D_MT_sculpt_set_pivot" => sculpt_submenus::SET_PIVOT,
         "VIEW3D_MT_face_sets_init" => face_sets_menu::FACE_SETS_INIT,
+        "VIEW3D_MT_random_mask" => crate::mask_menu::RANDOM_MASK,
         _ => return None,
     };
     Some(rows.to_vec())
@@ -243,12 +244,12 @@ mod tests {
     }
 
     #[test]
-    fn menus_without_rows_have_no_submenu_panel() {
+    fn hovering_random_mask_opens_its_submenu_panel() {
         let u = user();
         let mut m = HeaderMenu::open(Which::Mask, [100, 800]);
         m.mouse_move(&u, WIN, false, row_pos(&m, "Random Mask"));
-        assert!(m.panels(&u, WIN, false).sub.is_none());
-        assert!(submenu_rows("VIEW3D_MT_random_mask").is_none());
+        assert!(m.panels(&u, WIN, false).sub.is_some());
+        assert!(submenu_rows("VIEW3D_MT_nonexistent").is_none());
     }
 
     #[test]
@@ -258,7 +259,7 @@ mod tests {
             .iter()
             .filter(|r| matches!(r, Row::Menu { .. }))
             .all(enabled));
-        assert!(!enabled(&Row::Menu {
+        assert!(enabled(&Row::Menu {
             idname: "VIEW3D_MT_random_mask",
             label: "Random Mask"
         }));

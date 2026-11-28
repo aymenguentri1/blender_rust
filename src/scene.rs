@@ -522,6 +522,23 @@ impl Scene {
         true
     }
 
+    /// `sculpt.mask_init` on the active mesh: a new random mask. One undo step.
+    pub fn mask_init_active(&mut self, mode: crate::sculpt_mask_init::InitMode, seed: u32) -> bool {
+        let Some(i) = self.active.and_then(|id| self.index_of(id)) else { return false };
+        let o = &self.objects[i];
+        let Some(mesh) = o.mesh() else { return false };
+        if mesh.verts.is_empty() {
+            return false;
+        }
+        let old = if o.mask.len() == mesh.verts.len() { o.mask.clone() } else { vec![0.0; mesh.verts.len()] };
+        let mask = crate::sculpt_mask_init::mask_init(mesh, &old, o.vis.hide_vert.as_deref(), mode, seed);
+        self.push_undo();
+        let o = &mut self.objects[i];
+        o.mask = mask;
+        o.eval = None;
+        true
+    }
+
     /// `sculpt.mask_filter`: one pass of `filter` over the mask of the active object. One undo step; false (and
     /// no step) when nothing is masked.
     pub fn mask_filter_active(&mut self, filter: crate::sculpt::MaskFilter) -> bool {

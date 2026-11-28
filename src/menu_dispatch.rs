@@ -8,6 +8,7 @@
 use crate::scene::Scene;
 use crate::sculpt::MaskFilter;
 use crate::sculpt_hide::{self, VisAction};
+use crate::sculpt_mask_init::InitMode;
 use crate::sculpt_menu::Row;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,6 +20,7 @@ pub enum Command {
     HideShowAll(VisAction),
     HideShowMasked(VisAction),
     VisibilityInvert,
+    MaskInit(crate::sculpt_mask_init::InitMode),
 }
 
 fn prop(props: &[(&str, &str)], name: &str) -> Option<String> {
@@ -51,6 +53,11 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
         "paint.hide_show_all" => vis_action(props).map(Command::HideShowAll),
         "paint.hide_show_masked" => vis_action(props).map(Command::HideShowMasked),
         "paint.visibility_invert" => Some(Command::VisibilityInvert),
+        "sculpt.mask_init" => match prop(props, "mode")?.as_str() {
+            "RANDOM_PER_VERTEX" => Some(Command::MaskInit(InitMode::RandomPerVertex)),
+            "RANDOM_PER_LOOSE_PART" => Some(Command::MaskInit(InitMode::RandomPerLoosePart)),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -72,6 +79,11 @@ pub fn command_of_row(row: &Row) -> Option<Command> {
     }
 }
 
+/// `BLI_time_now_seconds()`, the seed of `sculpt_mask_init_exec`.
+fn mask_seed() -> u32 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as u32).unwrap_or(0)
+}
+
 /// Runs `cmd` on the active object; true when the scene changed.
 pub fn apply(scene: &mut Scene, cmd: Command) -> bool {
     match cmd {
@@ -81,6 +93,7 @@ pub fn apply(scene: &mut Scene, cmd: Command) -> bool {
         Command::MaskFilter(f) => scene.mask_filter_active(f),
         Command::HideShowAll(a) => scene.visibility_edit_active(|m, v, _| sculpt_hide::hide_show_all(m, v, a)),
         Command::HideShowMasked(a) => scene.visibility_edit_active(|m, v, mask| sculpt_hide::hide_show_masked(m, v, a, Some(mask))),
+        Command::MaskInit(m) => scene.mask_init_active(m, mask_seed()),
         Command::VisibilityInvert => scene.visibility_edit_active(|m, v, _| sculpt_hide::invert_visibility(m, v)),
     }
 }
@@ -152,6 +165,18 @@ mod tests {
         assert_eq!(s.active_object().unwrap().vis, Default::default());
         assert!(apply(&mut s, Command::VisibilityInvert));
         assert!(s.undo() && s.active_object().unwrap().vis == Default::default());
+    }
+
+    #[test]
+    fn random_mask_rows_run_mask_init() {
+        let row = |l: &str| mask_menu::RANDOM_MASK.iter().find(|r| matches!(r, Row::Operator { label, .. } if *label == l)).and_then(command_of_row);
+        assert_eq!(row("Per Vertex"), Some(Command::MaskInit(InitMode::RandomPerVertex)));
+        assert_eq!(row("Per Loose Part"), Some(Command::MaskInit(InitMode::RandomPerLoosePart)));
+        assert_eq!(row("Per Face Set"), None, "no face set layer yet");
+        let mut s = scene();
+        assert!(apply(&mut s, Command::MaskInit(InitMode::RandomPerVertex)));
+        assert!(s.has_mask());
+        assert!(s.undo() && !s.has_mask());
     }
 
     #[test]
