@@ -36,6 +36,18 @@ pub enum Command {
     SelectHierarchy { to_parent: bool, extend: bool },
     /// `object.select_random` with the default `ratio` 0.5 (`WM_operator_properties_select_random`).
     SelectRandom,
+    /// `object.location_clear` / `rotation_clear` / `scale_clear` (`clear_delta` False).
+    ClearTransform(crate::scene::ClearKind),
+    /// `object.transform_apply` with its location / rotation / scale options.
+    ApplyTransform(crate::scene::ApplyMask),
+    /// `object.parent_clear` with `type` CLEAR_INVERSE.
+    ParentClearInverse,
+    /// `object.duplicate_move`.
+    Duplicate,
+    /// `object.join`.
+    Join,
+    /// `object.delete`.
+    Delete,
 }
 
 fn prop(props: &[(&str, &str)], name: &str) -> Option<String> {
@@ -98,6 +110,22 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
         "object.select_more" => Some(Command::SelectMoreLess(true)),
         "object.select_less" => Some(Command::SelectMoreLess(false)),
         "object.select_random" => Some(Command::SelectRandom),
+        "object.location_clear" | "object.rotation_clear" | "object.scale_clear" if prop(props, "clear_delta")? == "False" => {
+            use crate::scene::ClearKind;
+            Some(Command::ClearTransform(match idname {
+                "object.location_clear" => ClearKind::Location,
+                "object.rotation_clear" => ClearKind::Rotation,
+                _ => ClearKind::Scale,
+            }))
+        }
+        "object.transform_apply" => {
+            let flag = |n: &str| Some(prop(props, n)? == "True");
+            Some(Command::ApplyTransform(crate::scene::ApplyMask { location: flag("location")?, rotation: flag("rotation")?, scale: flag("scale")? }))
+        }
+        "object.parent_clear" if prop(props, "type")? == "CLEAR_INVERSE" => Some(Command::ParentClearInverse),
+        "object.duplicate_move" => Some(Command::Duplicate),
+        "object.join" => Some(Command::Join),
+        "object.delete" => Some(Command::Delete),
         "object.select_hierarchy" => Some(Command::SelectHierarchy {
             to_parent: match prop(props, "direction")?.as_str() {
                 "PARENT" => true,
@@ -157,6 +185,12 @@ pub fn apply_with_symmetry(scene: &mut Scene, cmd: Command, symm: [bool; 3]) -> 
         Command::SelectMoreLess(select) => scene.select_more_less(select),
         Command::SelectHierarchy { to_parent, extend } => scene.select_hierarchy(to_parent, extend),
         Command::SelectRandom => scene.select_random(0.5) > 0,
+        Command::ClearTransform(k) => scene.clear_transform(k) > 0,
+        Command::ApplyTransform(m) => scene.apply_transform(m) > 0,
+        Command::ParentClearInverse => scene.parent_clear_inverse() > 0,
+        Command::Duplicate => scene.duplicate_selected() > 0,
+        Command::Join => scene.join_selected() > 0,
+        Command::Delete => scene.delete_selected() > 0,
         Command::FaceSetsInit(m) => scene.face_sets_init_active(m),
         Command::FaceSetsRandomizeColors => scene.face_sets_randomize_colors_active(),
         Command::FaceSetsCreate(m) => scene.face_sets_create_active(m),
@@ -391,5 +425,14 @@ mod tests {
         assert!(apply(&mut s, Command::SelectRandom));
         assert!(s.selected_count() > 0);
         assert!(!apply(&mut s, Command::SelectHierarchy { to_parent: true, extend: false }));
+    }
+
+    #[test]
+    fn object_menu_rows_map_to_commands() {
+        use crate::object_menu::{APPLY, CLEAR};
+        let find = |rows: &[Row], l: &str| rows.iter().find(|r| matches!(r, Row::Operator { label, .. } if *label == l)).cloned().unwrap();
+        assert_eq!(command_of_row(&find(CLEAR, "Location")), Some(Command::ClearTransform(crate::scene::ClearKind::Location)));
+        assert_eq!(command_of_row(&find(APPLY, "Rotation & Scale")), Some(Command::ApplyTransform(crate::scene::ApplyMask { location: false, rotation: true, scale: true })));
+        assert_eq!(command_of_row(&find(CLEAR, "Origin")), None);
     }
 }

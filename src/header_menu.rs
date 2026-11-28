@@ -19,6 +19,7 @@ pub enum Which {
     FaceSets,
     View,
     Select,
+    Object,
 }
 
 /// Rows of a header pull-down; `dyntopo` is the state of the Dynamic Topology checkbox.
@@ -29,6 +30,7 @@ pub fn rows_of(which: Which, dyntopo: bool) -> Vec<Row> {
         Which::FaceSets => face_sets_menu::FACE_SETS.to_vec(),
         Which::View => crate::view_menu::rows(&crate::view_menu::ViewState::default()),
         Which::Select => crate::select_menu::SELECT_OBJECT.to_vec(),
+        Which::Object => crate::object_menu::rows(None),
     }
 }
 
@@ -42,6 +44,9 @@ pub fn submenu_rows(idname: &str) -> Option<Vec<Row>> {
         "VIEW3D_MT_face_sets_init" => face_sets_menu::FACE_SETS_INIT,
         "VIEW3D_MT_random_mask" => crate::mask_menu::RANDOM_MASK,
         "VIEW3D_MT_select_object_more_less" => crate::select_menu::MORE_LESS,
+        "VIEW3D_MT_object_clear" => crate::object_menu::CLEAR,
+        "VIEW3D_MT_object_apply" => crate::object_menu::APPLY,
+        "VIEW3D_MT_object_parent" => crate::object_menu::PARENT,
         "VIEW3D_MT_view_local" => crate::view_menu::LOCAL,
         "VIEW3D_MT_view_cameras" => crate::view_menu::CAMERAS,
         "VIEW3D_MT_view_viewpoint" => crate::view_menu::VIEWPOINT,
