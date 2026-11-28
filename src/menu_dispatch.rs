@@ -79,6 +79,10 @@ pub enum Command {
     SnapSelectionToActive,
     /// `view3d.snap_cursor_to_selected`: moves the 3D cursor, so the caller runs it.
     SnapCursorToSelected,
+    /// `view3d.snap_cursor_to_active`: moves the 3D cursor, so the caller runs it.
+    SnapCursorToActive,
+    /// `view3d.snap_cursor_to_grid` (grid 1): moves the 3D cursor, so the caller runs it.
+    SnapCursorToGrid,
     /// `view3d.snap_cursor_to_center`: moves the 3D cursor, so the caller runs it.
     SnapCursorToCenter,
 }
@@ -169,6 +173,8 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
         "view3d.snap_selected_to_cursor" => Some(if prop(props, "use_offset")? == "True" { Command::SnapSelectionToCursorOffset } else { Command::SnapSelectionToCursor }),
         "view3d.snap_selected_to_active" => Some(Command::SnapSelectionToActive),
         "view3d.snap_cursor_to_selected" => Some(Command::SnapCursorToSelected),
+        "view3d.snap_cursor_to_active" => Some(Command::SnapCursorToActive),
+        "view3d.snap_cursor_to_grid" => Some(Command::SnapCursorToGrid),
         "view3d.snap_cursor_to_center" => Some(Command::SnapCursorToCenter),
         "object.shade_smooth" => Some(Command::Shade(true)),
         "object.shade_flat" => Some(Command::Shade(false)),
@@ -211,6 +217,11 @@ fn vis_action(props: &[(&str, &str)]) -> Option<VisAction> {
         "SHOW" => Some(VisAction::Show),
         _ => None,
     }
+}
+
+/// `snap_curs_to_grid_exec` (view3d_snap.cc): `gridf * floorf(0.5f + c / gridf)` per axis.
+pub fn cursor_to_grid(c: [f32; 3], gridf: f32) -> [f32; 3] {
+    c.map(|v| gridf * (0.5 + v / gridf).floor())
 }
 
 /// The command of a menu row, if it is an operator row this port can run.
@@ -262,7 +273,7 @@ pub fn apply_with_symmetry(scene: &mut Scene, cmd: Command, symm: [bool; 3]) -> 
         Command::Shade(smooth) => scene.set_smooth(smooth) > 0,
         Command::SnapSelectionToGrid => scene.snap_selected_to_grid(1.0) > 0,
         Command::SnapSelectionToActive => scene.selection_to_active() > 0,
-        Command::SnapSelectionToCursor | Command::SnapSelectionToCursorOffset | Command::SnapCursorToSelected | Command::SnapCursorToCenter => false,
+        Command::SnapSelectionToCursor | Command::SnapSelectionToCursorOffset | Command::SnapCursorToSelected | Command::SnapCursorToCenter | Command::SnapCursorToActive | Command::SnapCursorToGrid => false,
         Command::FaceSetsInit(m) => scene.face_sets_init_active(m),
         Command::FaceSetsRandomizeColors => scene.face_sets_randomize_colors_active(),
         Command::FaceSetsCreate(m) => scene.face_sets_create_active(m),
@@ -595,5 +606,14 @@ mod tests {
         s.objects.iter_mut().filter(|o| o.selected).for_each(|o| o.loc = [0.0; 3]);
         s.selection_to_active();
         assert!(s.objects.iter().filter(|o| o.selected && o.parent.is_none()).all(|o| o.loc == [0.0; 3]));
+    }
+
+    #[test]
+    fn cursor_snap_rows_map_and_grid_rounds_half_up() {
+        let find = |l: &str| crate::object_menu::SNAP.iter().find(|r| matches!(r, Row::Operator { label, .. } if *label == l)).cloned().unwrap();
+        assert_eq!(command_of_row(&find("Cursor to Active")), Some(Command::SnapCursorToActive));
+        assert_eq!(command_of_row(&find("Cursor to Grid")), Some(Command::SnapCursorToGrid));
+        /* snap_curs_to_grid_exec: gridf * floorf(0.5 + c / gridf) */
+        assert_eq!(cursor_to_grid([0.5, -0.5, 1.49], 1.0), [1.0, 0.0, 1.0]);
     }
 }

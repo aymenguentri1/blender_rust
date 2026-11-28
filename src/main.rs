@@ -1241,7 +1241,7 @@ impl ApplicationHandler for App {
                                     self.rv3d.update(&self.v3d, rw, rh);
                                     self.xform = transform::Transform::begin_with_pivot(mode, &mut self.scene, mval, &self.rv3d, true, self.pivot_point, self.cursor3d);
                                 }
-                            } else if let Some(cmd @ (menu_dispatch::Command::SnapSelectionToCursor | menu_dispatch::Command::SnapSelectionToCursorOffset | menu_dispatch::Command::SnapCursorToSelected | menu_dispatch::Command::SnapCursorToCenter)) = menu_dispatch::command_of_row(&row) {
+                            } else if let Some(cmd @ (menu_dispatch::Command::SnapSelectionToCursor | menu_dispatch::Command::SnapSelectionToCursorOffset | menu_dispatch::Command::SnapCursorToSelected | menu_dispatch::Command::SnapCursorToCenter | menu_dispatch::Command::SnapCursorToActive | menu_dispatch::Command::SnapCursorToGrid)) = menu_dispatch::command_of_row(&row) {
                                 /* The snap operators that read or move the 3D cursor. */
                                 match cmd {
                                     menu_dispatch::Command::SnapSelectionToCursor => {
@@ -1259,6 +1259,12 @@ impl ApplicationHandler for App {
                                             self.cursor3d = p;
                                         }
                                     }
+                                    menu_dispatch::Command::SnapCursorToActive => {
+                                        if let Some(w) = self.scene.active_object().map(|o| o.world_matrix()[3]) {
+                                            self.cursor3d = [w[0], w[1], w[2]];
+                                        }
+                                    }
+                                    menu_dispatch::Command::SnapCursorToGrid => self.cursor3d = menu_dispatch::cursor_to_grid(self.cursor3d, 1.0),
                                     _ => self.cursor3d = [0.0; 3],
                                 }
                             } else if let Some(cmd) = menu_dispatch::command_of_row(&row) {
