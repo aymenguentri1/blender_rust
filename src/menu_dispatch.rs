@@ -48,6 +48,10 @@ pub enum Command {
     Join,
     /// `object.delete`.
     Delete,
+    /// `object.hide_view_set` (`unselected`).
+    HideView { unselected: bool },
+    /// `object.hide_view_clear`.
+    ShowHidden,
 }
 
 fn prop(props: &[(&str, &str)], name: &str) -> Option<String> {
@@ -126,6 +130,8 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
         "object.duplicate_move" => Some(Command::Duplicate),
         "object.join" => Some(Command::Join),
         "object.delete" => Some(Command::Delete),
+        "object.hide_view_clear" => Some(Command::ShowHidden),
+        "object.hide_view_set" => Some(Command::HideView { unselected: prop(props, "unselected")? == "True" }),
         "object.select_hierarchy" => Some(Command::SelectHierarchy {
             to_parent: match prop(props, "direction")?.as_str() {
                 "PARENT" => true,
@@ -191,6 +197,9 @@ pub fn apply_with_symmetry(scene: &mut Scene, cmd: Command, symm: [bool; 3]) -> 
         Command::Duplicate => scene.duplicate_selected() > 0,
         Command::Join => scene.join_selected() > 0,
         Command::Delete => scene.delete_selected() > 0,
+        Command::HideView { unselected: false } => scene.hide_selected() > 0,
+        Command::HideView { unselected: true } => scene.hide_unselected() > 0,
+        Command::ShowHidden => scene.reveal_all() > 0,
         Command::FaceSetsInit(m) => scene.face_sets_init_active(m),
         Command::FaceSetsRandomizeColors => scene.face_sets_randomize_colors_active(),
         Command::FaceSetsCreate(m) => scene.face_sets_create_active(m),
@@ -434,5 +443,19 @@ mod tests {
         assert_eq!(command_of_row(&find(CLEAR, "Location")), Some(Command::ClearTransform(crate::scene::ClearKind::Location)));
         assert_eq!(command_of_row(&find(APPLY, "Rotation & Scale")), Some(Command::ApplyTransform(crate::scene::ApplyMask { location: false, rotation: true, scale: true })));
         assert_eq!(command_of_row(&find(CLEAR, "Origin")), None);
+    }
+
+    #[test]
+    fn object_showhide_rows_hide_and_reveal() {
+        let mut s = Scene::startup();
+        let find = |l: &str| crate::object_menu::SHOWHIDE.iter().find(|r| matches!(r, Row::Operator { label, .. } if *label == l)).cloned().unwrap();
+        let hide = command_of_row(&find("Hide Selected")).unwrap();
+        let show = command_of_row(&find("Show Hidden Objects")).unwrap();
+        assert_eq!(command_of_row(&find("Hide Unselected")), Some(Command::HideView { unselected: true }));
+        s.select_all(crate::scene::SelectAction::Select);
+        assert!(apply(&mut s, hide));
+        assert!(s.objects.iter().all(|o| o.hidden));
+        assert!(apply(&mut s, show));
+        assert!(s.objects.iter().all(|o| !o.hidden));
     }
 }
