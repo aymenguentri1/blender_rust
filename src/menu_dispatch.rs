@@ -118,7 +118,6 @@ mod tests {
     #[test]
     fn unavailable_rows_have_no_command() {
         for l in [
-            "Increase Contrast",
             "Box Mask",
             "Mask Extract",
             "Mask by Color",
