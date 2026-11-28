@@ -156,6 +156,7 @@ mod mesh_merge;
 #[allow(dead_code)]
 mod mesh_delete_loose;
 mod sculpt_hide;
+mod sculpt_mask_init;
 mod sculpt_rotate;
 mod kelvinlet;
 mod sculpt_elastic;
