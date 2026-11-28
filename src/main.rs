@@ -595,6 +595,7 @@ fn header_menu_of(action: view3d_header::Action) -> Option<header_menu::Which> {
         Action::MenuFaceSets => Some(header_menu::Which::FaceSets),
         Action::MenuView => Some(header_menu::Which::View),
         Action::MenuSelect => Some(header_menu::Which::Select),
+        Action::MenuObject => Some(header_menu::Which::Object),
         _ => None,
     }
 }
