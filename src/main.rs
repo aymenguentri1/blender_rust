@@ -595,6 +595,7 @@ fn header_menu_of(action: view3d_header::Action) -> Option<header_menu::Which> {
         Action::MenuFaceSets => Some(header_menu::Which::FaceSets),
         Action::MenuView => Some(header_menu::Which::View),
         Action::MenuSelect => Some(header_menu::Which::Select),
+        Action::MenuObject => Some(header_menu::Which::Object),
         _ => None,
     }
 }
@@ -1340,11 +1341,19 @@ impl ApplicationHandler for App {
                         /* Opens the Add menu below the button, like Shift + A does at the cursor. */
                         Some(Action::MenuAdd) => self.add_menu = anchor,
                         /* The sculpt mode pull-downs (`VIEW3D_MT_sculpt`, `VIEW3D_MT_mask`, `VIEW3D_MT_face_sets`). */
-                        Some(a @ (Action::MenuSculpt | Action::MenuMask | Action::MenuFaceSets | Action::MenuView | Action::MenuSelect)) => {
+                        Some(a @ (Action::MenuSculpt | Action::MenuMask | Action::MenuFaceSets | Action::MenuView | Action::MenuSelect | Action::MenuObject)) => {
                             let stroke_mode = self.sculpt.is_some();
+                            /* `context.object.type` of `VIEW3D_MT_object.draw`. */
+                            let object_type = self.scene.active_object().map(|o| match o.data {
+                                scene::ObjectData::Mesh(_) => "MESH",
+                                scene::ObjectData::Camera => "CAMERA",
+                                scene::ObjectData::Light(_) => "LIGHT",
+                                scene::ObjectData::Empty(_) => "EMPTY",
+                            });
                             self.header_menu = anchor.zip(header_menu_of(a)).map(|(p, w)| {
                                 let mut m = header_menu::HeaderMenu::open(w, p);
                                 m.view.stroke_mode = stroke_mode;
+                                m.object_type = object_type;
                                 m
                             });
                         }
