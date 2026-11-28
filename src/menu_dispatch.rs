@@ -52,6 +52,8 @@ pub enum Command {
     HideView { unselected: bool },
     /// `object.hide_view_clear`.
     ShowHidden,
+    /// `object.shade_smooth` (true) / `object.shade_flat` (false).
+    Shade(bool),
     /// `view3d.snap_selected_to_grid` with the default grid of 1.
     SnapSelectionToGrid,
     /// `view3d.snap_selected_to_cursor` with `use_offset` True: needs the 3D cursor, so the caller runs it.
@@ -142,6 +144,8 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
         "view3d.snap_selected_to_cursor" if prop(props, "use_offset")? == "True" => Some(Command::SnapSelectionToCursorOffset),
         "view3d.snap_cursor_to_selected" => Some(Command::SnapCursorToSelected),
         "view3d.snap_cursor_to_center" => Some(Command::SnapCursorToCenter),
+        "object.shade_smooth" => Some(Command::Shade(true)),
+        "object.shade_flat" => Some(Command::Shade(false)),
         "object.hide_view_clear" => Some(Command::ShowHidden),
         "object.hide_view_set" => Some(Command::HideView { unselected: prop(props, "unselected")? == "True" }),
         "object.select_hierarchy" => Some(Command::SelectHierarchy {
@@ -212,6 +216,7 @@ pub fn apply_with_symmetry(scene: &mut Scene, cmd: Command, symm: [bool; 3]) -> 
         Command::HideView { unselected: false } => scene.hide_selected() > 0,
         Command::HideView { unselected: true } => scene.hide_unselected() > 0,
         Command::ShowHidden => scene.reveal_all() > 0,
+        Command::Shade(smooth) => scene.set_smooth(smooth) > 0,
         Command::SnapSelectionToGrid => scene.snap_selected_to_grid(1.0) > 0,
         Command::SnapSelectionToCursorOffset | Command::SnapCursorToSelected | Command::SnapCursorToCenter => false,
         Command::FaceSetsInit(m) => scene.face_sets_init_active(m),
@@ -484,5 +489,17 @@ mod tests {
         s.objects[0].loc = [0.4, 1.6, -0.2];
         apply(&mut s, command_of_row(&find("Selection to Grid")).unwrap());
         assert_eq!(s.objects[0].loc, [0.0, 2.0, 0.0]);
+    }
+
+    #[test]
+    fn shade_rows_toggle_smooth_flag() {
+        let find = |l: &str| crate::object_menu::rows(Some("MESH")).into_iter().find(|r| matches!(r, Row::Operator { label, .. } if *label == l)).unwrap();
+        let mut s = Scene::startup();
+        s.select_all(crate::scene::SelectAction::Select);
+        assert!(apply(&mut s, command_of_row(&find("Shade Smooth")).unwrap()));
+        assert!(s.objects.iter().filter(|o| o.mesh().is_some()).all(|o| o.smooth));
+        assert!(apply(&mut s, command_of_row(&find("Shade Flat")).unwrap()));
+        assert!(s.objects.iter().all(|o| !o.smooth));
+        assert_eq!(command_of_row(&find("Shade Auto Smooth")), None);
     }
 }
