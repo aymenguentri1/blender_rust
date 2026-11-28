@@ -219,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn click_on_a_submenu_row_keeps_it_open_and_a_disabled_operator_keeps_it() {
+    fn click_on_a_submenu_row_keeps_it_open_an_enabled_operator_runs_and_a_disabled_one_keeps_it() {
         let u = user();
         let mut m = HeaderMenu::open(Which::FaceSets, [100, 800]);
         let pos = row_pos(&m, "Initialize Face Sets");
@@ -227,8 +227,12 @@ mod tests {
         assert!(m.sub.is_some());
         let p = m.panels(&u, WIN, false);
         let (_, l) = p.sub.unwrap();
+        /* Wired: an enabled operator row runs. */
+        assert!(matches!(m.click(&u, WIN, false, center(l.items[2].0)), Click::Run(_)));
         /* Not wired yet: a disabled operator row keeps the menus open. */
-        assert_eq!(m.click(&u, WIN, false, center(l.items[2].0)), Click::Kept);
+        let mut m = HeaderMenu::open(Which::FaceSets, [100, 800]);
+        let pos = row_pos(&m, "Randomize Colors");
+        assert_eq!(m.click(&u, WIN, false, pos), Click::Kept);
     }
 
     #[test]
