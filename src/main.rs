@@ -222,6 +222,7 @@ mod add_menu;
 mod brush_menu;
 mod sculpt_menu;
 mod view_menu;
+mod object_menu;
 mod select_menu;
 mod view_menu_dispatch;
 mod menu_dispatch;
