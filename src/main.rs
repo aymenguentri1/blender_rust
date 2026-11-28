@@ -98,6 +98,7 @@ mod object_tool_options;
 mod brush_context_menu;
 mod sculpt_symmetry_layout;
 mod pbvh_build;
+mod pbvh_normals;
 mod pbvh_partition;
 mod pbvh_query;
 mod pbvh_search;
