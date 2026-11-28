@@ -206,6 +206,7 @@ mod sculpt_scene_project;
 mod view3d_ruler;
 mod sculpt_curves_delete;
 mod sculpt_curves_grow_shrink;
+mod geo_bounding_box;
 mod geo_curve_circle;
 mod geo_curve_line;
 mod geo_curve_quad;
