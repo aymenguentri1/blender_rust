@@ -1,5 +1,6 @@
 //! The tab column of the properties editor navigation bar (`RGN_TYPE_NAV_BAR`, `prop_tabs_enum` of
-//! `space_properties.py`, tab icons from `buttons_context_items`, rna_space.cc:603). Visual only.
+//! `space_properties.py`, tab icons from `buttons_context_items`, rna_space.cc:603). A click on a tab sets
+//! `SpaceProperties.context` (`tab_at`).
 //! Deviation: the geometry (tab height 1.4 units, 7 px above the first tab and in a separator at 1x) is measured
 //! from Blender 5.1.1, the panel layout that produces it was not ported.
 
@@ -27,6 +28,11 @@ pub fn layout(user: &UserDef, nav: Rcti, tabs: &[Tab]) -> Vec<(Context, Rcti)> {
         }
     }
     out
+}
+
+/// The tab under `pt`, if any: the `space.context` value that a click there sets.
+pub fn tab_at(user: &UserDef, nav: Rcti, tabs: &[Tab], pt: [i32; 2]) -> Option<Context> {
+    layout(user, nav, tabs).into_iter().find(|(_, r)| r.isect_pt_v(pt)).map(|(c, _)| c)
 }
 
 pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, nav: Rcti, tabs: &[Tab], active: Context, data: Option<&ObjectData>) {
@@ -64,5 +70,18 @@ mod tests {
         /* A separator adds a gap: Tool -> Render is further apart than Render -> Output. */
         assert!(l[0].1.ymin - l[1].1.ymax > l[1].1.ymin - l[2].1.ymax);
         assert!(l.iter().all(|(_, r)| r.xmin == 1580 && r.xmax == 1608));
+    }
+
+    #[test]
+    fn a_click_hits_the_tab_under_the_cursor() {
+        let user = UserDef::from_window_scale(1.0);
+        let nav = Rcti { xmin: 1580, xmax: 1608, ymin: 20, ymax: 700 };
+        let tabs = tabs_list(path_flags(&Scene::startup()));
+        for (c, r) in layout(&user, nav, &tabs) {
+            assert_eq!(tab_at(&user, nav, &tabs, [r.xmin + 3, (r.ymin + r.ymax) / 2]), Some(c));
+        }
+        let first = layout(&user, nav, &tabs)[0].1;
+        assert_eq!(tab_at(&user, nav, &tabs, [1594, first.ymax + 2]), None, "the gap above the first tab");
+        assert_eq!(tab_at(&user, nav, &tabs, [1500, first.ymin + 5]), None, "left of the bar");
     }
 }

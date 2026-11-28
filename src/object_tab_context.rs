@@ -52,8 +52,8 @@ pub fn layout(user: &UserDef, window: Rcti) -> Option<ContextRows> {
     })
 }
 
-/// Draws the rows for an object called `name`.
-pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, rows: &ContextRows, name: &str) {
+/// Draws only the context path row (every object-rooted tab has it, e.g. Modifiers).
+pub fn draw_path(buf: &mut [u32], width: usize, height: usize, user: &UserDef, rows: &ContextRows, name: &str) {
     let text = theme::WCOL_PULLDOWN_TEXT;
     /* `buttons_panel_context_draw()`: `uiItemLDrag(name, ICON_OBJECT_DATA)` and the `BUTTONS_OT_toggle_pin` button. */
     let icon = Icon::ObjectData;
@@ -61,6 +61,12 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, rows: 
     let label = Rcti { xmin: rows.path_icon.xmax + 1, xmax: rows.pin.xmin - 1, ..rows.path_icon };
     font::draw_label_pad(buf, width, height, user, label, name, text, 0);
     icons::draw_icon(buf, width, height, user, rows.pin, Icon::Unpinned, text);
+}
+
+/// Draws the rows of the Object tab for an object called `name`: the path row and the `OBJECT_PT_context_object` row.
+pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, rows: &ContextRows, name: &str) {
+    let text = theme::WCOL_PULLDOWN_TEXT;
+    draw_path(buf, width, height, user, rows, name);
     /* The ID row: a square-cornered-inside pair, the browse button and the text field. */
     let none = theme::WCOL_TOOL_OUTLINE;
     draw_round_box(buf, width, height, user, rows.browse, theme::WCOL_MENU_INNER, none, theme::WCOL_TOOL_ROUNDNESS);

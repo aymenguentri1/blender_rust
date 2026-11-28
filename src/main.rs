@@ -175,6 +175,7 @@ mod mesh_merge;
 mod mesh_delete_loose;
 mod sculpt_hide;
 mod sculpt_hide_filter;
+mod properties_space;
 mod sculpt_pivot;
 mod sculpt_mask_init;
 mod sculpt_mesh_filter;
@@ -547,6 +548,8 @@ struct App {
     automask_drag: Option<&'static str>,
     /// The Add Modifier list of the properties editor is open.
     mod_add_open: bool,
+    /// `SpaceProperties.context` set by a click on a navigation bar tab; `None` is the startup Object tab.
+    props_tab: Option<buttons_context::Context>,
     /// The field of the Transform panel that is being typed into.
     field_edit: Option<transform_panel::Edit>,
     /// Sculpt Mode of the active object (`Some` while the mode is on).
@@ -1368,7 +1371,23 @@ impl ApplicationHandler for App {
                 let extend = self.modifiers.shift_key();
                 /* The Transform panel of the properties editor: a click on a field starts typing into it; a click
                  * anywhere else applies the text of the open field and then does what it normally does. */
-                let tp_window = modifier_panel::window_rect(user, layout.properties);
+                /* A click on a navigation bar tab switches the tab (`SpaceProperties.context`). */
+                if let Some(nav) = area::properties_nav_bar_rect(user, layout.properties).filter(|n| n.isect_pt_v(self.cursor)) {
+                    let tabs = buttons_context::tabs_list(buttons_context::path_flags(&self.scene));
+                    if let Some(c) = properties_tabs::tab_at(user, nav, &tabs, self.cursor) {
+                        self.props_tab = Some(c);
+                        self.mod_add_open = false;
+                        if let Some(e) = self.field_edit.take() {
+                            if e.commit(&mut self.scene) {
+                                scene_changed(&mut self.scene, &mut self.taa);
+                            }
+                        }
+                        gfx.window.request_redraw();
+                    }
+                    return;
+                }
+                let content = properties_space::content(properties_space::tab(&self.scene, self.props_tab));
+                let tp_window = modifier_panel::window_rect(user, layout.properties).filter(|_| content == properties_space::Content::Object);
                 let tp = tp_window.map(|w| object_tab_view::layout(user, w, &self.scene, self.field_edit.as_ref()));
                 let clicked_field = match (&tp_window, &tp) {
                     (Some(w), Some(l)) if w.isect_pt_v(self.cursor) => transform_panel::field_at(l, self.cursor),
@@ -1419,9 +1438,9 @@ impl ApplicationHandler for App {
                         self.scene.select_pick(hit, extend);
                     }
                     gfx.window.request_redraw();
-                } else if let Some(window) = modifier_panel::window_rect(user, layout.properties).filter(|w| w.isect_pt_v(self.cursor)) {
-                    /* The Modifiers panel of the properties editor acts on the active object. */
-                    let below = area::Rcti { ymax: tp.as_ref().map_or(window.ymax, |l| l.bottom), ..window };
+                } else if let Some(window) = modifier_panel::window_rect(user, layout.properties).filter(|w| w.isect_pt_v(self.cursor) && content == properties_space::Content::Modifiers) {
+                    /* The Modifiers tab of the properties editor acts on the active object. */
+                    let below = properties_space::panels_below_path(window, object_tab_context::layout(user, window).as_ref());
                     let widgets = modifier_panel::widgets(user, below, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open).with_edit(self.mod_edit.as_ref()));
                     if let Some(action) = modifier_panel::action_at(&widgets, self.cursor) {
                         let action = if self.modifiers.control_key() { modifier_panel::with_ctrl(action) } else { action };
@@ -2729,7 +2748,7 @@ impl ApplicationHandler for App {
                         if let Some(nav) = area::properties_nav_bar_rect(user, layout.properties) {
                             area::fill_rect(&mut buf, w, h, nav, theme::SIDEBARS_TAB_BACK.to_xrgb());
                             let flags = buttons_context::path_flags(&self.scene);
-                            properties_tabs::draw(&mut buf, w, h, user, nav, &buttons_context::tabs_list(flags), buttons_context::effective_tab(flags, buttons_context::Context::Object), self.scene.active_object().map(|o| &o.data));
+                            properties_tabs::draw(&mut buf, w, h, user, nav, &buttons_context::tabs_list(flags), properties_space::tab(&self.scene, self.props_tab), self.scene.active_object().map(|o| &o.data));
                         }
                     }
                     /* Non-overlapping header regions (`RGN_TYPE_HEADER`, `RGN_ALIGN_TOP`) of the outliner,
@@ -2794,17 +2813,30 @@ impl ApplicationHandler for App {
                             }
                         }
                     }
-                    /* Modifiers panel of the properties editor. */
+                    /* The main region of the properties editor: the panels of the active tab. */
                     if let Some(user) = self.user.as_ref() {
                         if let Some(window) = modifier_panel::window_rect(user, layout.properties) {
-                            let tp = object_tab_view::layout(user, window, &self.scene, self.field_edit.as_ref());
-                            if let (Some(rows), Some(o)) = (object_tab_context::layout(user, window), self.scene.active_object().filter(|o| !o.hidden)) {
-                                object_tab_context::draw(&mut buf, w, h, user, &rows, &o.name);
+                            let content = properties_space::content(properties_space::tab(&self.scene, self.props_tab));
+                            let rows = object_tab_context::layout(user, window);
+                            if let (Some(rows), Some(o)) = (rows.as_ref(), self.scene.active_object().filter(|o| !o.hidden)) {
+                                if content == properties_space::Content::Object {
+                                    object_tab_context::draw(&mut buf, w, h, user, rows, &o.name);
+                                } else {
+                                    object_tab_context::draw_path(&mut buf, w, h, user, rows, &o.name);
+                                }
                             }
-                            modifier_panel::draw(&mut buf, w, h, user, &tp.widgets);
-                            let below = area::Rcti { ymax: tp.bottom, ..window };
-                            let widgets = modifier_panel::widgets(user, below, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open).with_edit(self.mod_edit.as_ref()));
-                            modifier_panel::draw(&mut buf, w, h, user, &widgets);
+                            match content {
+                                properties_space::Content::Object => {
+                                    let tp = object_tab_view::layout(user, window, &self.scene, self.field_edit.as_ref());
+                                    modifier_panel::draw(&mut buf, w, h, user, &tp.widgets);
+                                }
+                                properties_space::Content::Modifiers => {
+                                    let below = properties_space::panels_below_path(window, rows.as_ref());
+                                    let widgets = modifier_panel::widgets(user, below, &modifier_panel::PanelState::of(&self.scene, self.mod_add_open).with_edit(self.mod_edit.as_ref()));
+                                    modifier_panel::draw(&mut buf, w, h, user, &widgets);
+                                }
+                                properties_space::Content::Empty => {}
+                            }
                         }
                     }
                     /* `ED_time_scrub_draw()` background of the timeline (`draw_background()`, `TH_TIME_SCRUB_BACKGROUND`).
