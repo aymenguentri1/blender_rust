@@ -19,6 +19,7 @@ pub enum Which {
     FaceSets,
     View,
     Select,
+    Object,
 }
 
 /// Rows of a header pull-down; `dyntopo` is the state of the Dynamic Topology checkbox.
@@ -29,6 +30,7 @@ pub fn rows_of(which: Which, dyntopo: bool) -> Vec<Row> {
         Which::FaceSets => face_sets_menu::FACE_SETS.to_vec(),
         Which::View => crate::view_menu::rows(&crate::view_menu::ViewState::default()),
         Which::Select => crate::select_menu::SELECT_OBJECT.to_vec(),
+        Which::Object => crate::object_menu::rows(None),
     }
 }
 
@@ -42,6 +44,9 @@ pub fn submenu_rows(idname: &str) -> Option<Vec<Row>> {
         "VIEW3D_MT_face_sets_init" => face_sets_menu::FACE_SETS_INIT,
         "VIEW3D_MT_random_mask" => crate::mask_menu::RANDOM_MASK,
         "VIEW3D_MT_select_object_more_less" => crate::select_menu::MORE_LESS,
+        "VIEW3D_MT_object_clear" => crate::object_menu::CLEAR,
+        "VIEW3D_MT_object_apply" => crate::object_menu::APPLY,
+        "VIEW3D_MT_object_parent" => crate::object_menu::PARENT,
         "VIEW3D_MT_view_local" => crate::view_menu::LOCAL,
         "VIEW3D_MT_view_cameras" => crate::view_menu::CAMERAS,
         "VIEW3D_MT_view_viewpoint" => crate::view_menu::VIEWPOINT,
@@ -91,6 +96,8 @@ pub struct HeaderMenu {
     pub sub: Option<usize>,
     /// What `VIEW3D_MT_view.draw` reads (only used by `Which::View`).
     pub view: crate::view_menu::ViewState,
+    /// RNA type of the active object (only used by `Which::Object`).
+    pub object_type: Option<&'static str>,
 }
 
 pub struct Panels {
@@ -107,6 +114,7 @@ impl HeaderMenu {
             anchor,
             sub: None,
             view: Default::default(),
+            object_type: None,
         }
     }
 
@@ -114,6 +122,7 @@ impl HeaderMenu {
     fn rows(&self, dyntopo: bool) -> Vec<Row> {
         match self.which {
             Which::View => crate::view_menu::rows(&self.view),
+            Which::Object => crate::object_menu::rows(self.object_type),
             w => rows_of(w, dyntopo),
         }
     }
@@ -339,5 +348,22 @@ mod tests {
             c => panic!("{c:?}"),
         }
         assert!(!enabled(&Row::Operator { idname: "object.select_pattern", label: "Select Pattern...", props: &[], checkbox: None }));
+    }
+
+    #[test]
+    fn object_menu_opens_its_submenus_and_follows_the_active_object_type() {
+        let u = user();
+        let mut m = HeaderMenu::open(Which::Object, [100, 800]);
+        m.mouse_move(&u, WIN, false, row_pos(&m, "Parent"));
+        assert_eq!(m.panels(&u, WIN, false).sub.unwrap().0.len(), crate::object_menu::PARENT.len());
+        m.mouse_move(&u, WIN, false, row_pos(&m, "Apply"));
+        assert_eq!(m.panels(&u, WIN, false).sub.unwrap().0.len(), crate::object_menu::APPLY.len());
+        m.mouse_move(&u, WIN, false, row_pos(&m, "Clear"));
+        assert_eq!(m.panels(&u, WIN, false).sub.unwrap().0.len(), crate::object_menu::CLEAR.len());
+        let has_auto = |m: &HeaderMenu| m.panels(&u, WIN, false).root_rows.iter().any(|r| matches!(r, Row::Operator { label: "Shade Auto Smooth", .. }));
+        assert!(!has_auto(&m));
+        m.object_type = Some("MESH");
+        assert!(has_auto(&m));
+        assert_eq!(m.click(&u, WIN, false, [1390, 10]), Click::Closed);
     }
 }
