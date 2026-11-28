@@ -235,6 +235,7 @@ mod sculpt_curves_puff;
 mod sculpt_curves_smooth;
 mod sculpt_curves_pinch;
 mod sculpt_multires_eraser;
+mod sculpt_multires_smear;
 mod sculpt_draw_vector_displacement;
 mod view3d_fly;
 mod modifier_menu;
