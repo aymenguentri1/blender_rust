@@ -127,6 +127,8 @@ pub struct Layout {
     pub fields: Vec<(Rcti, Field)>,
     /// The highest y the next panel may use (the Modifiers panel is given the window below it).
     pub bottom: i32,
+    /// Panel headers that collapse / expand their panel on a click (`ui_handle_panel_header`), by panel label.
+    pub headers: Vec<(Rcti, &'static str)>,
 }
 
 /// The panel in `window` (window coordinates, y up) for the active object of `scene`; `edit` is the field being
@@ -136,7 +138,7 @@ pub fn layout(user: &UserDef, window: Rcti, scene: &Scene, edit: Option<&Edit>) 
     let pad = unit_h / 2;
     let gap = (unit_h / 5).max(2);
     let (x0, x1) = (window.xmin + pad, window.xmax - pad);
-    let mut out = Layout { widgets: Vec::new(), fields: Vec::new(), bottom: window.ymax };
+    let mut out = Layout { widgets: Vec::new(), fields: Vec::new(), bottom: window.ymax, headers: Vec::new() };
     let mut top = window.ymax - pad + 1;
     let Some(o) = scene.active_object().filter(|o| !o.hidden) else {
         if x1 > x0 && top - unit_h >= window.ymin {
