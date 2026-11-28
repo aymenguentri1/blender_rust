@@ -446,6 +446,24 @@ impl Scene {
         true
     }
 
+    /// `paint.mask_flood_fill(mode='VALUE', value=1)` (Mask menu, Fill Mask): masks every vertex of the active
+    /// object. One undo step; false when the mask is already full.
+    pub fn fill_mask_active(&mut self) -> bool {
+        let Some(i) = self.active.and_then(|id| self.index_of(id)) else { return false };
+        let n = match self.objects[i].mesh() {
+            Some(m) => m.verts.len(),
+            None => return false,
+        };
+        if n == 0 || (self.objects[i].mask.len() == n && self.objects[i].mask.iter().all(|&m| m >= 1.0)) {
+            return false;
+        }
+        self.push_undo();
+        let o = &mut self.objects[i];
+        o.mask = vec![1.0; n];
+        o.eval = None;
+        true
+    }
+
     /// `paint.mask_flood_fill(mode='INVERT')` (Ctrl + I): every mask value `m` becomes `1 - m` (an empty mask
     /// masks the whole mesh). One undo step.
     pub fn invert_mask_active(&mut self) -> bool {
