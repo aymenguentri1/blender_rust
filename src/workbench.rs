@@ -970,6 +970,30 @@ mod tests {
         println!("draw_scene: {:.2} ms/frame", t.elapsed().as_secs_f64() * 1000.0 / 30.0);
     }
 
+    /// `cargo test bench_million -- --ignored --nocapture`: ms per frame of a smooth sphere of about 1 M triangles at 1920 x 1080.
+    #[test]
+    #[ignore]
+    fn bench_million() {
+        let mut scene = Scene::startup();
+        let id = scene.add_primitive(crate::mesh::Primitive::UvSphere, [0.0, 0.0, 0.0]);
+        for o in scene.objects.iter_mut().filter(|o| o.id == id) {
+            o.data = crate::scene::ObjectData::Mesh(crate::mesh::Mesh::uv_sphere(1000, 500, 1.0));
+            o.smooth = true;
+            o.scale = [2.0; 3];
+        }
+        let (w, h) = (1920usize, 1080usize);
+        let mut rv3d = RegionView3D::default();
+        rv3d.update(&View3D::default(), w as i32, h as i32);
+        let region = Rcti { xmin: 0, xmax: w as i32 - 1, ymin: 0, ymax: h as i32 - 1 };
+        let mut buf = vec![0u32; w * h];
+        draw_scene(&mut buf, w, h, region, &rv3d, false, &scene);
+        let t = std::time::Instant::now();
+        for _ in 0..5 {
+            draw_scene(&mut buf, w, h, region, &rv3d, false, &scene);
+        }
+        println!("draw_scene 1M tris: {:.1} ms/frame", t.elapsed().as_secs_f64() * 1000.0 / 5.0);
+    }
+
     /// FNV-1a of the pixels of a smooth shaded, partly masked sphere next to the startup cube: pins `draw_mesh`
     /// so that speeding it up cannot change the image.
     #[test]
