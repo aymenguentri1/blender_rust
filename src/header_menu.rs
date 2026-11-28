@@ -18,6 +18,7 @@ pub enum Which {
     Mask,
     FaceSets,
     View,
+    Select,
 }
 
 /// Rows of a header pull-down; `dyntopo` is the state of the Dynamic Topology checkbox.
@@ -27,6 +28,7 @@ pub fn rows_of(which: Which, dyntopo: bool) -> Vec<Row> {
         Which::Mask => mask_menu::ROWS.to_vec(),
         Which::FaceSets => face_sets_menu::FACE_SETS.to_vec(),
         Which::View => crate::view_menu::rows(&crate::view_menu::ViewState::default()),
+        Which::Select => crate::select_menu::SELECT_OBJECT.to_vec(),
     }
 }
 
@@ -39,6 +41,7 @@ pub fn submenu_rows(idname: &str) -> Option<Vec<Row>> {
         "VIEW3D_MT_sculpt_set_pivot" => sculpt_submenus::SET_PIVOT,
         "VIEW3D_MT_face_sets_init" => face_sets_menu::FACE_SETS_INIT,
         "VIEW3D_MT_random_mask" => crate::mask_menu::RANDOM_MASK,
+        "VIEW3D_MT_select_object_more_less" => crate::select_menu::MORE_LESS,
         "VIEW3D_MT_view_local" => crate::view_menu::LOCAL,
         "VIEW3D_MT_view_cameras" => crate::view_menu::CAMERAS,
         "VIEW3D_MT_view_viewpoint" => crate::view_menu::VIEWPOINT,
@@ -321,5 +324,20 @@ mod tests {
         assert_eq!(m.click(&u, WIN, false, [1390, 10]), Click::Closed);
         m.view.stroke_mode = true;
         assert!(m.panels(&u, WIN, false).root_rows.iter().any(|r| matches!(r, Row::Operator { label: "Center Last Stroke", .. })));
+    }
+
+    #[test]
+    fn select_menu_opens_more_less_and_runs_all_none_invert() {
+        let u = user();
+        let mut m = HeaderMenu::open(Which::Select, [100, 800]);
+        m.mouse_move(&u, WIN, false, row_pos(&m, "More/Less"));
+        assert_eq!(m.panels(&u, WIN, false).sub.unwrap().0.len(), crate::select_menu::MORE_LESS.len());
+        let p = row_pos(&m, "Invert");
+        m.mouse_move(&u, WIN, false, p);
+        match m.click(&u, WIN, false, p) {
+            Click::Run(r) => assert!(crate::menu_dispatch::command_of_row(&r).is_some()),
+            c => panic!("{c:?}"),
+        }
+        assert!(!enabled(&Row::Operator { idname: "object.select_pattern", label: "Select Pattern...", props: &[], checkbox: None }));
     }
 }

@@ -222,6 +222,7 @@ mod add_menu;
 mod brush_menu;
 mod sculpt_menu;
 mod view_menu;
+mod select_menu;
 mod view_menu_dispatch;
 mod menu_dispatch;
 mod header_menu;
@@ -592,6 +593,7 @@ fn header_menu_of(action: view3d_header::Action) -> Option<header_menu::Which> {
         Action::MenuMask => Some(header_menu::Which::Mask),
         Action::MenuFaceSets => Some(header_menu::Which::FaceSets),
         Action::MenuView => Some(header_menu::Which::View),
+        Action::MenuSelect => Some(header_menu::Which::Select),
         _ => None,
     }
 }
@@ -1337,7 +1339,7 @@ impl ApplicationHandler for App {
                         /* Opens the Add menu below the button, like Shift + A does at the cursor. */
                         Some(Action::MenuAdd) => self.add_menu = anchor,
                         /* The sculpt mode pull-downs (`VIEW3D_MT_sculpt`, `VIEW3D_MT_mask`, `VIEW3D_MT_face_sets`). */
-                        Some(a @ (Action::MenuSculpt | Action::MenuMask | Action::MenuFaceSets | Action::MenuView)) => {
+                        Some(a @ (Action::MenuSculpt | Action::MenuMask | Action::MenuFaceSets | Action::MenuView | Action::MenuSelect)) => {
                             let stroke_mode = self.sculpt.is_some();
                             self.header_menu = anchor.zip(header_menu_of(a)).map(|(p, w)| {
                                 let mut m = header_menu::HeaderMenu::open(w, p);
