@@ -206,6 +206,7 @@ mod view3d_ruler;
 mod sculpt_curves_delete;
 mod sculpt_curves_grow_shrink;
 mod sculpt_curves_puff;
+mod sculpt_curves_smooth;
 mod sculpt_curves_pinch;
 mod sculpt_multires_eraser;
 mod sculpt_draw_vector_displacement;
