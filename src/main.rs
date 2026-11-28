@@ -222,6 +222,7 @@ mod add_menu;
 mod brush_menu;
 mod sculpt_menu;
 mod view_menu;
+mod view_menu_dispatch;
 mod menu_dispatch;
 mod header_menu;
 mod row_menu;
@@ -1205,7 +1206,20 @@ impl ApplicationHandler for App {
                     let size = gfx.window.inner_size();
                     match m.click(user, [size.width as i32, size.height as i32], false, self.cursor) {
                         header_menu::Click::Run(row) => {
-                            if let Some(menu_dispatch::Command::MeshFilter(kind)) = menu_dispatch::command_of_row(&row) {
+                            if let (Some(cmd), Some(layout)) = (header_menu::view_command_of_row(&row), self.layout.as_ref()) {
+                                /* The View menu: the same view changes as the NUMPAD / HOME keymap items, animated. */
+                                let win = [layout.main.size_x() + 1, layout.main.size_y() + 1];
+                                smooth_finish(&mut self.rv3d, &mut self.smooth);
+                                let smooth_src = self.rv3d.state_backup();
+                                let world = view_menu_dispatch::World { all: self.scene.bounds(false), selected: self.scene.bounds(true), cursor: self.cursor3d };
+                                if let Some(reset_cursor) = view_menu_dispatch::apply(&mut self.rv3d, &self.v3d, cmd, win, &world) {
+                                    if reset_cursor {
+                                        self.cursor3d = [0.0; 3];
+                                        self.cursor3d_quat = [1.0, 0.0, 0.0, 0.0];
+                                    }
+                                    self.smooth = self.rv3d.smooth_view_begin(smooth_src, view3d::SMOOTH_VIEWTX).map(|sms| (sms, std::time::Instant::now()));
+                                }
+                            } else if let Some(menu_dispatch::Command::MeshFilter(kind)) = menu_dispatch::command_of_row(&row) {
                                 let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as u32);
                                 self.mesh_filter = self.scene.mesh_filter_begin(kind, self.cursor[0] as f32, seed);
                             } else if let Some(cmd) = menu_dispatch::command_of_row(&row) {
