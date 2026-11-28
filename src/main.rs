@@ -550,6 +550,8 @@ struct App {
     mod_add_open: bool,
     /// `SpaceProperties.context` set by a click on a navigation bar tab; `None` is the startup Object tab.
     props_tab: Option<buttons_context::Context>,
+    /// Open / closed panels of the Object tab.
+    object_panels: object_tab_view::PanelOpen,
     /// The field of the Transform panel that is being typed into.
     field_edit: Option<transform_panel::Edit>,
     /// Sculpt Mode of the active object (`Some` while the mode is on).
@@ -1388,11 +1390,16 @@ impl ApplicationHandler for App {
                 }
                 let content = properties_space::content(properties_space::tab(&self.scene, self.props_tab));
                 let tp_window = modifier_panel::window_rect(user, layout.properties).filter(|_| content == properties_space::Content::Object);
-                let tp = tp_window.map(|w| object_tab_view::layout(user, w, &self.scene, self.field_edit.as_ref()));
+                let tp = tp_window.map(|w| object_tab_view::layout(user, w, &self.scene, self.field_edit.as_ref(), self.object_panels));
                 let clicked_field = match (&tp_window, &tp) {
                     (Some(w), Some(l)) if w.isect_pt_v(self.cursor) => transform_panel::field_at(l, self.cursor),
                     _ => None,
                 };
+                if let Some(label) = tp.as_ref().filter(|_| tp_window.is_some_and(|w| w.isect_pt_v(self.cursor))).and_then(|l| object_tab_view::header_at(l, user, self.cursor)) {
+                    self.object_panels.click(label, self.modifiers.control_key());
+                    gfx.window.request_redraw();
+                    return;
+                }
                 if let Some(f) = clicked_field {
                     if !self.field_edit.as_ref().is_some_and(|e| e.field == f) {
                         let changed = self.field_edit.take().is_some_and(|e| e.commit(&mut self.scene));
@@ -2827,7 +2834,7 @@ impl ApplicationHandler for App {
                             }
                             match content {
                                 properties_space::Content::Object => {
-                                    let tp = object_tab_view::layout(user, window, &self.scene, self.field_edit.as_ref());
+                                    let tp = object_tab_view::layout(user, window, &self.scene, self.field_edit.as_ref(), self.object_panels);
                                     modifier_panel::draw(&mut buf, w, h, user, &tp.widgets);
                                 }
                                 properties_space::Content::Modifiers => {

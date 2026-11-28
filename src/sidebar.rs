@@ -27,7 +27,7 @@ fn widget(rect: Rcti, label: &str, style: Style) -> Widget {
 pub fn layout(user: &UserDef, region: Rcti, scene: &Scene, edit: Option<&Edit>) -> Layout {
     let s = user.scale_factor as f32;
     let sc = |v: f32| (v * s).round() as i32;
-    let mut out = Layout { widgets: Vec::new(), fields: Vec::new(), bottom: region.ymin };
+    let mut out = Layout { widgets: Vec::new(), fields: Vec::new(), bottom: region.ymin, headers: Vec::new() };
     let Some(o) = scene.active_object().filter(|o| !o.hidden) else { return out };
     let (px0, px1) = (region.xmin + sc(2.0), region.xmax - sc(TAB_W + 6.0));
     let top = region.ymax - sc(4.0);

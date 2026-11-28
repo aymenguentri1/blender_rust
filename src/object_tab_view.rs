@@ -1,7 +1,9 @@
 //! The Object tab of the properties editor as Blender draws it (`OBJECT_PT_transform` with `use_property_split`,
 //! properties_object.py:36-85): panel frames (`panel_frame`), right aligned labels (`Location X`, `Y`, `Z`), number
 //! fields of an aligned column, the `lock_*` decorator and the animate dot after each row, the rotation Mode dropdown
-//! with its convert menu, the collapsed `Delta Transform` sub-panel and the collapsed panels below it.
+//! with its convert menu, the `Delta Transform` sub-panel and the panels below it. A click on a header left of the grip
+//! toggles `PNL_CLOSED` (`ui_handle_panel_header`, interface_panel.cc:2355); Ctrl + click on a top-level panel collapses
+//! the others (`panels_collapse_all`). Panels whose content is not ported open to an empty body.
 //! Offsets are those of Blender at UI scale 1 (measured on a 5.4 screenshot); everything scales with `scale_factor`.
 
 use crate::area::Rcti;
@@ -18,6 +20,53 @@ pub const COLLAPSED: [&str; 10] = [
     "Custom Properties",
 ];
 
+/// Every panel of the tab with its open state, in drawing order.
+pub const ALL: [&str; 12] = [
+    "Transform", "Delta Transform", "Relations", "Collections", "Instancing", "Motion Paths", "Shading", "Visibility", "Viewport Display",
+    "Line Art", "Animation", "Custom Properties",
+];
+
+/// `PNL_CLOSED` of each panel, stored as the panels toggled away from their default (only Transform starts open).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PanelOpen {
+    toggled: u16,
+}
+
+impl PanelOpen {
+    fn bit(label: &str) -> u16 {
+        ALL.iter().position(|l| *l == label).map_or(0, |i| 1 << i)
+    }
+
+    pub fn is_open(&self, label: &str) -> bool {
+        let default_open = label == "Transform";
+        default_open ^ (self.toggled & Self::bit(label) != 0)
+    }
+
+    /// A click on the header of `label`; with `ctrl` on a top-level panel the others are closed and it opens.
+    pub fn click(&mut self, label: &str, ctrl: bool) {
+        if ctrl && label != "Delta Transform" {
+            let delta_open = self.is_open("Delta Transform");
+            self.toggled = 0;
+            for l in ALL {
+                if l != "Delta Transform" && self.is_open(l) != (l == label) {
+                    self.toggled ^= Self::bit(l);
+                }
+            }
+            if delta_open {
+                self.toggled ^= Self::bit("Delta Transform");
+            }
+            return;
+        }
+        self.toggled ^= Self::bit(label);
+    }
+}
+
+/// Whether `pt` is in the part of the header that toggles it: left of the grip (`PNL_ICON * 1.5`).
+pub fn header_at(layout: &Layout, user: &UserDef, pt: [i32; 2]) -> Option<&'static str> {
+    let grip = (user.widget_unit as f32 * 1.5) as i32;
+    layout.headers.iter().find(|(r, _)| r.isect_pt_v(pt) && pt[0] < r.xmax - grip).map(|(_, l)| *l)
+}
+
 /// Vertical centres of the rows below the top of the Transform body, at scale 1: Location (3), Rotation (3), Mode, Scale (3) and the Delta Transform header.
 const ROW_Y: [f32; 11] = [17.5, 37.0, 56.5, 81.5, 101.5, 121.5, 146.5, 171.5, 191.5, 211.5, 243.5];
 /// Height of the Transform body at scale 1 (to the bottom of the collapsed Delta Transform header).
@@ -29,23 +78,26 @@ fn widget(rect: Rcti, label: &str, style: Style) -> Widget {
     Widget { rect, label: label.into(), style, action: None, centered: false }
 }
 
-fn collapsed_panel(user: &UserDef, out: &mut Vec<Widget>, x0: i32, x1: i32, top: i32, label: &str) -> i32 {
+/// A panel whose content is not ported: its header, and an empty body when open.
+fn plain_panel(user: &UserDef, out: &mut Layout, x0: i32, x1: i32, top: i32, label: &'static str, open: bool) -> i32 {
     let hh = panel_frame::header_height(user);
-    let body = Rcti { xmin: x0, xmax: x1, ymin: top - hh, ymax: top - hh };
-    let frame = panel_frame::frame(user, body, false, false);
-    out.push(widget(body, "", Style::Frame { open: false, active: false }));
-    out.push(widget(frame.title, label, Style::Title));
-    out.push(widget(frame.header_rect, "", Style::PanelArrow { open: false }));
-    top - hh - (PANEL_GAP * user.scale_factor as f32) as i32
+    let body_h = if open { (8.0 * user.scale_factor as f32) as i32 } else { 0 };
+    let body = Rcti { xmin: x0, xmax: x1, ymin: top - hh - body_h, ymax: top - hh };
+    let frame = panel_frame::frame(user, body, open, false);
+    out.widgets.push(widget(body, "", Style::Frame { open, active: false }));
+    out.widgets.push(widget(frame.title, label, Style::Title));
+    out.widgets.push(widget(frame.header_rect, "", Style::PanelArrow { open }));
+    out.headers.push((frame.header_rect, label));
+    body.ymin - (PANEL_GAP * user.scale_factor as f32) as i32
 }
 
 /// The tab in `window` (window coordinates, y up). Same output as `transform_panel::layout`.
-pub fn layout(user: &UserDef, window: Rcti, scene: &Scene, edit: Option<&Edit>) -> Layout {
+pub fn layout(user: &UserDef, window: Rcti, scene: &Scene, edit: Option<&Edit>, open: PanelOpen) -> Layout {
     let s = user.scale_factor as f32;
     let (mx, _) = panel_frame::margins(user);
     let pad = (user.widget_unit as f32 * 0.4) as i32;
     let (x0, x1) = (window.xmin + pad, window.xmax - pad);
-    let mut out = Layout { widgets: Vec::new(), fields: Vec::new(), bottom: window.ymax };
+    let mut out = Layout { widgets: Vec::new(), fields: Vec::new(), bottom: window.ymax, headers: Vec::new() };
     let Some(o) = scene.active_object().filter(|o| !o.hidden) else { return out };
     let _ = o;
     let hh = panel_frame::header_height(user);
@@ -53,11 +105,20 @@ pub fn layout(user: &UserDef, window: Rcti, scene: &Scene, edit: Option<&Edit>) 
     /* The context path and the ID row (object_tab_context.rs) sit above the first panel. */
     let top = crate::object_tab_context::layout(user, window).map_or(window.ymax - pad, |r| r.panels_top);
     let body_top = top - hh;
+    if !open.is_open("Transform") {
+        let mut y = plain_panel(user, &mut out, x0, x1, top, PANELS[0].label, false);
+        for label in COLLAPSED {
+            y = plain_panel(user, &mut out, x0, x1, y, label, open.is_open(label));
+        }
+        out.bottom = y;
+        return out;
+    }
     let body = Rcti { xmin: x0, xmax: x1, ymin: body_top - sc(BODY_H), ymax: body_top };
     let frame = panel_frame::frame(user, body, true, false);
     out.widgets.push(widget(body, "", Style::Frame { open: true, active: false }));
     out.widgets.push(widget(frame.title, PANELS[0].label, Style::Title));
     out.widgets.push(widget(frame.header_rect, "", Style::PanelArrow { open: true }));
+    out.headers.push((frame.header_rect, PANELS[0].label));
 
     /* Property split: labels end at 40 % of the row, then the field, then two decorator cells. */
     let (ix0, ix1) = (x0 + mx, x1 - mx);
@@ -104,7 +165,7 @@ pub fn layout(user: &UserDef, window: Rcti, scene: &Scene, edit: Option<&Edit>) 
 
     let mut y = body.ymin - sc(PANEL_GAP);
     for label in COLLAPSED {
-        y = collapsed_panel(user, &mut out.widgets, x0, x1, y, label);
+        y = plain_panel(user, &mut out, x0, x1, y, label, open.is_open(label));
     }
     out.bottom = y;
     out
@@ -119,6 +180,63 @@ mod tests {
         assert_eq!(COLLAPSED[0], "Relations");
         assert_eq!(COLLAPSED.len(), 10);
         assert_eq!(PANELS[0].label, "Transform");
+    }
+
+    fn lay(open: PanelOpen) -> (UserDef, Layout) {
+        let user = UserDef::from_window_scale(1.0);
+        let mut s = Scene::startup();
+        s.active = s.objects.iter().find(|o| o.name == "Cube").map(|o| o.id);
+        let l = layout(&user, Rcti { xmin: 28, xmax: 337, ymin: 0, ymax: 757 }, &s, None, open);
+        (user, l)
+    }
+
+    fn header(l: &Layout, label: &str) -> Rcti {
+        l.headers.iter().find(|(_, h)| *h == label).unwrap().0
+    }
+
+    #[test]
+    fn only_transform_starts_open() {
+        let o = PanelOpen::default();
+        assert!(o.is_open("Transform"));
+        assert!(ALL[1..].iter().all(|l| !o.is_open(l)));
+        let (_, l) = lay(o);
+        assert_eq!(l.headers.len(), 11, "Transform and the ten panels below it");
+    }
+
+    #[test]
+    fn a_header_click_left_of_the_grip_toggles_the_panel() {
+        let (user, l) = lay(PanelOpen::default());
+        let r = header(&l, "Relations");
+        let mid = (r.ymin + r.ymax) / 2;
+        assert_eq!(header_at(&l, &user, [r.xmin + 30, mid]), Some("Relations"));
+        assert_eq!(header_at(&l, &user, [r.xmax - 5, mid]), None, "the grip drags, it does not collapse");
+        let mut o = PanelOpen::default();
+        o.click("Relations", false);
+        assert!(o.is_open("Relations"));
+        let (_, l2) = lay(o);
+        /* The open panel pushes the ones below it down. */
+        assert!(header(&l2, "Collections").ymax < header(&l, "Collections").ymax);
+        o.click("Relations", false);
+        assert_eq!(o, PanelOpen::default());
+    }
+
+    #[test]
+    fn closing_transform_leaves_only_headers() {
+        let mut o = PanelOpen::default();
+        o.click("Transform", false);
+        let (_, l) = lay(o);
+        assert!(l.fields.is_empty());
+        let (_, open) = lay(PanelOpen::default());
+        assert!(header(&l, "Relations").ymax > header(&open, "Relations").ymax);
+    }
+
+    #[test]
+    fn ctrl_click_collapses_all_others() {
+        let mut o = PanelOpen::default();
+        o.click("Visibility", false);
+        o.click("Collections", true);
+        assert!(o.is_open("Collections"));
+        assert!(!o.is_open("Transform") && !o.is_open("Visibility"));
     }
 
     #[test]

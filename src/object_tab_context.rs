@@ -129,7 +129,7 @@ mod order_tests {
         let user = UserDef::from_window_scale(1.0);
         let window = Rcti { xmin: 28, xmax: 337, ymin: 0, ymax: 757 };
         let r = layout(&user, window).unwrap();
-        let tp = crate::object_tab_view::layout(&user, window, &crate::scene::Scene::startup(), None);
+        let tp = crate::object_tab_view::layout(&user, window, &crate::scene::Scene::startup(), None, Default::default());
         let first = tp.widgets.iter().map(|w| w.rect.ymax).max().unwrap();
         assert!(r.browse.ymin > first, "{} above {}", r.browse.ymin, first);
         assert!(r.path_icon.ymin > r.browse.ymax);
