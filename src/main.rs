@@ -91,6 +91,7 @@ mod transform_snap;
 mod info_stats;
 mod view3d_snap;
 mod sculpt_automask_popover;
+mod sculpt_automask_apply;
 mod sculpt_automask_layout;
 mod sculpt_thumb;
 mod view3d_placement;
@@ -746,6 +747,9 @@ impl ApplicationHandler for App {
                     if let Some(item) = menu.items.iter().find(|i| i.id == id) {
                         sculpt_automask_popover::drag_slider(item, x, &mut self.automask);
                     }
+                    if let Some(sc) = self.sculpt.as_mut() {
+                        sc.automask = self.automask.clone();
+                    }
                     gfx.window.request_redraw();
                     return;
                 }
@@ -1203,6 +1207,9 @@ impl ApplicationHandler for App {
                             sculpt_automask_popover::Press::Slider => self.automask_drag = sculpt_automask_popover::item_at(&menu, self.cursor).map(|i| i.id),
                             _ => {}
                         }
+                    }
+                    if let Some(sc) = self.sculpt.as_mut() {
+                        sc.automask = self.automask.clone();
                     }
                     gfx.window.request_redraw();
                     return;

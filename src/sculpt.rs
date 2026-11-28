@@ -718,6 +718,8 @@ struct Active {
     /// The window depth of the first hit: the mouse moves in the plane at that depth (Snake Hook, Nudge).
     depth: f32,
     inv: Mat4,
+    /// The automasking topology data of the stroke, built by its first masked dab.
+    am_cache: crate::sculpt_automask_apply::Cache,
 }
 
 /// The radius / strength modal (`F` / `Shift + F`, `paint.brush_radial_control`).
@@ -790,6 +792,8 @@ fn window_depth(rv3d: &RegionView3D, co: V3) -> f32 {
 #[derive(Clone, Debug, Default)]
 pub struct Session {
     pub settings: Settings,
+    /// The Auto-Masking settings of the brush (`Brush::mesh_automasking_settings`).
+    pub automask: crate::sculpt_automask_settings::AutomaskSettings,
     stroke: Option<Active>,
     pub adjust: Option<Adjust>,
 }
@@ -820,7 +824,7 @@ impl Session {
         scene.push_undo();
         let depth = window_depth(rv3d, hit.world);
         let invert = invert != self.settings.subtract;
-        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, rotate: None, elastic: None, layer: None, sharp: None, hook: None, clay_angle: None, orig: None, details: None, dir: [0.0; 3], depth, inv };
+        let mut active = Active { id, adj, brush, invert, last: px, carry: 0.0, grab: None, rotate: None, elastic: None, layer: None, sharp: None, hook: None, clay_angle: None, orig: None, details: None, dir: [0.0; 3], depth, inv, am_cache: Default::default() };
         let changed = if brush == Brush::Grab {
             let radius = self.local_radius(rv3d, &active, hit.world);
             if let Some((mesh, mask)) = scene.sculpt_mesh_mask_mut(id) {
@@ -873,7 +877,24 @@ impl Session {
         world_r * s.sum::<f32>() / 3.0
     }
 
+    /// One dab, its displacement scaled per vertex by the automasking factors (`sculpt_automask_apply.rs`).
     fn dab_at(&self, scene: &mut Scene, rv3d: &RegionView3D, a: &mut Active, hit: &Hit) -> bool {
+        if !crate::sculpt_automask_apply::is_active(&self.automask) {
+            return self.dab_at_unmasked(scene, rv3d, a, hit);
+        }
+        let before = scene.sculpt_mesh_mut(a.id).map(|m| m.verts.clone());
+        let moved = self.dab_at_unmasked(scene, rv3d, a, hit);
+        if let (true, Some(before)) = (moved, before) {
+            let radius = self.local_radius(rv3d, a, hit.world);
+            if let Some(mesh) = scene.sculpt_mesh_mut(a.id) {
+                let f = crate::sculpt_automask_apply::factors(mesh, &mut a.am_cache, &[], &self.automask, hit.local, radius);
+                crate::sculpt_automask_apply::blend(&before, &mut mesh.verts, &f);
+            }
+        }
+        moved
+    }
+
+    fn dab_at_unmasked(&self, scene: &mut Scene, rv3d: &RegionView3D, a: &mut Active, hit: &Hit) -> bool {
         let radius = self.local_radius(rv3d, a, hit.world);
         let Some((mesh, mask)) = scene.sculpt_mesh_mask_mut(a.id) else { return false };
         let sym = self.settings.symmetry;
