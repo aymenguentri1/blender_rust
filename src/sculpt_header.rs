@@ -23,6 +23,8 @@ pub enum Action {
     Add,
     Subtract,
     Symmetry(usize),
+    /// The Auto-Masking popover button (`VIEW3D_HT_tool_header`, `draw_mesh_automasking_settings`).
+    Automask,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -67,6 +69,9 @@ pub fn layout(user: &UserDef, header: Rcti) -> Vec<Item> {
     for axis in 0..3 {
         put(Action::Symmetry(axis), u, false, axis > 0, axis < 2, &mut x);
     }
+    x += space;
+    let am_w = font::label_width(user, "Auto-Masking") + u * 3 / 4;
+    put(Action::Automask, am_w, false, false, false, &mut x);
     items.retain(|i| i.rect.xmax <= header.xmax);
     items
 }
@@ -131,7 +136,7 @@ pub fn press(action: Action, shift: bool, s: &mut Settings) -> bool {
             s.symmetry[axis] = !s.symmetry[axis];
             true
         }
-        Action::Radius | Action::Strength => false,
+        Action::Radius | Action::Strength | Action::Automask => false,
     }
 }
 
@@ -173,6 +178,7 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, items:
                 let vw = font::string_width(user, &value);
                 font::draw_label_pad(buf, width, height, user, r, &value, TEXT, r.size_x() + 1 - vw - (6.0 * user.scale_factor) as i32);
             }
+            Action::Automask => {}
             Action::Add | Action::Subtract | Action::Symmetry(_) => {
                 let on = match item.action {
                     Action::Add => !s.subtract,
@@ -197,6 +203,20 @@ pub fn draw(buf: &mut [u32], width: usize, height: usize, user: &UserDef, items:
     }
 }
 
+/// The Auto-Masking popover button; `on` is `AutomaskSettings::any_enabled`, `open` while its panel is shown.
+/// Deviation: a labelled button, the `CLIPUV_HLT` icon mask is not in the icon assets.
+pub fn draw_automask_button(buf: &mut [u32], width: usize, height: usize, user: &UserDef, items: &[Item], on: bool, open: bool, hover: Option<Action>) {
+    let Some(item) = items.iter().find(|i| i.action == Action::Automask) else { return };
+    let r = item.rect;
+    let u = unit(user);
+    let hot = open || hover == Some(Action::Automask);
+    let base = if on { theme::WCOL_TOGGLE_INNER_SEL } else { theme::WCOL_TOOL_INNER };
+    let inner = if hot { lighten(base, 16) } else { base };
+    draw_round_box(buf, width, height, user, r, inner, theme::WCOL_TOOL_OUTLINE, theme::WCOL_TOOL_ROUNDNESS);
+    font::draw_label_pad(buf, width, height, user, Rcti { xmax: r.xmax - u * 3 / 4, ..r }, "Auto-Masking", if on { Rgba::hex(0xffffffff) } else { theme::WCOL_MENU_TEXT }, 0);
+    icons::draw_icon(buf, width, height, user, Rcti { xmin: r.xmax + 1 - u * 3 / 4, ..r }, Icon::DownArrow, TEXT);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,7 +230,7 @@ mod tests {
         let user = UserDef::from_window_scale(1.0);
         let h = header();
         let items = layout(&user, h);
-        assert_eq!(items.len(), 8);
+        assert_eq!(items.len(), 9);
         for (i, a) in items.iter().enumerate() {
             assert!(a.rect.xmin >= h.xmin && a.rect.xmax <= h.xmax && a.rect.ymin >= h.ymin && a.rect.ymax <= h.ymax);
             for b in &items[i + 1..] {
@@ -224,7 +244,7 @@ mod tests {
     fn a_narrow_header_drops_what_does_not_fit() {
         let user = UserDef::from_window_scale(1.0);
         let items = layout(&user, Rcti { xmax: 400, ..header() });
-        assert!(items.len() < 8 && rect_of(&items, Action::Brush).is_some());
+        assert!(items.len() < 9 && rect_of(&items, Action::Brush).is_some());
         assert!(items.iter().all(|i| i.rect.xmax <= 400));
     }
 

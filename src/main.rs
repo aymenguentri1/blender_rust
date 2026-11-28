@@ -90,6 +90,7 @@ mod scene_fps;
 mod transform_snap;
 mod info_stats;
 mod view3d_snap;
+mod sculpt_automask_popover;
 mod sculpt_automask_layout;
 mod sculpt_thumb;
 mod view3d_placement;
@@ -524,6 +525,10 @@ struct App {
     mesh_filter: Option<sculpt_mesh_filter::Modal>,
     /// The brush popup of the sculpt tool header, opened at this window position.
     brush_menu: Option<[i32; 2]>,
+    /// The Auto-Masking settings of the sculpt brush and its open popover (top left, window pixels).
+    automask: sculpt_automask_settings::AutomaskSettings,
+    automask_menu: Option<[i32; 2]>,
+    automask_drag: Option<&'static str>,
     /// The Add Modifier list of the properties editor is open.
     mod_add_open: bool,
     /// The field of the Transform panel that is being typed into.
@@ -735,6 +740,15 @@ impl ApplicationHandler for App {
                 }
                 /* Sculpt Mode: the radius / strength modal follows the cursor, a running stroke dabs along it,
                  * and the brush ring is redrawn at the new position. */
+                if let (Some(id), Some(pos), Some(user)) = (self.automask_drag, self.automask_menu, self.user.as_ref()) {
+                    let size = gfx.window.inner_size();
+                    let menu = sculpt_automask_popover::layout(user, &self.automask, true, pos, size.width as i32, size.height as i32);
+                    if let Some(item) = menu.items.iter().find(|i| i.id == id) {
+                        sculpt_automask_popover::drag_slider(item, x, &mut self.automask);
+                    }
+                    gfx.window.request_redraw();
+                    return;
+                }
                 if let (Some(sc), Some(action)) = (self.sculpt.as_mut(), self.sculpt_drag) {
                     /* A slider of the tool header is being dragged. */
                     if let (Some(layout), Some(user)) = (self.layout.as_ref(), self.user.as_ref()) {
@@ -1180,6 +1194,19 @@ impl ApplicationHandler for App {
                     gfx.window.request_redraw();
                     return;
                 }
+                if let Some(pos) = self.automask_menu {
+                    if let Some(user) = self.user.as_ref() {
+                        let size = gfx.window.inner_size();
+                        let menu = sculpt_automask_popover::layout(user, &self.automask, true, pos, size.width as i32, size.height as i32);
+                        match sculpt_automask_popover::press(&menu, self.cursor, &mut self.automask) {
+                            sculpt_automask_popover::Press::Outside => self.automask_menu = None,
+                            sculpt_automask_popover::Press::Slider => self.automask_drag = sculpt_automask_popover::item_at(&menu, self.cursor).map(|i| i.id),
+                            _ => {}
+                        }
+                    }
+                    gfx.window.request_redraw();
+                    return;
+                }
                 if let Some(pos) = self.brush_menu.take() {
                     if let (Some(user), Some(sc)) = (self.user.as_ref(), self.sculpt.as_mut()) {
                         let size = gfx.window.inner_size();
@@ -1225,6 +1252,7 @@ impl ApplicationHandler for App {
                                     }
                                     /* The brush dropdown opens the brush popup under it. */
                                     Some(rect) if action == sculpt_header::Action::Brush => self.brush_menu = Some([rect.xmin, rect.ymin]),
+                                    Some(rect) if action == sculpt_header::Action::Automask => self.automask_menu = Some([rect.xmin, rect.ymin]),
                                     _ => {
                                         sculpt_header::press(action, shift, &mut sc.settings);
                                     }
@@ -1473,7 +1501,7 @@ impl ApplicationHandler for App {
             /* `WM_gesture_box_modal()`: releasing LEFTMOUSE confirms the border and runs `view3d.zoom_border`. */
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
                 self.scrub_drag = false;
-                if self.sculpt_drag.take().is_some() {
+                if self.sculpt_drag.take().is_some() || self.automask_drag.take().is_some() {
                     gfx.window.request_redraw();
                     return;
                 }
@@ -1810,8 +1838,9 @@ impl ApplicationHandler for App {
                 }
 
                 /* An open popup menu takes the keyboard: ESC closes it, other keys do nothing. */
-                if self.header_menu.is_some() || self.add_menu.is_some() || self.brush_menu.is_some() || self.mod_menu.is_some() || self.add_mod_menu.is_some() {
+                if self.header_menu.is_some() || self.add_menu.is_some() || self.brush_menu.is_some() || self.mod_menu.is_some() || self.add_mod_menu.is_some() || self.automask_menu.is_some() {
                     if code == KeyCode::Escape {
+                        self.automask_menu = None;
                         self.header_menu = None;
                         self.add_menu = None;
                         self.brush_menu = None;
@@ -2634,7 +2663,7 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 let frame_start = std::time::Instant::now();
                 /* Widgets under an open popup do not light up. */
-                let popup = self.header_menu.is_some() || self.add_menu.is_some() || self.mod_menu.is_some() || self.brush_menu.is_some() || self.add_mod_menu.is_some() || self.rename.is_some();
+                let popup = self.automask_menu.is_some() || self.header_menu.is_some() || self.add_menu.is_some() || self.mod_menu.is_some() || self.brush_menu.is_some() || self.add_mod_menu.is_some() || self.rename.is_some();
                 hover::begin_frame((!popup).then_some(self.cursor));
                 /* Sculpt Mode ends with the mesh object it works on. */
                 if self.sculpt.is_some() && !self.scene.active_object().is_some_and(|o| o.mesh().is_some()) {
@@ -2650,7 +2679,7 @@ impl ApplicationHandler for App {
                 };
                 gfx.surface.resize(w, h).expect("resize surface");
                 let mut buf = gfx.surface.buffer_mut().expect("surface buffer");
-                let menus = self.header_menu.is_some() || self.add_menu.is_some() || self.mod_menu.is_some() || self.brush_menu.is_some() || self.add_mod_menu.is_some() || self.rename.is_some();
+                let menus = self.automask_menu.is_some() || self.header_menu.is_some() || self.add_menu.is_some() || self.mod_menu.is_some() || self.brush_menu.is_some() || self.add_mod_menu.is_some() || self.rename.is_some();
                 /* Only the splash GIF moved on: restore the last finished frame and repaint just the popup. */
                 if let (false, false, false, Some(user), Some(_)) = (self.full_dirty, self.splash_closed, menus, self.user.as_ref(), self.layout.as_ref()) {
                     if self.splash_snapshot.len() == buf.len() {
@@ -2984,6 +3013,7 @@ impl ApplicationHandler for App {
                             area::blend_rect(&mut buf, w, h, region, theme::SPACE_VIEW3D_HEADER);
                             let items = sculpt_header::layout(user, region);
                             sculpt_header::draw(&mut buf, w, h, user, &items, &sc.settings, self.sculpt_hover);
+                            sculpt_header::draw_automask_button(&mut buf, w, h, user, &items, self.automask.any_enabled(), self.automask_menu.is_some(), self.sculpt_hover);
                         }
                     }
                     /* Every other mode: the Select Box tool's header (the `mode` row), the same overlap region. */
@@ -3018,6 +3048,10 @@ impl ApplicationHandler for App {
                     if let (Some((i, pos)), Some(user)) = (self.mod_menu, self.user.as_ref()) {
                         let menu = modifier_menu::layout(user, &self.scene, i, pos, w as i32, h as i32);
                         modifier_menu::draw(&mut buf, w, h, user, &menu, self.cursor);
+                    }
+                    if let (Some(pos), Some(user)) = (self.automask_menu, self.user.as_ref()) {
+                        let menu = sculpt_automask_popover::layout(user, &self.automask, true, pos, w as i32, h as i32);
+                        sculpt_automask_popover::draw(&mut buf, w, h, user, &menu, &self.automask);
                     }
                     if let (Some(pos), Some(user), Some(sc)) = (self.brush_menu, self.user.as_ref(), self.sculpt.as_ref()) {
                         let menu = brush_menu::layout(user, pos, w as i32, h as i32);
