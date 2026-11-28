@@ -27,6 +27,9 @@ pub enum Action {
     MenuSelect,
     MenuAdd,
     MenuObject,
+    MenuSculpt,
+    MenuMask,
+    MenuFaceSets,
     Orientation,
     Pivot,
     Snap,
@@ -133,12 +136,13 @@ pub fn layout(user: &UserDef, header: Rcti, state: &HeaderState) -> Vec<Item> {
     };
     let w = dropdown_width(user, Some(&label));
     items.push(Item { action: Action::Mode, rect: c.place(w, true), look: Look::Dropdown { icon: mode_icon, label: Some(label) } });
-    for (action, name) in [
-        (Action::MenuView, "View"),
-        (Action::MenuSelect, "Select"),
-        (Action::MenuAdd, "Add"),
-        (Action::MenuObject, "Object"),
-    ] {
+    /* `VIEW3D_MT_editor_menus` (space_view3d.py): Sculpt Mode has no Select, Add and Object menus. */
+    let menus: &[(Action, &str)] = if state.mode == crate::object_mode::ObjectMode::Sculpt {
+        &[(Action::MenuView, "View"), (Action::MenuSculpt, "Sculpt"), (Action::MenuMask, "Mask"), (Action::MenuFaceSets, "Face Sets")]
+    } else {
+        &[(Action::MenuView, "View"), (Action::MenuSelect, "Select"), (Action::MenuAdd, "Add"), (Action::MenuObject, "Object")]
+    };
+    for &(action, name) in menus {
         let w = font::label_width(user, name);
         items.push(Item { action, rect: c.place(w, false), look: Look::Menu(name) });
     }
@@ -307,6 +311,24 @@ mod tests {
         assert!(x(Action::MenuAdd) < x(Action::MenuObject));
         assert!(x(Action::MenuObject) < x(Action::Orientation));
         assert!(x(Action::Orientation) < x(Action::Overlays));
+    }
+
+
+    /* Sculpt Mode replaces Select, Add and Object by Sculpt, Mask and Face Sets. */
+    #[test]
+    fn sculpt_mode_menus() {
+        let user = UserDef::from_window_scale(1.0);
+        let mut st = state();
+        st.mode = crate::object_mode::ObjectMode::Sculpt;
+        let items = layout(&user, header(), &st);
+        let x = |a| rect_of(&items, a).map(|r| r.xmin);
+        assert!(x(Action::MenuView) < x(Action::MenuSculpt));
+        assert!(x(Action::MenuSculpt) < x(Action::MenuMask));
+        assert!(x(Action::MenuMask) < x(Action::MenuFaceSets));
+        assert!(x(Action::MenuFaceSets) < x(Action::Orientation));
+        assert!(x(Action::MenuSelect).is_none() && x(Action::MenuAdd).is_none() && x(Action::MenuObject).is_none());
+        let obj = layout(&user, header(), &state());
+        assert!(rect_of(&obj, Action::MenuSculpt).is_none() && rect_of(&obj, Action::MenuAdd).is_some());
     }
 
     /* The shading buttons end at the right edge, minus the header offset. */
