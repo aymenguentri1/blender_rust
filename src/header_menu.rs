@@ -17,6 +17,7 @@ pub enum Which {
     Sculpt,
     Mask,
     FaceSets,
+    View,
 }
 
 /// Rows of a header pull-down; `dyntopo` is the state of the Dynamic Topology checkbox.
@@ -25,6 +26,7 @@ pub fn rows_of(which: Which, dyntopo: bool) -> Vec<Row> {
         Which::Sculpt => sculpt_menu::rows(dyntopo),
         Which::Mask => mask_menu::ROWS.to_vec(),
         Which::FaceSets => face_sets_menu::FACE_SETS.to_vec(),
+        Which::View => crate::view_menu::rows(&crate::view_menu::ViewState::default()),
     }
 }
 
@@ -37,6 +39,13 @@ pub fn submenu_rows(idname: &str) -> Option<Vec<Row>> {
         "VIEW3D_MT_sculpt_set_pivot" => sculpt_submenus::SET_PIVOT,
         "VIEW3D_MT_face_sets_init" => face_sets_menu::FACE_SETS_INIT,
         "VIEW3D_MT_random_mask" => crate::mask_menu::RANDOM_MASK,
+        "VIEW3D_MT_view_local" => crate::view_menu::LOCAL,
+        "VIEW3D_MT_view_cameras" => crate::view_menu::CAMERAS,
+        "VIEW3D_MT_view_viewpoint" => crate::view_menu::VIEWPOINT,
+        "VIEW3D_MT_view_navigation" => crate::view_menu::NAVIGATION,
+        "VIEW3D_MT_view_align" => crate::view_menu::ALIGN,
+        "VIEW3D_MT_view_align_selected" => crate::view_menu::ALIGN_SELECTED,
+        "VIEW3D_MT_view_regions" => crate::view_menu::REGIONS,
         _ => return None,
     };
     Some(rows.to_vec())
@@ -69,6 +78,8 @@ pub struct HeaderMenu {
     pub anchor: [i32; 2],
     /// Index of the row of the pull-down whose submenu is open.
     pub sub: Option<usize>,
+    /// What `VIEW3D_MT_view.draw` reads (only used by `Which::View`).
+    pub view: crate::view_menu::ViewState,
 }
 
 pub struct Panels {
@@ -84,12 +95,21 @@ impl HeaderMenu {
             which,
             anchor,
             sub: None,
+            view: Default::default(),
+        }
+    }
+
+    /// The pull-down's rows: the View menu draws from `view`.
+    fn rows(&self, dyntopo: bool) -> Vec<Row> {
+        match self.which {
+            Which::View => crate::view_menu::rows(&self.view),
+            w => rows_of(w, dyntopo),
         }
     }
 
     /// Layout of the pull-down and of its open submenu in a `win` = `[w, h]` window.
     pub fn panels(&self, user: &UserDef, win: [i32; 2], dyntopo: bool) -> Panels {
-        let root_rows = rows_of(self.which, dyntopo);
+        let root_rows = self.rows(dyntopo);
         let root = row_menu::layout(user, &root_rows, self.anchor, win[0], win[1]);
         let sub = self.sub.and_then(|i| {
             let Row::Menu { idname, .. } = root_rows.get(i)? else { return None };
@@ -270,5 +290,28 @@ mod tests {
         let op = |label: &str| rows.iter().find(|r| matches!(r, Row::Operator { label: l, .. } if *l == label)).unwrap();
         assert!(enabled(op("Show All")) && enabled(op("Hide Masked")) && enabled(op("Invert Visible")));
         assert!(!enabled(op("Toggle Visibility")), "face sets are not available yet");
+    }
+
+    #[test]
+    fn view_menu_opens_its_viewpoint_submenu_on_hover() {
+        let u = user();
+        let mut m = HeaderMenu::open(Which::View, [100, 800]);
+        m.mouse_move(&u, WIN, false, row_pos(&m, "Viewpoint"));
+        let (rows, l) = m.panels(&u, WIN, false).sub.unwrap();
+        assert_eq!(rows.len(), crate::view_menu::VIEWPOINT.len());
+        assert!(l.panel.xmin >= m.panel_rect(&u, WIN, false).xmax);
+        m.mouse_move(&u, WIN, false, row_pos(&m, "Frame All"));
+        assert_eq!(m.sub, None);
+    }
+
+    #[test]
+    fn view_menu_rows_run_only_when_the_port_has_them_and_outside_click_closes() {
+        let u = user();
+        let mut m = HeaderMenu::open(Which::View, [100, 800]);
+        assert!(enabled(&Row::Menu { idname: "VIEW3D_MT_view_navigation", label: "Navigation" }));
+        assert!(!enabled(&Row::Menu { idname: "INFO_MT_area", label: "Area" }));
+        assert_eq!(m.click(&u, WIN, false, [1390, 10]), Click::Closed);
+        m.view.stroke_mode = true;
+        assert!(m.panels(&u, WIN, false).root_rows.iter().any(|r| matches!(r, Row::Operator { label: "Center Last Stroke", .. })));
     }
 }
