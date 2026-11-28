@@ -206,19 +206,27 @@
   "note": "Very large; plan in small vertical slices."
  },
  {
-  "key": "shader-nodes",
-  "title": "Shader node editor",
-  "dirs": [
-   "source/blender/nodes/shader/"
-  ],
-  "note": ""
- },
- {
   "key": "render-workbench",
   "title": "Workbench and overlay engine parity",
   "dirs": [
    "source/blender/draw/engines/workbench/",
    "source/blender/draw/engines/overlay/"
+  ],
+  "note": ""
+ },
+ {
+  "key": "ui-widgets",
+  "title": "UI widgets and layout engine",
+  "dirs": [
+   "source/blender/editors/interface/"
+  ],
+  "note": ""
+ },
+ {
+  "key": "shader-nodes",
+  "title": "Shader node editor",
+  "dirs": [
+   "source/blender/nodes/shader/"
   ],
   "note": ""
  },
@@ -278,14 +286,6 @@
   "title": "File browser and save/open UI",
   "dirs": [
    "source/blender/editors/space_file/"
-  ],
-  "note": ""
- },
- {
-  "key": "ui-widgets",
-  "title": "UI widgets and layout engine",
-  "dirs": [
-   "source/blender/editors/interface/"
   ],
   "note": ""
  },
