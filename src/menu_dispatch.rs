@@ -52,6 +52,14 @@ pub enum Command {
     HideView { unselected: bool },
     /// `object.hide_view_clear`.
     ShowHidden,
+    /// `view3d.snap_selected_to_grid` with the default grid of 1.
+    SnapSelectionToGrid,
+    /// `view3d.snap_selected_to_cursor` with `use_offset` True: needs the 3D cursor, so the caller runs it.
+    SnapSelectionToCursorOffset,
+    /// `view3d.snap_cursor_to_selected`: moves the 3D cursor, so the caller runs it.
+    SnapCursorToSelected,
+    /// `view3d.snap_cursor_to_center`: moves the 3D cursor, so the caller runs it.
+    SnapCursorToCenter,
 }
 
 fn prop(props: &[(&str, &str)], name: &str) -> Option<String> {
@@ -130,6 +138,10 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
         "object.duplicate_move" => Some(Command::Duplicate),
         "object.join" => Some(Command::Join),
         "object.delete" => Some(Command::Delete),
+        "view3d.snap_selected_to_grid" => Some(Command::SnapSelectionToGrid),
+        "view3d.snap_selected_to_cursor" if prop(props, "use_offset")? == "True" => Some(Command::SnapSelectionToCursorOffset),
+        "view3d.snap_cursor_to_selected" => Some(Command::SnapCursorToSelected),
+        "view3d.snap_cursor_to_center" => Some(Command::SnapCursorToCenter),
         "object.hide_view_clear" => Some(Command::ShowHidden),
         "object.hide_view_set" => Some(Command::HideView { unselected: prop(props, "unselected")? == "True" }),
         "object.select_hierarchy" => Some(Command::SelectHierarchy {
@@ -200,6 +212,8 @@ pub fn apply_with_symmetry(scene: &mut Scene, cmd: Command, symm: [bool; 3]) -> 
         Command::HideView { unselected: false } => scene.hide_selected() > 0,
         Command::HideView { unselected: true } => scene.hide_unselected() > 0,
         Command::ShowHidden => scene.reveal_all() > 0,
+        Command::SnapSelectionToGrid => scene.snap_selected_to_grid(1.0) > 0,
+        Command::SnapSelectionToCursorOffset | Command::SnapCursorToSelected | Command::SnapCursorToCenter => false,
         Command::FaceSetsInit(m) => scene.face_sets_init_active(m),
         Command::FaceSetsRandomizeColors => scene.face_sets_randomize_colors_active(),
         Command::FaceSetsCreate(m) => scene.face_sets_create_active(m),
@@ -457,5 +471,18 @@ mod tests {
         assert!(s.objects.iter().all(|o| o.hidden));
         assert!(apply(&mut s, show));
         assert!(s.objects.iter().all(|o| !o.hidden));
+    }
+
+    #[test]
+    fn snap_rows_map_and_grid_snap_runs() {
+        let find = |l: &str| crate::object_menu::SNAP.iter().find(|r| matches!(r, Row::Operator { label, .. } if *label == l)).cloned().unwrap();
+        assert_eq!(command_of_row(&find("Selection to Cursor (Keep Offset)")), Some(Command::SnapSelectionToCursorOffset));
+        assert_eq!(command_of_row(&find("Selection to Cursor")), None);
+        assert_eq!(command_of_row(&find("Cursor to World Origin")), Some(Command::SnapCursorToCenter));
+        let mut s = Scene::startup();
+        s.select_all(crate::scene::SelectAction::Select);
+        s.objects[0].loc = [0.4, 1.6, -0.2];
+        apply(&mut s, command_of_row(&find("Selection to Grid")).unwrap());
+        assert_eq!(s.objects[0].loc, [0.0, 2.0, 0.0]);
     }
 }
