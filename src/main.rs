@@ -10,6 +10,7 @@
 
 #[allow(dead_code)]
 mod area;
+mod deform_vert;
 mod area_header;
 mod topbar_id_fields;
 #[allow(dead_code)]
