@@ -162,6 +162,9 @@ pub struct Object {
     pub vis: crate::sculpt_hide::Visibility,
     /// `.sculpt_face_set` of the base mesh, one id per face; empty when the layer is absent (`face_set_init.rs`).
     pub face_sets: Vec<i32>,
+    /// `Mesh::face_sets_color_default` / `face_sets_color_seed` (`SCULPT_OT_face_sets_randomize_colors`).
+    pub face_sets_color_default: i32,
+    pub face_sets_color_seed: i32,
     /// `Object::mat`/`totcol`/`actcol`: indices into `Scene::materials`.
     pub material_slots: crate::material::MaterialSlots,
     eval: Option<Mesh>,
@@ -401,6 +404,8 @@ impl Scene {
             parent_world: IDENTITY4,
             mask: Vec::new(),
             face_sets: Vec::new(),
+            face_sets_color_default: 1,
+            face_sets_color_seed: 0,
             vis: Default::default(),
             material_slots: Default::default(),
             eval: None,
@@ -545,6 +550,49 @@ impl Scene {
         self.push_undo();
         let o = &mut self.objects[i];
         o.face_sets = sets;
+        true
+    }
+
+    /// `sculpt.face_sets_create` on the active mesh (`face_set_create.rs`): Masked, Visible and All. One undo step;
+    /// false (and no step) when the layer did not change. The edit-mode selection is not stored on sculpt objects, so
+    /// Selection is not offered.
+    pub fn face_sets_create_active(&mut self, mode: crate::face_set_create::CreateMode) -> bool {
+        let Some(i) = self.active.and_then(|id| self.index_of(id)) else { return false };
+        let o = &self.objects[i];
+        let Some(mesh) = o.mesh() else { return false };
+        let n = mesh.faces.len();
+        if n == 0 {
+            return false;
+        }
+        let mut layer = (o.face_sets.len() == n).then(|| o.face_sets.clone());
+        let before = layer.clone();
+        let hide = o.vis.hide_face.as_deref().filter(|h| h.len() == n);
+        let mask = (o.mask.len() == mesh.verts.len()).then_some(o.mask.as_slice());
+        let input = crate::face_set_create::CreateInput { faces: &mesh.faces, hide_poly: hide, select_poly: None, mask };
+        let mut color_default = 1;
+        crate::face_set_create::create(mode, &input, &mut layer, &mut color_default);
+        if layer == before {
+            return false;
+        }
+        self.push_undo();
+        self.objects[i].face_sets = layer.unwrap_or_default();
+        true
+    }
+
+    /// `sculpt.face_sets_randomize_colors` on the active mesh. One undo step; false without a face set layer.
+    pub fn face_sets_randomize_colors_active(&mut self) -> bool {
+        let Some(i) = self.active.and_then(|id| self.index_of(id)) else { return false };
+        let o = &self.objects[i];
+        let Some(mesh) = o.mesh() else { return false };
+        if o.face_sets.is_empty() || o.face_sets.len() != mesh.faces.len() {
+            return false;
+        }
+        let (mut seed, mut def) = (o.face_sets_color_seed, o.face_sets_color_default);
+        crate::face_set::randomize_colors(Some(&o.face_sets), &mut seed, &mut def);
+        self.push_undo();
+        let o = &mut self.objects[i];
+        o.face_sets_color_seed = seed;
+        o.face_sets_color_default = def;
         true
     }
 

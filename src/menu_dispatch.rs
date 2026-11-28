@@ -22,6 +22,8 @@ pub enum Command {
     VisibilityInvert,
     MaskInit(crate::sculpt_mask_init::InitMode),
     FaceSetsInit(crate::face_set_init::InitMode),
+    FaceSetsRandomizeColors,
+    FaceSetsCreate(crate::face_set_create::CreateMode),
     /// `sculpt.mesh_filter`: modal, started by the caller (`Scene::mesh_filter_begin`).
     MeshFilter(crate::sculpt_mesh_filter::FilterType),
 }
@@ -56,6 +58,16 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
         "paint.hide_show_all" => vis_action(props).map(Command::HideShowAll),
         "paint.hide_show_masked" => vis_action(props).map(Command::HideShowMasked),
         "paint.visibility_invert" => Some(Command::VisibilityInvert),
+        "sculpt.face_sets_randomize_colors" => Some(Command::FaceSetsRandomizeColors),
+        "sculpt.face_sets_create" => {
+            use crate::face_set_create::CreateMode as C;
+            match prop(props, "mode")?.as_str() {
+                "MASKED" => Some(Command::FaceSetsCreate(C::Masked)),
+                "VISIBLE" => Some(Command::FaceSetsCreate(C::Visible)),
+                "ALL" => Some(Command::FaceSetsCreate(C::All)),
+                _ => None, /* SELECTION needs the edit-mode face selection */
+            }
+        }
         "sculpt.face_sets_init" => crate::face_set_init::InitMode::from_rna(&prop(props, "mode")?).map(Command::FaceSetsInit),
         "sculpt.mesh_filter" => match prop(props, "type")?.as_str() {
             "INFLATE" => Some(Command::MeshFilter(crate::sculpt_mesh_filter::FilterType::Inflate)),
@@ -105,6 +117,8 @@ pub fn apply(scene: &mut Scene, cmd: Command) -> bool {
         Command::HideShowMasked(a) => scene.visibility_edit_active(|m, v, mask| sculpt_hide::hide_show_masked(m, v, a, Some(mask))),
         Command::MeshFilter(_) => false,
         Command::FaceSetsInit(m) => scene.face_sets_init_active(m),
+        Command::FaceSetsRandomizeColors => scene.face_sets_randomize_colors_active(),
+        Command::FaceSetsCreate(m) => scene.face_sets_create_active(m),
         Command::MaskInit(m) => scene.mask_init_active(m, mask_seed()),
         Command::VisibilityInvert => scene.visibility_edit_active(|m, v, _| sculpt_hide::invert_visibility(m, v)),
     }
@@ -216,6 +230,32 @@ mod tests {
         let o = &s.objects[s.index_of(s.active.unwrap()).unwrap()];
         assert_eq!(o.face_sets.len(), o.mesh().unwrap().faces.len());
         assert!(o.face_sets.iter().all(|&f| f == 1), "a sphere is one loose part");
+    }
+
+    #[test]
+    fn face_sets_create_rows_make_a_new_set() {
+        use crate::face_set_create::CreateMode as C;
+        assert_eq!(command_of("sculpt.face_sets_create", &[("mode", "ALL")]), Some(Command::FaceSetsCreate(C::All)));
+        assert_eq!(command_of("sculpt.face_sets_create", &[("mode", "MASKED")]), Some(Command::FaceSetsCreate(C::Masked)));
+        assert_eq!(command_of("sculpt.face_sets_create", &[("mode", "SELECTION")]), None);
+        let mut s = scene();
+        assert!(!apply(&mut s, Command::FaceSetsCreate(C::Masked)), "no mask: nothing changes");
+        assert!(apply(&mut s, Command::FaceSetsCreate(C::All)));
+        let o = &s.objects[s.index_of(s.active.unwrap()).unwrap()];
+        assert!(o.face_sets.iter().all(|&f| f == 2 || f == 1) && !o.face_sets.is_empty());
+        assert!(apply(&mut s, Command::FaceSetsCreate(C::Visible)), "nothing hidden: the existing layer is removed");
+        assert!(s.objects[s.index_of(s.active.unwrap()).unwrap()].face_sets.is_empty());
+        assert!(!apply(&mut s, Command::FaceSetsCreate(C::Visible)), "no layer left to remove");
+    }
+
+    #[test]
+    fn randomize_colors_needs_a_face_set_layer_then_advances_the_seed() {
+        let mut s = scene();
+        assert!(!apply(&mut s, Command::FaceSetsRandomizeColors));
+        assert!(apply(&mut s, Command::FaceSetsInit(crate::face_set_init::InitMode::LooseParts)));
+        assert!(apply(&mut s, Command::FaceSetsRandomizeColors));
+        let o = &s.objects[s.index_of(s.active.unwrap()).unwrap()];
+        assert_eq!(o.face_sets_color_seed, 1);
     }
 
     #[test]
