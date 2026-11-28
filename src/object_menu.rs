@@ -103,6 +103,32 @@ pub const APPLY: &[Row] = &[
     op("object.parent_inverse_apply", "Parent Inverse", &[]),
 ];
 
+/// `VIEW3D_MT_object_parent`: `operator_enum("object.parent_set", "type")` lists `prop_make_parent_types` and
+/// `operator_enum("object.parent_clear", "type")` lists `prop_clear_parent_types` (object_relations.cc). The
+/// armature sub-items keep the leading spaces of their names.
+pub const PARENT: &[Row] = &[
+    op("object.parent_set", "Object", &[("type", "OBJECT")]),
+    op("object.parent_set", "Armature Deform", &[("type", "ARMATURE")]),
+    op("object.parent_set", "   With Empty Groups", &[("type", "ARMATURE_NAME")]),
+    op("object.parent_set", "   With Automatic Weights", &[("type", "ARMATURE_AUTO")]),
+    op("object.parent_set", "   With Envelope Weights", &[("type", "ARMATURE_ENVELOPE")]),
+    op("object.parent_set", "Bone", &[("type", "BONE")]),
+    op("object.parent_set", "Bone Relative", &[("type", "BONE_RELATIVE")]),
+    op("object.parent_set", "Curve Deform", &[("type", "CURVE")]),
+    op("object.parent_set", "Follow Path", &[("type", "FOLLOW")]),
+    op("object.parent_set", "Path Constraint", &[("type", "PATH_CONST")]),
+    op("object.parent_set", "Lattice Deform", &[("type", "LATTICE")]),
+    op("object.parent_set", "Vertex", &[("type", "VERTEX")]),
+    op("object.parent_set", "Vertex (Triangle)", &[("type", "VERTEX_TRI")]),
+    Row::Separator,
+    op("object.parent_no_inverse_set", "Make Parent without Inverse", &[("keep_transform", "False")]),
+    op("object.parent_no_inverse_set", "Make Parent without Inverse (Keep Transform)", &[("keep_transform", "True")]),
+    Row::Separator,
+    op("object.parent_clear", "Clear Parent", &[("type", "CLEAR")]),
+    op("object.parent_clear", "Clear and Keep Transformation", &[("type", "CLEAR_KEEP_TRANSFORM")]),
+    op("object.parent_clear", "Clear Parent Inverse", &[("type", "CLEAR_INVERSE")]),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,5 +225,37 @@ mod tests {
             [vec![true, false, false], vec![false, true, false], vec![false, false, true], vec![true, true, true], vec![false, true, true]]
         );
         assert!(matches!(APPLY[13], Row::Operator { props: [("target", "MESH")], .. }));
+    }
+
+    #[test]
+    fn parent_enum_items_match_object_relations_cc() {
+        let types = |id: &str| -> Vec<&'static str> {
+            PARENT
+                .iter()
+                .filter_map(|r| match r {
+                    Row::Operator { idname, props, .. } if *idname == id => props.iter().find(|(k, _)| *k == "type").map(|p| p.1),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(
+            types("object.parent_set"),
+            [
+                "OBJECT", "ARMATURE", "ARMATURE_NAME", "ARMATURE_AUTO", "ARMATURE_ENVELOPE", "BONE", "BONE_RELATIVE", "CURVE",
+                "FOLLOW", "PATH_CONST", "LATTICE", "VERTEX", "VERTEX_TRI",
+            ]
+        );
+        assert_eq!(types("object.parent_clear"), ["CLEAR", "CLEAR_KEEP_TRANSFORM", "CLEAR_INVERSE"]);
+    }
+
+    #[test]
+    fn parent_menu_groups_and_keep_transform_props() {
+        let l = labels_of(PARENT);
+        assert_eq!(l.iter().filter(|x| **x == "-").count(), 2);
+        assert_eq!(l[2], "   With Empty Groups");
+        assert_eq!(&l[14..16], ["Make Parent without Inverse", "Make Parent without Inverse (Keep Transform)"]);
+        assert!(matches!(PARENT[14], Row::Operator { props: [("keep_transform", "False")], .. }));
+        assert!(matches!(PARENT[15], Row::Operator { props: [("keep_transform", "True")], .. }));
+        assert_eq!(&l[17..], ["Clear Parent", "Clear and Keep Transformation", "Clear Parent Inverse"]);
     }
 }
