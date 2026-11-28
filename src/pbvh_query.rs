@@ -63,6 +63,40 @@ impl Pbvh {
         Pbvh { nodes, faces, bounds }
     }
 
+    /// `update_node_bounds_mesh`: bounds of the vertices of the faces of leaf `i`.
+    fn leaf_bounds(&self, mesh: &Mesh, i: usize) -> (V3, V3) {
+        let mut b = ([f32::MAX; 3], [f32::MIN; 3]);
+        for &f in &self.faces[self.nodes[i].faces.clone()] {
+            for &v in &mesh.faces[f as usize] {
+                let p = mesh.verts[v as usize];
+                b = merge(b, (p, p));
+            }
+        }
+        b
+    }
+
+    /// `Tree::update_bounds_mesh` + `flush_bounds_to_parents`: recompute the bounds of the dirty leaves, then
+    /// re-merge parents while their bounds keep changing.
+    pub fn update_bounds_mesh(&mut self, mesh: &Mesh, dirty_leaves: &[usize]) {
+        let mut pending: Vec<usize> = Vec::new();
+        for &i in dirty_leaves {
+            if self.nodes[i].leaf {
+                self.bounds[i] = self.leaf_bounds(mesh, i);
+                if self.nodes[i].parent >= 0 {
+                    pending.push(self.nodes[i].parent as usize);
+                }
+            }
+        }
+        while let Some(n) = pending.pop() {
+            let old = self.bounds[n];
+            let c = self.nodes[n].children_offset;
+            self.bounds[n] = merge(self.bounds[c], self.bounds[c + 1]);
+            if self.bounds[n] != old && self.nodes[n].parent >= 0 {
+                pending.push(self.nodes[n].parent as usize);
+            }
+        }
+    }
+
     /// `node_in_sphere`: nearest point of the node bounds to `center` is closer than `radius`.
     pub fn node_in_sphere(&self, node: usize, center: V3, radius: f32) -> bool {
         let (lo, hi) = self.bounds[node];
@@ -135,6 +169,28 @@ mod tests {
         mask[50] = 0.5;
         for (c, r) in [([5.0, 5.0, 0.0], 3.0), ([0.0, 0.0, 0.0], 2.5), ([19.5, 3.2, 0.1], 4.0), ([100.0, 0.0, 0.0], 2.0)] {
             assert_eq!(affected_pbvh(&mesh, &pbvh, &mask, c, r), crate::sculpt::affected(&mesh, &mask, c, r));
+        }
+    }
+
+    #[test]
+    fn bounds_refresh_matches_rebuild_after_moving_vertices() {
+        let mut mesh = grid(12);
+        let mut pbvh = Pbvh::build(&mesh, 6);
+        for v in [5usize, 6, 18, 19] {
+            mesh.verts[v][2] += 7.0;
+        }
+        let leaves: Vec<usize> = (0..pbvh.nodes.len()).filter(|&i| pbvh.nodes[i].leaf).collect();
+        pbvh.update_bounds_mesh(&mesh, &leaves);
+        let fresh = Pbvh::build(&mesh, 6);
+        // Same face order (centers moved only in z, so rebuild may reorder): compare root bounds and per-leaf extents.
+        assert_eq!(pbvh.bounds[0], fresh.bounds[0]);
+        for i in 0..pbvh.nodes.len() {
+            if pbvh.nodes[i].leaf {
+                assert_eq!(pbvh.bounds[i], pbvh.leaf_bounds(&mesh, i));
+            } else {
+                let c = pbvh.nodes[i].children_offset;
+                assert_eq!(pbvh.bounds[i], merge(pbvh.bounds[c], pbvh.bounds[c + 1]));
+            }
         }
     }
 
