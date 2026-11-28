@@ -137,6 +137,7 @@ mod workbench;
 mod taa;
 #[allow(dead_code)]
 mod material_tab_layout;
+mod math_ray_aabb;
 mod mesh;
 #[allow(dead_code)]
 mod mesh_bevel_edge;
