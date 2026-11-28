@@ -3,7 +3,7 @@
 //! Ported from Blender `blenkernel/intern/deform.cc`: `BKE_defvert_find_weight`, `_find_index`,
 //! `_ensure_index`, `_add_index_notest`, `_remove_group`, `_clear`, `_is_weight_zero`,
 //! `_total_selected_weight`, `_multipaint_collective_weight`, `_calc_lock_relative_weight`,
-//! `_lock_relative_weight`.
+//! `_lock_relative_weight`, `_remap`, `_flip`, `_flip_merged`, `_copy_index`, `_copy_subset`, `_sync`.
 
 #![allow(dead_code)]
 
@@ -114,6 +114,71 @@ impl DeformVert {
         }
         let locked = self.total_selected_weight(defbase_num, defbase_locked);
         calc_lock_relative_weight(weight, locked, unlocked)
+    }
+
+    /// `BKE_defvert_remap`: group `n < map.len()` becomes `map[n]`. Blender asserts `map[n] >= 0`;
+    /// negative entries are left untouched here.
+    pub fn remap(&mut self, map: &[i32]) {
+        for w in &mut self.dw {
+            if w.def_nr >= 0 && (w.def_nr as usize) < map.len() && map[w.def_nr as usize] >= 0 {
+                w.def_nr = map[w.def_nr as usize];
+            }
+        }
+    }
+
+    /// `BKE_defvert_flip`: like remap, but negative map entries keep the group.
+    pub fn flip(&mut self, flip_map: &[i32]) {
+        self.remap(flip_map);
+    }
+
+    /// `BKE_defvert_flip_merged`: each weight and its flipped group end up with their average.
+    pub fn flip_merged(&mut self, flip_map: &[i32]) {
+        let total = self.dw.len();
+        for i in 0..total {
+            let nr = self.dw[i].def_nr;
+            if nr < 0 || nr as usize >= flip_map.len() || flip_map[nr as usize] < 0 {
+                continue;
+            }
+            let cpy = self.ensure_index(flip_map[nr as usize]).unwrap();
+            let weight = 0.5 * (self.dw[cpy].weight + self.dw[i].weight);
+            self.dw[cpy].weight = weight;
+            self.dw[i].weight = weight;
+        }
+    }
+
+    /// `BKE_defvert_copy_index`: copies the source weight (creating the destination group); a missing source
+    /// zeroes an existing destination weight.
+    pub fn copy_index(&mut self, defgroup_dst: i32, src: &DeformVert, defgroup_src: i32) {
+        if let Some(s) = src.find_index(defgroup_src) {
+            if let Some(d) = self.ensure_index(defgroup_dst) {
+                self.dw[d].weight = src.dw[s].weight;
+            }
+        } else if let Some(d) = self.find_index(defgroup_dst) {
+            self.dw[d].weight = 0.0;
+        }
+    }
+
+    /// `BKE_defvert_copy_subset`: copy_index for every flagged group `< vgroup_subset.len()`.
+    pub fn copy_subset(&mut self, src: &DeformVert, vgroup_subset: &[bool]) {
+        for (g, &on) in vgroup_subset.iter().enumerate() {
+            if on {
+                self.copy_index(g as i32, src, g as i32);
+            }
+        }
+    }
+
+    /// `BKE_defvert_sync`: copies source weights onto matching destination groups (adding missing ones when
+    /// `use_ensure`). Nothing happens unless both verts have weights.
+    pub fn sync(&mut self, src: &DeformVert, use_ensure: bool) {
+        if src.dw.is_empty() || self.dw.is_empty() {
+            return;
+        }
+        for w in &src.dw {
+            let d = if use_ensure { self.ensure_index(w.def_nr) } else { self.find_index(w.def_nr) };
+            if let Some(d) = d {
+                self.dw[d].weight = w.weight;
+            }
+        }
     }
 }
 
@@ -247,5 +312,64 @@ mod tests {
         // no unlocked weight present: falls back to locked (0.5)
         let none = [false; 8];
         assert_eq!(d.lock_relative_weight(0.25, 8, Some(&locked), Some(&none)), 0.5);
+    }
+
+    #[test]
+    fn remap_and_flip() {
+        let mut d = sample(); // 2,5,7
+        d.remap(&[0, 1, 4, 3, 3, 9]); // groups 0..5; 7 is out of range
+        assert_eq!(d.dw.iter().map(|w| w.def_nr).collect::<Vec<_>>(), vec![4, 9, 7]);
+        let mut f = sample();
+        f.flip(&[0, 1, 5, 3, 4, 2]); // 2<->5, 7 out of range
+        assert_eq!(f.find_weight(5), 0.5);
+        assert_eq!(f.find_weight(2), 0.25);
+        assert_eq!(f.find_weight(7), 1.0);
+        let mut n = sample();
+        n.flip(&[0, 1, -1, 3, 4, -1]); // negative: group kept
+        assert_eq!(n, sample());
+    }
+
+    #[test]
+    fn flip_merged_averages_pairs() {
+        let mut d = sample(); // 2:0.5, 5:0.25
+        d.flip_merged(&[0, 1, 5, 3, 4, 2]);
+        assert_eq!(d.find_weight(2), 0.375);
+        assert_eq!(d.find_weight(5), 0.375);
+        let mut e = DeformVert::default();
+        e.add_index_notest(2, 0.5);
+        e.flip_merged(&[0, 1, 5, 3, 4, 2]); // only one side assigned: halved
+        assert_eq!(e.find_weight(2), 0.25);
+        assert_eq!(e.find_weight(5), 0.25);
+    }
+
+    #[test]
+    fn copy_subset_and_index() {
+        let src = sample();
+        let mut dst = DeformVert::default();
+        dst.add_index_notest(3, 0.8);
+        dst.copy_subset(&src, &[false, false, true, true, false, true]);
+        assert_eq!(dst.find_weight(2), 0.5);
+        assert_eq!(dst.find_weight(5), 0.25);
+        assert_eq!(dst.find_weight(3), 0.0); // source missing: existing dst zeroed
+        assert_eq!(dst.find_index(0), None); // not in subset
+        let mut e = DeformVert::default();
+        e.copy_index(1, &src, 4); // missing source does not create
+        assert!(e.dw.is_empty());
+    }
+
+    #[test]
+    fn sync_with_and_without_ensure() {
+        let src = sample(); // 2,5,7
+        let mut dst = DeformVert::default();
+        dst.add_index_notest(5, 0.0);
+        dst.sync(&src, false);
+        assert_eq!(dst.dw.len(), 1);
+        assert_eq!(dst.find_weight(5), 0.25);
+        dst.sync(&src, true);
+        assert_eq!(dst.dw.len(), 3);
+        assert_eq!(dst.find_weight(7), 1.0);
+        let mut empty = DeformVert::default();
+        empty.sync(&src, true); // dst without weights: nothing
+        assert!(empty.dw.is_empty());
     }
 }
