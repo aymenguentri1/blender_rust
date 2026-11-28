@@ -160,6 +160,8 @@ pub struct Object {
     pub mask: Vec<f32>,
     /// `.hide_vert` / `.hide_poly` of the base mesh (`sculpt_hide.rs`): what the Show/Hide operators change.
     pub vis: crate::sculpt_hide::Visibility,
+    /// `.sculpt_face_set` of the base mesh, one id per face; empty when the layer is absent (`face_set_init.rs`).
+    pub face_sets: Vec<i32>,
     /// `Object::mat`/`totcol`/`actcol`: indices into `Scene::materials`.
     pub material_slots: crate::material::MaterialSlots,
     eval: Option<Mesh>,
@@ -398,6 +400,7 @@ impl Scene {
             parent_inv: IDENTITY4,
             parent_world: IDENTITY4,
             mask: Vec::new(),
+            face_sets: Vec::new(),
             vis: Default::default(),
             material_slots: Default::default(),
             eval: None,
@@ -519,6 +522,29 @@ impl Scene {
         let o = &mut self.objects[i];
         o.vis = vis;
         o.eval = None;
+        true
+    }
+
+    /// `sculpt.face_sets_init` on the active mesh (`face_set_init.rs`): new face sets. One undo step. Edge attributes
+    /// (UV seams, creases, sharp edges, bevel weight) and material indices are not stored on objects yet, so they read
+    /// as absent.
+    pub fn face_sets_init_active(&mut self, mode: crate::face_set_init::InitMode) -> bool {
+        let Some(i) = self.active.and_then(|id| self.index_of(id)) else { return false };
+        let o = &self.objects[i];
+        let Some(mesh) = o.mesh() else { return false };
+        if mesh.faces.is_empty() {
+            return false;
+        }
+        let old = (o.face_sets.len() == mesh.faces.len()).then(|| o.face_sets.clone());
+        let input = crate::face_set_init::InitInput {
+            hide_poly: o.vis.hide_face.as_deref().filter(|h| h.len() == mesh.faces.len()),
+            threshold: crate::face_set_init::THRESHOLD_DEFAULT,
+            ..Default::default()
+        };
+        let sets = crate::face_set_init::face_sets_init(mesh, old, mode, &input);
+        self.push_undo();
+        let o = &mut self.objects[i];
+        o.face_sets = sets;
         true
     }
 
