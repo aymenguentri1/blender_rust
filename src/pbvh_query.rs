@@ -108,6 +108,15 @@ impl Pbvh {
         d2 < radius * radius
     }
 
+    /// `node_in_cylinder`: Blender computes the ray-to-bounds distance but still returns `true`
+    /// (`dist_sq < radius^2 || true`, "TODO: Solve issues and enable distance check").
+    pub fn node_in_cylinder(&self, node: usize, ray: &crate::math_ray_aabb::DistRayAabbPrecalc, radius: f32) -> bool {
+        let (lo, hi) = self.bounds[node];
+        let (dist_sq, _, _) = crate::math_ray_aabb::dist_squared_ray_to_aabb(ray, lo, hi);
+        let _ = dist_sq < radius * radius;
+        true
+    }
+
     /// Sorted, unique vertex indices of the faces of the leaves touching the sphere.
     pub fn verts_near(&self, mesh: &Mesh, center: V3, radius: f32) -> Vec<usize> {
         let leaves = search_gather(&self.nodes, |i| self.node_in_sphere(i, center, radius));
@@ -192,6 +201,14 @@ mod tests {
                 assert_eq!(pbvh.bounds[i], merge(pbvh.bounds[c], pbvh.bounds[c + 1]));
             }
         }
+    }
+
+    #[test]
+    fn cylinder_test_matches_blender_always_true() {
+        let mesh = grid(4);
+        let pbvh = Pbvh::build(&mesh, 4);
+        let ray = crate::math_ray_aabb::dist_ray_aabb_precalc([100.0, 100.0, 100.0], [0.0, 0.0, 1.0]);
+        assert!(pbvh.node_in_cylinder(0, &ray, 0.1));
     }
 
     #[test]
