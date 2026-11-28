@@ -96,6 +96,7 @@ fn list_panel(user: &UserDef, out: &mut Layout, x: (i32, i32), top: i32, label: 
     let g = match label {
         "Relations" => crate::object_tab_relations::groups(scene, o).to_vec(),
         "Visibility" => crate::object_tab_visibility::groups(o),
+        "Viewport Display" => crate::object_tab_display::groups(o),
         _ => Vec::new(),
     };
     if !open || g.is_empty() {
