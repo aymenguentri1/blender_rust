@@ -130,6 +130,36 @@ pub const REGIONS: &[Row] = &[
     op("view3d.clear_render_border", "Clear Render Region", &[]),
 ];
 
+/// `VIEW3D_MT_view_navigation`: `operator_enum("view3d.view_orbit", "type")` lists `prop_view_orbit_items`
+/// (view3d_navigate_view_orbit.cc), `operator_enum("view3d.view_pan", "type")` lists `prop_view_pan_items`
+/// (view3d_navigate_view_pan.cc). "Orbit Opposite" is ORBITRIGHT with `angle = pi`.
+pub const NAVIGATION: &[Row] = &[
+    op("view3d.view_orbit", "Orbit Left", &[("type", "ORBITLEFT")]),
+    op("view3d.view_orbit", "Orbit Right", &[("type", "ORBITRIGHT")]),
+    op("view3d.view_orbit", "Orbit Up", &[("type", "ORBITUP")]),
+    op("view3d.view_orbit", "Orbit Down", &[("type", "ORBITDOWN")]),
+    op("view3d.view_orbit", "Orbit Opposite", &[("type", "ORBITRIGHT"), ("angle", "3.1415927")]),
+    Row::Separator,
+    op("view3d.view_roll", "Roll Left", &[("type", "LEFT")]),
+    op("view3d.view_roll", "Roll Right", &[("type", "RIGHT")]),
+    op("view3d.view_roll_set", "Reset Roll", &[]),
+    op("view3d.view_flip", "Flip View", &[]),
+    Row::Separator,
+    op("view3d.view_pan", "Pan Left", &[("type", "PANLEFT")]),
+    op("view3d.view_pan", "Pan Right", &[("type", "PANRIGHT")]),
+    op("view3d.view_pan", "Pan Up", &[("type", "PANUP")]),
+    op("view3d.view_pan", "Pan Down", &[("type", "PANDOWN")]),
+    Row::Separator,
+    op("view3d.zoom", "Zoom In", &[("delta", "1")]),
+    op("view3d.zoom", "Zoom Out", &[("delta", "-1")]),
+    op("view3d.zoom_border", "Zoom Region...", &[]),
+    op("view3d.dolly", "Dolly View...", &[]),
+    op("view3d.zoom_camera_1_to_1", "Zoom Camera 1:1", &[]),
+    Row::Separator,
+    op("view3d.fly", "Fly Navigation", &[]),
+    op("view3d.walk", "Walk Navigation", &[]),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,5 +284,42 @@ mod tests {
     #[test]
     fn align_view_centers_the_cursor_for_frame_all() {
         assert!(matches!(ALIGN[5], Row::Operator { props: [("center", "True")], .. }));
+    }
+
+    #[test]
+    fn navigation_follows_the_blender_menu() {
+        assert_eq!(
+            labels_of(NAVIGATION),
+            [
+                "Orbit Left", "Orbit Right", "Orbit Up", "Orbit Down", "Orbit Opposite", "-", "Roll Left", "Roll Right",
+                "Reset Roll", "Flip View", "-", "Pan Left", "Pan Right", "Pan Up", "Pan Down", "-", "Zoom In", "Zoom Out",
+                "Zoom Region...", "Dolly View...", "Zoom Camera 1:1", "-", "Fly Navigation", "Walk Navigation",
+            ]
+        );
+    }
+
+    #[test]
+    fn orbit_and_pan_types_are_the_enum_identifiers() {
+        let types = |id: &str| -> Vec<&'static str> {
+            NAVIGATION
+                .iter()
+                .filter_map(|r| match r {
+                    Row::Operator { idname, props, .. } if *idname == id => props.iter().find(|(k, _)| *k == "type").map(|p| p.1),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(types("view3d.view_orbit"), ["ORBITLEFT", "ORBITRIGHT", "ORBITUP", "ORBITDOWN", "ORBITRIGHT"]);
+        assert_eq!(types("view3d.view_pan"), ["PANLEFT", "PANRIGHT", "PANUP", "PANDOWN"]);
+        assert_eq!(types("view3d.view_roll"), ["LEFT", "RIGHT"]);
+    }
+
+    #[test]
+    fn orbit_opposite_turns_by_pi_and_zoom_deltas_are_signed() {
+        let pi: f32 = "3.1415927".parse().unwrap();
+        assert_eq!(pi, std::f32::consts::PI);
+        assert!(matches!(NAVIGATION[4], Row::Operator { props: [("type", "ORBITRIGHT"), ("angle", "3.1415927")], .. }));
+        assert!(matches!(NAVIGATION[16], Row::Operator { props: [("delta", "1")], .. }));
+        assert!(matches!(NAVIGATION[17], Row::Operator { props: [("delta", "-1")], .. }));
     }
 }
