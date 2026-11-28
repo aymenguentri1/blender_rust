@@ -172,6 +172,20 @@ pub const TRANSFORM: &[Row] = &[
     op("object.align", "Align Objects", &[]),
 ];
 
+/// `VIEW3D_MT_mirror` (space_view3d.py): Interactive Mirror, then X / Y / Z for Global and for Local with a
+/// separator after the Global ones. `constraint_axis` is the boolean array of the operator.
+pub const MIRROR: &[Row] = &[
+    op("transform.mirror", "Interactive Mirror", &[]),
+    Row::Separator,
+    op("transform.mirror", "X Global", &[("constraint_axis", "[True, False, False]"), ("orient_type", "GLOBAL")]),
+    op("transform.mirror", "Y Global", &[("constraint_axis", "[False, True, False]"), ("orient_type", "GLOBAL")]),
+    op("transform.mirror", "Z Global", &[("constraint_axis", "[False, False, True]"), ("orient_type", "GLOBAL")]),
+    Row::Separator,
+    op("transform.mirror", "X Local", &[("constraint_axis", "[True, False, False]"), ("orient_type", "LOCAL")]),
+    op("transform.mirror", "Y Local", &[("constraint_axis", "[False, True, False]"), ("orient_type", "LOCAL")]),
+    op("transform.mirror", "Z Local", &[("constraint_axis", "[False, False, True]"), ("orient_type", "LOCAL")]),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;

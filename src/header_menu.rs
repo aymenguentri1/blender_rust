@@ -49,6 +49,7 @@ pub fn submenu_rows(idname: &str) -> Option<Vec<Row>> {
         "VIEW3D_MT_object_showhide" => crate::object_menu::SHOWHIDE,
         "VIEW3D_MT_snap" => crate::object_menu::SNAP,
         "VIEW3D_MT_transform_object" => crate::object_menu::TRANSFORM,
+        "VIEW3D_MT_mirror" => crate::object_menu::MIRROR,
         "VIEW3D_MT_object_parent" => crate::object_menu::PARENT,
         "VIEW3D_MT_view_local" => crate::view_menu::LOCAL,
         "VIEW3D_MT_view_cameras" => crate::view_menu::CAMERAS,
