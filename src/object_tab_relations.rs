@@ -24,12 +24,14 @@ pub struct Row {
     pub kind: Kind,
     /// `sub.active = (parent is not None)` greys the Camera Parent Lock row.
     pub active: bool,
+    /// Text beside a checkbox (`text=` of a toggle whose heading sits in the label column).
+    pub caption: &'static str,
 }
 
 /// Rows per group (`flow.column()` x 3).
 pub fn groups(scene: &Scene, o: &Object) -> [Vec<Row>; 3] {
     let parent = o.parent.and_then(|id| scene.index_of(id)).map(|i| scene.objects[i].name.clone());
-    let row = |label, value: &str, kind, active| Row { label, value: value.into(), kind, active };
+    let row = |label, value: &str, kind, active| Row { label, value: value.into(), kind, active, caption: "" };
     [
         vec![
             row("Parent", parent.as_deref().unwrap_or(""), Kind::Id, true),
@@ -50,13 +52,13 @@ fn sc(user: &UserDef, v: f32) -> i32 {
     (v * user.scale_factor as f32).round() as i32
 }
 
-pub fn body_height(user: &UserDef, g: &[Vec<Row>; 3]) -> i32 {
+pub fn body_height(user: &UserDef, g: &[Vec<Row>]) -> i32 {
     let rows: usize = g.iter().map(Vec::len).sum();
     sc(user, PAD * 2.0 + rows as f32 * PITCH + (g.len() - 1) as f32 * SEP - 2.0)
 }
 
 /// Widgets of the rows inside a body whose top edge is `body_top`, between `ix0` and `ix1`.
-pub fn widgets(user: &UserDef, g: &[Vec<Row>; 3], ix0: i32, ix1: i32, body_top: i32) -> Vec<Widget> {
+pub fn widgets(user: &UserDef, g: &[Vec<Row>], ix0: i32, ix1: i32, body_top: i32) -> Vec<Widget> {
     let cell = user.widget_unit;
     let fx0 = ix0 + ((ix1 - ix0) as f32 * 0.4).round() as i32;
     let mut out = Vec::new();
@@ -76,6 +78,9 @@ pub fn widgets(user: &UserDef, g: &[Vec<Row>; 3], ix0: i32, ix1: i32, body_top: 
             };
             let xmax = if r.kind == Kind::Toggle { fx0 + cell - 1 } else { ix1 };
             out.push(w(fx0, xmax, &r.value, style));
+            if !r.caption.is_empty() {
+                out.push(w(xmax + 1 + cell / 4, ix1, r.caption, Style::Title));
+            }
             y -= sc(user, PITCH);
         }
     }
