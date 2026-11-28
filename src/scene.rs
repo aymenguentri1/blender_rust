@@ -162,6 +162,8 @@ pub struct Object {
     pub vis: crate::sculpt_hide::Visibility,
     /// `.sculpt_face_set` of the base mesh, one id per face; empty when the layer is absent (`face_set_init.rs`).
     pub face_sets: Vec<i32>,
+    /// `SculptSession::pivot_pos`: the sculpt transform pivot (`sculpt_pivot.rs`).
+    pub sculpt_pivot: [f32; 3],
     /// `Mesh::face_sets_color_default` / `face_sets_color_seed` (`SCULPT_OT_face_sets_randomize_colors`).
     pub face_sets_color_default: i32,
     pub face_sets_color_seed: i32,
@@ -404,6 +406,7 @@ impl Scene {
             parent_world: IDENTITY4,
             mask: Vec::new(),
             face_sets: Vec::new(),
+            sculpt_pivot: [0.0; 3],
             face_sets_color_default: 1,
             face_sets_color_seed: 0,
             vis: Default::default(),
@@ -593,6 +596,23 @@ impl Scene {
         let o = &mut self.objects[i];
         o.face_sets_color_seed = seed;
         o.face_sets_color_default = def;
+        true
+    }
+
+    /// `sculpt.set_pivot_position` on the active mesh for the modes that need no cursor. One undo step; false when the
+    /// mode is not available or the pivot did not move.
+    pub fn set_pivot_active(&mut self, mode: crate::sculpt_pivot::PivotMode, symm: [bool; 3]) -> bool {
+        let Some(i) = self.active.and_then(|id| self.index_of(id)) else { return false };
+        let o = &self.objects[i];
+        let Some(mesh) = o.mesh() else { return false };
+        let mask = (o.mask.len() == mesh.verts.len()).then_some(o.mask.as_slice());
+        let hide = o.vis.hide_vert.as_deref().filter(|h| h.len() == mesh.verts.len());
+        let Some(p) = crate::sculpt_pivot::set_pivot(mesh, mode, mask, hide, o.sculpt_pivot, symm) else { return false };
+        if p == o.sculpt_pivot {
+            return false;
+        }
+        self.push_undo();
+        self.objects[i].sculpt_pivot = p;
         true
     }
 

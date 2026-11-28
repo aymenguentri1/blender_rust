@@ -175,6 +175,7 @@ mod mesh_merge;
 mod mesh_delete_loose;
 mod sculpt_hide;
 mod sculpt_hide_filter;
+mod sculpt_pivot;
 mod sculpt_mask_init;
 mod sculpt_mesh_filter;
 mod sculpt_rotate;
@@ -1201,7 +1202,8 @@ impl ApplicationHandler for App {
                                 let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as u32);
                                 self.mesh_filter = self.scene.mesh_filter_begin(kind, self.cursor[0] as f32, seed);
                             } else if let Some(cmd) = menu_dispatch::command_of_row(&row) {
-                                if menu_dispatch::apply(&mut self.scene, cmd) {
+                                let symm = self.sculpt.as_ref().map_or([false; 3], |s| s.settings.symmetry);
+                                if menu_dispatch::apply_with_symmetry(&mut self.scene, cmd, symm) {
                                     scene_changed(&mut self.scene, &mut self.taa);
                                 }
                             }

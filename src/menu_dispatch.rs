@@ -10,6 +10,7 @@ use crate::sculpt::MaskFilter;
 use crate::sculpt_hide::{self, VisAction};
 use crate::sculpt_mask_init::InitMode;
 use crate::sculpt_menu::Row;
+use crate::sculpt_pivot::PivotMode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
@@ -23,6 +24,7 @@ pub enum Command {
     MaskInit(crate::sculpt_mask_init::InitMode),
     FaceSetsInit(crate::face_set_init::InitMode),
     FaceSetsRandomizeColors,
+    SetPivot(crate::sculpt_pivot::PivotMode),
     FaceSetsCreate(crate::face_set_create::CreateMode),
     /// `sculpt.mesh_filter`: modal, started by the caller (`Scene::mesh_filter_begin`).
     MeshFilter(crate::sculpt_mesh_filter::FilterType),
@@ -58,6 +60,10 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
         "paint.hide_show_all" => vis_action(props).map(Command::HideShowAll),
         "paint.hide_show_masked" => vis_action(props).map(Command::HideShowMasked),
         "paint.visibility_invert" => Some(Command::VisibilityInvert),
+        "sculpt.set_pivot_position" => match crate::sculpt_pivot::PivotMode::from_rna(&prop(props, "mode")?)? {
+            m @ (PivotMode::Origin | PivotMode::Unmasked | PivotMode::MaskBorder) => Some(Command::SetPivot(m)),
+            _ => None,
+        },
         "sculpt.face_sets_randomize_colors" => Some(Command::FaceSetsRandomizeColors),
         "sculpt.face_sets_create" => {
             use crate::face_set_create::CreateMode as C;
@@ -108,7 +114,13 @@ fn mask_seed() -> u32 {
 
 /// Runs `cmd` on the active object; true when the scene changed.
 pub fn apply(scene: &mut Scene, cmd: Command) -> bool {
+    apply_with_symmetry(scene, cmd, [false; 3])
+}
+
+/// `apply()` with the sculpt symmetry axes (`Mesh::symmetry`), which the pivot operator reads.
+pub fn apply_with_symmetry(scene: &mut Scene, cmd: Command, symm: [bool; 3]) -> bool {
     match cmd {
+        Command::SetPivot(m) => scene.set_pivot_active(m, symm),
         Command::MaskFill => scene.fill_mask_active(),
         Command::MaskClear => scene.clear_mask_active(),
         Command::MaskInvert => scene.invert_mask_active(),
@@ -256,6 +268,23 @@ mod tests {
         assert!(apply(&mut s, Command::FaceSetsRandomizeColors));
         let o = &s.objects[s.index_of(s.active.unwrap()).unwrap()];
         assert_eq!(o.face_sets_color_seed, 1);
+    }
+
+    #[test]
+    fn pivot_rows_without_a_cursor_run() {
+        for (label, mode) in [("Pivot to Origin", PivotMode::Origin), ("Pivot to Unmasked", PivotMode::Unmasked), ("Pivot to Mask Border", PivotMode::MaskBorder)] {
+            let row = crate::sculpt_submenus::SET_PIVOT.iter().find(|r| matches!(r, Row::Operator { label: l, .. } if *l == label)).unwrap();
+            assert_eq!(command_of_row(row), Some(Command::SetPivot(mode)), "{label}");
+        }
+        for label in ["Pivot to Active Vertex", "Pivot to Surface Under Cursor"] {
+            let row = crate::sculpt_submenus::SET_PIVOT.iter().find(|r| matches!(r, Row::Operator { label: l, .. } if *l == label)).unwrap();
+            assert_eq!(command_of_row(row), None, "{label}");
+        }
+        let mut s = scene();
+        assert!(apply(&mut s, Command::SetPivot(PivotMode::Unmasked)), "a sphere's mean is near but not exactly the origin pivot");
+        let id = s.active.unwrap();
+        let o = &s.objects[s.index_of(id).unwrap()];
+        assert!(o.sculpt_pivot.iter().all(|c| c.abs() < 0.2));
     }
 
     #[test]
