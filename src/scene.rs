@@ -262,12 +262,28 @@ impl Object {
 
     /// Does the object draw something other than its base mesh (a modifier or a subdivision level)?
     pub fn has_eval(&self) -> bool {
-        self.subsurf > 0 || !self.modifiers.is_empty()
+        self.subsurf > 0 || !self.modifiers.is_empty() || self.has_hidden_faces()
+    }
+
+    /// Are faces hidden by the sculpt Show/Hide operators (`.hide_poly`)?
+    pub fn has_hidden_faces(&self) -> bool {
+        self.vis.hide_face.as_ref().is_some_and(|h| h.iter().any(|&x| x))
     }
 
     fn rebuild_eval(&mut self, ctx: &modifiers::EvalCtx) {
         self.eval = match &self.data {
             ObjectData::Mesh(m) if self.has_eval() => {
+                let shown;
+                let m = match self.vis.hide_face.as_ref().filter(|_| self.has_hidden_faces()) {
+                    Some(h) if h.len() == m.faces.len() => {
+                        shown = Mesh {
+                            verts: m.verts.clone(),
+                            faces: m.faces.iter().zip(h).filter(|(_, &hid)| !hid).map(|(f, _)| f.clone()).collect(),
+                        };
+                        &shown
+                    }
+                    _ => m,
+                };
                 let stacked = modifiers::evaluate_flagged(m, &self.modifiers, &self.mod_flags, ctx);
                 Some(if self.subsurf > 0 { stacked.subdivided(self.subsurf) } else { stacked })
             }
@@ -2758,6 +2774,21 @@ mod tests {
         assert_eq!(s.selected_count(), 1);
         let o = s.active_object().unwrap();
         assert_eq!((o.name.as_str(), o.loc), ("Sphere", [1.0, 2.0, 3.0]));
+    }
+
+    #[test]
+    fn hidden_faces_leave_the_drawn_mesh() {
+        let mut s = Scene::startup();
+        let id = s.add_primitive(Primitive::UvSphere, [0.0; 3]);
+        s.active = Some(id);
+        let n = s.active_object().unwrap().mesh().unwrap().faces.len();
+        assert!(s.visibility_edit_active(|m, v, _| crate::sculpt_hide::hide_show_all(m, v, crate::sculpt_hide::VisAction::Hide)));
+        s.update_eval();
+        assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), 0);
+        assert_eq!(s.active_object().unwrap().mesh().unwrap().faces.len(), n, "base mesh keeps its faces");
+        assert!(s.visibility_edit_active(|m, v, _| crate::sculpt_hide::hide_show_all(m, v, crate::sculpt_hide::VisAction::Show)));
+        s.update_eval();
+        assert_eq!(s.active_object().unwrap().evaluated().unwrap().faces.len(), n);
     }
 
     #[test]
