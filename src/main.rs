@@ -193,6 +193,7 @@ mod overlay_extra;
 mod add_menu;
 mod brush_menu;
 mod sculpt_menu;
+mod header_menu;
 mod row_menu;
 mod sculpt_context_menu;
 mod sculpt_submenus;
@@ -505,6 +506,8 @@ struct App {
     xform: Option<transform::Transform>,
     /// The open Shift + A popup menu: the window position (y up) it was opened at.
     add_menu: Option<[i32; 2]>,
+    /// The open Sculpt, Mask or Face Sets pull-down of the viewport header.
+    header_menu: Option<header_menu::HeaderMenu>,
     /// The brush popup of the sculpt tool header, opened at this window position.
     brush_menu: Option<[i32; 2]>,
     /// The Add Modifier list of the properties editor is open.
@@ -537,6 +540,17 @@ fn set_status_title(window: &Window, text: Option<&str>) {
 /// The mode the header shows: Edit and Sculpt are exclusive (`mode_set`).
 fn mode_of(edit: bool, sculpt: bool) -> object_mode::ObjectMode {
     if edit { object_mode::ObjectMode::Edit } else if sculpt { object_mode::ObjectMode::Sculpt } else { object_mode::ObjectMode::Object }
+}
+
+/// The pull-down a header button opens.
+fn header_menu_of(action: view3d_header::Action) -> Option<header_menu::Which> {
+    use view3d_header::Action;
+    match action {
+        Action::MenuSculpt => Some(header_menu::Which::Sculpt),
+        Action::MenuMask => Some(header_menu::Which::Mask),
+        Action::MenuFaceSets => Some(header_menu::Which::FaceSets),
+        _ => None,
+    }
 }
 
 fn header_state(wire: bool, xray: bool, overlays_hidden: bool, pivot: transform::PivotPoint, mode: object_mode::ObjectMode) -> view3d_header::HeaderState {
@@ -742,6 +756,30 @@ impl ApplicationHandler for App {
                         .and_then(|header| view3d_header::action_at(&view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, mode_of(self.edit_mode, self.sculpt.is_some()))), [x, y]));
                     if hover != self.header_hover {
                         self.header_hover = hover;
+                        gfx.window.request_redraw();
+                    }
+                }
+                /* An open header pull-down opens or closes its submenu; hovering another header menu button switches. */
+                if let (Some(user), Some(layout)) = (self.user.as_ref(), self.layout.as_ref()) {
+                    if self.header_menu.is_some() {
+                        let size = gfx.window.inner_size();
+                        let win = [size.width as i32, size.height as i32];
+                        if let Some(m) = self.header_menu.as_mut() {
+                            m.mouse_move(user, win, false, [x, y]);
+                        }
+                        let items = area::view3d_header_rect(user, layout.main)
+                            .filter(|header| header.isect_pt_v([x, y]))
+                            .map(|header| view3d_header::layout(user, header, &header_state(self.wire, self.xray, self.overlays_hidden, self.pivot_point, mode_of(self.edit_mode, self.sculpt.is_some()))));
+                        if let Some(items) = items {
+                            if let Some(which) = view3d_header::action_at(&items, [x, y]).and_then(header_menu_of) {
+                                let anchor = items.iter().find(|i| header_menu_of(i.action) == Some(which)).map(|i| [i.rect.xmin, i.rect.ymin]);
+                                if let (Some(anchor), Some(m)) = (anchor, self.header_menu.as_ref()) {
+                                    if m.which != which {
+                                        self.header_menu = Some(header_menu::HeaderMenu::open(which, anchor));
+                                    }
+                                }
+                            }
+                        }
                         gfx.window.request_redraw();
                     }
                 }
@@ -957,7 +995,7 @@ impl ApplicationHandler for App {
              * `ED_view3d_cursor3d_position()` is done, and the cursor orientation is not modelled. */
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => {
                 /* A popup menu closes on RIGHTMOUSE. */
-                if self.add_menu.take().is_some() || self.brush_menu.take().is_some() || self.mod_menu.take().is_some() || self.add_mod_menu.take().is_some() {
+                if self.header_menu.take().is_some() || self.add_menu.take().is_some() || self.brush_menu.take().is_some() || self.mod_menu.take().is_some() || self.add_mod_menu.take().is_some() {
                     gfx.window.request_redraw();
                     return;
                 }
@@ -1091,6 +1129,16 @@ impl ApplicationHandler for App {
                     gfx.window.request_redraw();
                     return;
                 }
+                if let (Some(mut m), Some(user)) = (self.header_menu.take(), self.user.as_ref()) {
+                    let size = gfx.window.inner_size();
+                    match m.click(user, [size.width as i32, size.height as i32], false, self.cursor) {
+                        /* The operator rows are run by `header_menu::run` once they are wired. */
+                        header_menu::Click::Run(_) | header_menu::Click::Closed => {}
+                        header_menu::Click::Kept => self.header_menu = Some(m),
+                    }
+                    gfx.window.request_redraw();
+                    return;
+                }
                 if let Some(pos) = self.brush_menu.take() {
                     if let (Some(user), Some(sc)) = (self.user.as_ref(), self.sculpt.as_mut()) {
                         let size = gfx.window.inner_size();
@@ -1175,6 +1223,10 @@ impl ApplicationHandler for App {
                         Some(Action::Pivot) => self.pivot_point = self.pivot_point.next(),
                         /* Opens the Add menu below the button, like Shift + A does at the cursor. */
                         Some(Action::MenuAdd) => self.add_menu = anchor,
+                        /* The sculpt mode pull-downs (`VIEW3D_MT_sculpt`, `VIEW3D_MT_mask`, `VIEW3D_MT_face_sets`). */
+                        Some(a @ (Action::MenuSculpt | Action::MenuMask | Action::MenuFaceSets)) => {
+                            self.header_menu = anchor.zip(header_menu_of(a)).map(|(p, w)| header_menu::HeaderMenu::open(w, p));
+                        }
                         /* The mode dropdown toggles Object Mode and Sculpt Mode (it has no menu here). */
                         Some(Action::Mode) => {
                             toggle_sculpt(&mut self.sculpt, &self.scene);
@@ -1707,8 +1759,9 @@ impl ApplicationHandler for App {
                 }
 
                 /* An open popup menu takes the keyboard: ESC closes it, other keys do nothing. */
-                if self.add_menu.is_some() || self.brush_menu.is_some() || self.mod_menu.is_some() || self.add_mod_menu.is_some() {
+                if self.header_menu.is_some() || self.add_menu.is_some() || self.brush_menu.is_some() || self.mod_menu.is_some() || self.add_mod_menu.is_some() {
                     if code == KeyCode::Escape {
+                        self.header_menu = None;
                         self.add_menu = None;
                         self.brush_menu = None;
                         self.mod_menu = None;
@@ -2530,7 +2583,7 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 let frame_start = std::time::Instant::now();
                 /* Widgets under an open popup do not light up. */
-                let popup = self.add_menu.is_some() || self.mod_menu.is_some() || self.brush_menu.is_some() || self.add_mod_menu.is_some() || self.rename.is_some();
+                let popup = self.header_menu.is_some() || self.add_menu.is_some() || self.mod_menu.is_some() || self.brush_menu.is_some() || self.add_mod_menu.is_some() || self.rename.is_some();
                 hover::begin_frame((!popup).then_some(self.cursor));
                 /* Sculpt Mode ends with the mesh object it works on. */
                 if self.sculpt.is_some() && !self.scene.active_object().is_some_and(|o| o.mesh().is_some()) {
@@ -2546,7 +2599,7 @@ impl ApplicationHandler for App {
                 };
                 gfx.surface.resize(w, h).expect("resize surface");
                 let mut buf = gfx.surface.buffer_mut().expect("surface buffer");
-                let menus = self.add_menu.is_some() || self.mod_menu.is_some() || self.brush_menu.is_some() || self.add_mod_menu.is_some() || self.rename.is_some();
+                let menus = self.header_menu.is_some() || self.add_menu.is_some() || self.mod_menu.is_some() || self.brush_menu.is_some() || self.add_mod_menu.is_some() || self.rename.is_some();
                 /* Only the splash GIF moved on: restore the last finished frame and repaint just the popup. */
                 if let (false, false, false, Some(user), Some(_)) = (self.full_dirty, self.splash_closed, menus, self.user.as_ref(), self.layout.as_ref()) {
                     if self.splash_snapshot.len() == buf.len() {
@@ -2918,6 +2971,13 @@ impl ApplicationHandler for App {
                     if let (Some(pos), Some(user), Some(sc)) = (self.brush_menu, self.user.as_ref(), self.sculpt.as_ref()) {
                         let menu = brush_menu::layout(user, pos, w as i32, h as i32);
                         brush_menu::draw(&mut buf, w, h, user, &menu, sc.settings.brush, self.cursor);
+                    }
+                    if let (Some(m), Some(user)) = (self.header_menu.as_ref(), self.user.as_ref()) {
+                        let p = m.panels(user, [w as i32, h as i32], false);
+                        row_menu::draw(&mut buf, w, h, user, &p.root_rows, &p.root, self.cursor, &header_menu::enabled);
+                        if let Some((rows, l)) = &p.sub {
+                            row_menu::draw(&mut buf, w, h, user, rows, l, self.cursor, &header_menu::enabled);
+                        }
                     }
                     if let (Some(pos), Some(user)) = (self.add_menu, self.user.as_ref()) {
                         let menu = add_menu::layout(user, pos, w as i32, h as i32);
