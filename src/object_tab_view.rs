@@ -93,10 +93,14 @@ fn plain_panel(user: &UserDef, out: &mut Layout, x0: i32, x1: i32, top: i32, lab
 
 /// A collapsed-list panel: Relations draws its rows when open (`object_tab_relations`), the others an empty body.
 fn list_panel(user: &UserDef, out: &mut Layout, x: (i32, i32), top: i32, label: &'static str, open: bool, scene: &Scene, o: &crate::scene::Object) -> i32 {
-    if !(open && label == "Relations") {
+    let g = match label {
+        "Relations" => crate::object_tab_relations::groups(scene, o).to_vec(),
+        "Visibility" => crate::object_tab_visibility::groups(o),
+        _ => Vec::new(),
+    };
+    if !open || g.is_empty() {
         return plain_panel(user, out, x.0, x.1, top, label, open);
     }
-    let g = crate::object_tab_relations::groups(scene, o);
     let hh = panel_frame::header_height(user);
     let (mx, _) = panel_frame::margins(user);
     let body = Rcti { xmin: x.0, xmax: x.1, ymin: top - hh - crate::object_tab_relations::body_height(user, &g), ymax: top - hh };
