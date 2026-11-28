@@ -20,6 +20,7 @@ use crate::font;
 use crate::mesh::{add, cross, dot, normalized, scale, sub, Mesh, V3};
 use crate::overlay_cursor::draw_segment;
 use crate::sculpt_clay_thumb;
+use crate::sculpt_thumb;
 use crate::sculpt_elastic;
 use crate::sculpt_rotate::{flip_sign, translation as rotate_translation, vertex_rotation, Dial, DIAL_THRESHOLD_PX};
 use crate::scene::{mat4_mul_dir, mat4_mul_point, ray_triangle, Object, Scene};
@@ -472,11 +473,8 @@ pub fn thumb(mesh: &mut Mesh, orig: &[V3], mask: &[f32], adj: &Topo, center: V3,
             continue;
         }
         let area = area_normal(mesh, adj, &hit);
-        let d = mirrored(dir, s);
-        let tangent = sub(d, scale(area, dot(d, area)));
-        for &(i, f) in &hit {
-            mesh.verts[i] = add(mesh.verts[i], scale(tangent, radius * strength * NUDGE_FACTOR * f));
-        }
+        let off = sculpt_thumb::offset(area, scale(mirrored(dir, s), radius * NUDGE_FACTOR), strength);
+        sculpt_thumb::dab(&mut mesh.verts, &hit, off);
     }
 }
 
