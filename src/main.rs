@@ -590,6 +590,7 @@ fn header_menu_of(action: view3d_header::Action) -> Option<header_menu::Which> {
         Action::MenuSculpt => Some(header_menu::Which::Sculpt),
         Action::MenuMask => Some(header_menu::Which::Mask),
         Action::MenuFaceSets => Some(header_menu::Which::FaceSets),
+        Action::MenuView => Some(header_menu::Which::View),
         _ => None,
     }
 }
@@ -1322,8 +1323,13 @@ impl ApplicationHandler for App {
                         /* Opens the Add menu below the button, like Shift + A does at the cursor. */
                         Some(Action::MenuAdd) => self.add_menu = anchor,
                         /* The sculpt mode pull-downs (`VIEW3D_MT_sculpt`, `VIEW3D_MT_mask`, `VIEW3D_MT_face_sets`). */
-                        Some(a @ (Action::MenuSculpt | Action::MenuMask | Action::MenuFaceSets)) => {
-                            self.header_menu = anchor.zip(header_menu_of(a)).map(|(p, w)| header_menu::HeaderMenu::open(w, p));
+                        Some(a @ (Action::MenuSculpt | Action::MenuMask | Action::MenuFaceSets | Action::MenuView)) => {
+                            let stroke_mode = self.sculpt.is_some();
+                            self.header_menu = anchor.zip(header_menu_of(a)).map(|(p, w)| {
+                                let mut m = header_menu::HeaderMenu::open(w, p);
+                                m.view.stroke_mode = stroke_mode;
+                                m
+                            });
                         }
                         /* The mode dropdown toggles Object Mode and Sculpt Mode (it has no menu here). */
                         Some(Action::Mode) => {
