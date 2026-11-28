@@ -129,6 +129,15 @@ pub const PARENT: &[Row] = &[
     op("object.parent_clear", "Clear Parent Inverse", &[("type", "CLEAR_INVERSE")]),
 ];
 
+/// `VIEW3D_MT_object_showhide`; the first row is `layout.operator("object.hide_view_clear")` with `ot->name`
+/// (object_edit.cc), the others carry the `text=` of the call.
+pub const SHOWHIDE: &[Row] = &[
+    op("object.hide_view_clear", "Show Hidden Objects", &[]),
+    Row::Separator,
+    op("object.hide_view_set", "Hide Selected", &[("unselected", "False")]),
+    op("object.hide_view_set", "Hide Unselected", &[("unselected", "True")]),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
