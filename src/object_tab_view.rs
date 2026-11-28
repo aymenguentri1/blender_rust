@@ -91,6 +91,24 @@ fn plain_panel(user: &UserDef, out: &mut Layout, x0: i32, x1: i32, top: i32, lab
     body.ymin - (PANEL_GAP * user.scale_factor as f32) as i32
 }
 
+/// A collapsed-list panel: Relations draws its rows when open (`object_tab_relations`), the others an empty body.
+fn list_panel(user: &UserDef, out: &mut Layout, x: (i32, i32), top: i32, label: &'static str, open: bool, scene: &Scene, o: &crate::scene::Object) -> i32 {
+    if !(open && label == "Relations") {
+        return plain_panel(user, out, x.0, x.1, top, label, open);
+    }
+    let g = crate::object_tab_relations::groups(scene, o);
+    let hh = panel_frame::header_height(user);
+    let (mx, _) = panel_frame::margins(user);
+    let body = Rcti { xmin: x.0, xmax: x.1, ymin: top - hh - crate::object_tab_relations::body_height(user, &g), ymax: top - hh };
+    let frame = panel_frame::frame(user, body, true, false);
+    out.widgets.push(widget(body, "", Style::Frame { open: true, active: false }));
+    out.widgets.push(widget(frame.title, label, Style::Title));
+    out.widgets.push(widget(frame.header_rect, "", Style::PanelArrow { open: true }));
+    out.headers.push((frame.header_rect, label));
+    out.widgets.extend(crate::object_tab_relations::widgets(user, &g, x.0 + mx, x.1 - mx, body.ymax));
+    body.ymin - (PANEL_GAP * user.scale_factor as f32) as i32
+}
+
 /// The tab in `window` (window coordinates, y up). Same output as `transform_panel::layout`.
 pub fn layout(user: &UserDef, window: Rcti, scene: &Scene, edit: Option<&Edit>, open: PanelOpen) -> Layout {
     let s = user.scale_factor as f32;
@@ -99,7 +117,6 @@ pub fn layout(user: &UserDef, window: Rcti, scene: &Scene, edit: Option<&Edit>, 
     let (x0, x1) = (window.xmin + pad, window.xmax - pad);
     let mut out = Layout { widgets: Vec::new(), fields: Vec::new(), bottom: window.ymax, headers: Vec::new() };
     let Some(o) = scene.active_object().filter(|o| !o.hidden) else { return out };
-    let _ = o;
     let hh = panel_frame::header_height(user);
     let sc = |v: f32| (v * s).round() as i32;
     /* The context path and the ID row (object_tab_context.rs) sit above the first panel. */
@@ -108,7 +125,7 @@ pub fn layout(user: &UserDef, window: Rcti, scene: &Scene, edit: Option<&Edit>, 
     if !open.is_open("Transform") {
         let mut y = plain_panel(user, &mut out, x0, x1, top, PANELS[0].label, false);
         for label in COLLAPSED {
-            y = plain_panel(user, &mut out, x0, x1, y, label, open.is_open(label));
+            y = list_panel(user, &mut out, (x0, x1), y, label, open.is_open(label), scene, o);
         }
         out.bottom = y;
         return out;
@@ -165,7 +182,7 @@ pub fn layout(user: &UserDef, window: Rcti, scene: &Scene, edit: Option<&Edit>, 
 
     let mut y = body.ymin - sc(PANEL_GAP);
     for label in COLLAPSED {
-        y = plain_panel(user, &mut out, x0, x1, y, label, open.is_open(label));
+        y = list_panel(user, &mut out, (x0, x1), y, label, open.is_open(label), scene, o);
     }
     out.bottom = y;
     out

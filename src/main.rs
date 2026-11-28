@@ -282,6 +282,7 @@ mod outliner_iconrow;
 mod icon_theme;
 mod object_tab_context;
 mod object_tab_panels;
+mod object_tab_relations;
 mod object_tab_view;
 mod sidebar;
 mod transform_panel;
