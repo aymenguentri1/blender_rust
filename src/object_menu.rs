@@ -72,6 +72,37 @@ pub fn rows(ob_type: Option<&str>) -> Vec<Row> {
     r
 }
 
+/// `VIEW3D_MT_object_clear`.
+pub const CLEAR: &[Row] = &[
+    op("object.location_clear", "Location", &[("clear_delta", "False")]),
+    op("object.rotation_clear", "Rotation", &[("clear_delta", "False")]),
+    op("object.scale_clear", "Scale", &[("clear_delta", "False")]),
+    Row::Separator,
+    op("object.origin_clear", "Origin", &[]),
+];
+
+/// `VIEW3D_MT_object_apply`: `transform_apply` rows set (location, rotation, scale) as the menu does; the
+/// `transforms_to_deltas` rows use the `mode` enum of `TransformsToDeltas` (bl_operators/object.py).
+pub const APPLY: &[Row] = &[
+    op("object.transform_apply", "Location", &[("location", "True"), ("rotation", "False"), ("scale", "False")]),
+    op("object.transform_apply", "Rotation", &[("location", "False"), ("rotation", "True"), ("scale", "False")]),
+    op("object.transform_apply", "Scale", &[("location", "False"), ("rotation", "False"), ("scale", "True")]),
+    op("object.transform_apply", "All Transforms", &[("location", "True"), ("rotation", "True"), ("scale", "True")]),
+    op("object.transform_apply", "Rotation & Scale", &[("location", "False"), ("rotation", "True"), ("scale", "True")]),
+    Row::Separator,
+    op("object.transforms_to_deltas", "Location to Deltas", &[("mode", "LOC")]),
+    op("object.transforms_to_deltas", "Rotation to Deltas", &[("mode", "ROT")]),
+    op("object.transforms_to_deltas", "Scale to Deltas", &[("mode", "SCALE")]),
+    op("object.transforms_to_deltas", "All Transforms to Deltas", &[("mode", "ALL")]),
+    op("object.anim_transforms_to_deltas", "Animated Transforms to Deltas", &[]),
+    Row::Separator,
+    op("object.visual_transform_apply", "Visual Transform", &[]),
+    op("object.convert", "Visual Geometry to Mesh", &[("target", "MESH")]),
+    op("object.visual_geometry_to_objects", "Visual Geometry to Objects", &[]),
+    op("object.duplicates_make_real", "Make Instances Real", &[]),
+    op("object.parent_inverse_apply", "Parent Inverse", &[]),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,5 +153,51 @@ mod tests {
             })
             .collect();
         assert_eq!(d, [&[("use_global", "True")][..], &[("use_global", "False")][..]]);
+    }
+
+    fn labels_of(rows: &[Row]) -> Vec<&'static str> {
+        rows.iter()
+            .map(|r| match r {
+                Row::Separator => "-",
+                Row::Menu { label, .. } | Row::Operator { label, .. } => label,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn clear_rows_clear_the_transform_not_the_delta() {
+        assert_eq!(labels_of(CLEAR), ["Location", "Rotation", "Scale", "-", "Origin"]);
+        assert!(CLEAR[..3].iter().all(|r| matches!(r, Row::Operator { props: [("clear_delta", "False")], .. })));
+    }
+
+    #[test]
+    fn apply_rows_in_blender_order() {
+        assert_eq!(
+            labels_of(APPLY),
+            [
+                "Location", "Rotation", "Scale", "All Transforms", "Rotation & Scale", "-", "Location to Deltas",
+                "Rotation to Deltas", "Scale to Deltas", "All Transforms to Deltas", "Animated Transforms to Deltas", "-",
+                "Visual Transform", "Visual Geometry to Mesh", "Visual Geometry to Objects", "Make Instances Real",
+                "Parent Inverse",
+            ]
+        );
+    }
+
+    #[test]
+    fn transform_apply_bool_triples_match_the_menu() {
+        let triples: Vec<_> = APPLY
+            .iter()
+            .filter_map(|r| match r {
+                Row::Operator { idname: "object.transform_apply", props, .. } => {
+                    Some(props.iter().map(|(_, v)| *v == "True").collect::<Vec<_>>())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            triples,
+            [vec![true, false, false], vec![false, true, false], vec![false, false, true], vec![true, true, true], vec![false, true, true]]
+        );
+        assert!(matches!(APPLY[13], Row::Operator { props: [("target", "MESH")], .. }));
     }
 }
