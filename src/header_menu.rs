@@ -231,7 +231,7 @@ mod tests {
         assert!(matches!(m.click(&u, WIN, false, center(l.items[2].0)), Click::Run(_)));
         /* Not wired yet: a disabled operator row keeps the menus open. */
         let mut m = HeaderMenu::open(Which::FaceSets, [100, 800]);
-        let pos = row_pos(&m, "Randomize Colors");
+        let pos = row_pos(&m, "Extract Face Set");
         assert_eq!(m.click(&u, WIN, false, pos), Click::Kept);
     }
 

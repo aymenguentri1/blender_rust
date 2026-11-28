@@ -88,6 +88,19 @@ pub fn find_next_available_id(layer: Option<&[i32]>) -> i32 {
     layer.map_or(1, |ids| ids.iter().copied().fold(1, i32::max)) + 1
 }
 
+/// `randomize_colors_exec()` (sculpt_face_set.cc:1169): without a face set layer nothing happens (false); otherwise the
+/// default colour index becomes the set of a pseudo random face and the seed advances.
+pub fn randomize_colors(layer: Option<&[i32]>, color_seed: &mut i32, color_default: &mut i32) -> bool {
+    let Some(ids) = layer else { return false };
+    let n = ids.len() as i32;
+    let random_index = ((n as f32 * hash_int_01(*color_seed as u32)) as i32).clamp(0, (n - 1).max(0));
+    if let Some(&id) = ids.get(random_index as usize) {
+        *color_default = id;
+    }
+    *color_seed += 1;
+    true
+}
+
 /// `initialize_none_to_id()`: faces with `face_set_none_id` take `new_id`. Without a layer nothing happens.
 pub fn initialize_none_to_id(layer: Option<&mut Vec<i32>>, new_id: i32) {
     if let Some(ids) = layer {
@@ -100,6 +113,19 @@ pub fn initialize_none_to_id(layer: Option<&mut Vec<i32>>, new_id: i32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn randomize_colors_picks_a_face_set_and_advances_the_seed() {
+        let (mut seed, mut def) = (0, 1);
+        assert!(!randomize_colors(None, &mut seed, &mut def));
+        assert_eq!((seed, def), (0, 1));
+        let ids = [4, 5, 6, 7];
+        let k = ((4.0 * hash_int_01(0)) as usize).min(3);
+        assert!(randomize_colors(Some(&ids), &mut seed, &mut def));
+        assert_eq!((seed, def), (1, ids[k]));
+        assert!(randomize_colors(Some(&[]), &mut seed, &mut def));
+        assert_eq!((seed, def), (2, ids[k]), "no faces: the default is kept");
+    }
 
     #[test]
     fn layer_is_created_lazily_with_id_one() {
