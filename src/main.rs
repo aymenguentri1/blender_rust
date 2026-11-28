@@ -208,6 +208,7 @@ mod sculpt_curves_delete;
 mod sculpt_curves_grow_shrink;
 mod geo_curve_circle;
 mod geo_curve_line;
+mod geo_curve_spiral;
 mod geo_curve_star;
 mod sculpt_curves_comb;
 mod sculpt_curves_snake_hook;
