@@ -28,6 +28,14 @@ pub enum Command {
     FaceSetsCreate(crate::face_set_create::CreateMode),
     /// `sculpt.mesh_filter`: modal, started by the caller (`Scene::mesh_filter_begin`).
     MeshFilter(crate::sculpt_mesh_filter::FilterType),
+    /// `object.select_all` (`action` SELECT / DESELECT / INVERT).
+    SelectAll(crate::scene::SelectAction),
+    /// `object.select_more` (true) / `object.select_less` (false).
+    SelectMoreLess(bool),
+    /// `object.select_hierarchy`.
+    SelectHierarchy { to_parent: bool, extend: bool },
+    /// `object.select_random` with the default `ratio` 0.5 (`WM_operator_properties_select_random`).
+    SelectRandom,
 }
 
 fn prop(props: &[(&str, &str)], name: &str) -> Option<String> {
@@ -81,6 +89,23 @@ pub fn command_of(idname: &str, props: &[(&str, &str)]) -> Option<Command> {
             "RANDOM" => Some(Command::MeshFilter(crate::sculpt_mesh_filter::FilterType::Random)),
             _ => None,
         },
+        "object.select_all" => match prop(props, "action")?.as_str() {
+            "SELECT" => Some(Command::SelectAll(crate::scene::SelectAction::Select)),
+            "DESELECT" => Some(Command::SelectAll(crate::scene::SelectAction::Deselect)),
+            "INVERT" => Some(Command::SelectAll(crate::scene::SelectAction::Invert)),
+            _ => None,
+        },
+        "object.select_more" => Some(Command::SelectMoreLess(true)),
+        "object.select_less" => Some(Command::SelectMoreLess(false)),
+        "object.select_random" => Some(Command::SelectRandom),
+        "object.select_hierarchy" => Some(Command::SelectHierarchy {
+            to_parent: match prop(props, "direction")?.as_str() {
+                "PARENT" => true,
+                "CHILD" => false,
+                _ => return None,
+            },
+            extend: prop(props, "extend")? == "True",
+        }),
         "sculpt.mask_init" => match prop(props, "mode")?.as_str() {
             "RANDOM_PER_VERTEX" => Some(Command::MaskInit(InitMode::RandomPerVertex)),
             "RANDOM_PER_LOOSE_PART" => Some(Command::MaskInit(InitMode::RandomPerLoosePart)),
@@ -128,6 +153,10 @@ pub fn apply_with_symmetry(scene: &mut Scene, cmd: Command, symm: [bool; 3]) -> 
         Command::HideShowAll(a) => scene.visibility_edit_active(|m, v, _| sculpt_hide::hide_show_all(m, v, a)),
         Command::HideShowMasked(a) => scene.visibility_edit_active(|m, v, mask| sculpt_hide::hide_show_masked(m, v, a, Some(mask))),
         Command::MeshFilter(_) => false,
+        Command::SelectAll(a) => scene.select_all(a),
+        Command::SelectMoreLess(select) => scene.select_more_less(select),
+        Command::SelectHierarchy { to_parent, extend } => scene.select_hierarchy(to_parent, extend),
+        Command::SelectRandom => scene.select_random(0.5) > 0,
         Command::FaceSetsInit(m) => scene.face_sets_init_active(m),
         Command::FaceSetsRandomizeColors => scene.face_sets_randomize_colors_active(),
         Command::FaceSetsCreate(m) => scene.face_sets_create_active(m),
@@ -319,5 +348,48 @@ mod tests {
         assert!(!apply(&mut s, Command::MaskFilter(MaskFilter::Grow)));
         apply(&mut s, Command::MaskFill);
         assert!(apply(&mut s, Command::MaskFilter(MaskFilter::Smooth)));
+    }
+
+    #[test]
+    fn select_menu_rows_map_to_commands() {
+        use crate::scene::SelectAction as A;
+        let c = |id: &str, p: &[(&str, &str)]| command_of(id, p);
+        assert_eq!(c("object.select_all", &[("action", "SELECT")]), Some(Command::SelectAll(A::Select)));
+        assert_eq!(c("object.select_all", &[("action", "DESELECT")]), Some(Command::SelectAll(A::Deselect)));
+        assert_eq!(c("object.select_all", &[("action", "INVERT")]), Some(Command::SelectAll(A::Invert)));
+        assert_eq!(c("object.select_more", &[]), Some(Command::SelectMoreLess(true)));
+        assert_eq!(c("object.select_less", &[]), Some(Command::SelectMoreLess(false)));
+        assert_eq!(
+            c("object.select_hierarchy", &[("extend", "True"), ("direction", "CHILD")]),
+            Some(Command::SelectHierarchy { to_parent: false, extend: true })
+        );
+        assert_eq!(c("object.select_pattern", &[]), None);
+        assert_eq!(c("view3d.select_box", &[]), None);
+    }
+
+    #[test]
+    fn select_all_none_invert_change_the_selection() {
+        use crate::scene::SelectAction as A;
+        let mut s = scene();
+        s.select_all(A::Deselect);
+        assert_eq!(s.selected_count(), 0);
+        assert!(apply(&mut s, Command::SelectAll(A::Select)));
+        let n = s.objects.iter().filter(|o| !o.hidden).count();
+        assert_eq!(s.selected_count(), n);
+        assert!(apply(&mut s, Command::SelectAll(A::Invert)));
+        assert_eq!(s.selected_count(), 0);
+        assert!(!apply(&mut s, Command::SelectAll(A::Deselect)));
+    }
+
+    #[test]
+    fn select_random_picks_half_by_default_and_hierarchy_needs_an_active_parent() {
+        let mut s = scene();
+        for _ in 0..3 {
+            s.add_primitive(Primitive::UvSphere, [1.0, 0.0, 0.0]);
+        }
+        s.select_all(crate::scene::SelectAction::Deselect);
+        assert!(apply(&mut s, Command::SelectRandom));
+        assert!(s.selected_count() > 0);
+        assert!(!apply(&mut s, Command::SelectHierarchy { to_parent: true, extend: false }));
     }
 }
