@@ -138,6 +138,19 @@ pub const SHOWHIDE: &[Row] = &[
     op("object.hide_view_set", "Hide Unselected", &[("unselected", "True")]),
 ];
 
+/// `VIEW3D_MT_snap` (space_view3d.py): the `text=` of every `layout.operator` call.
+pub const SNAP: &[Row] = &[
+    op("view3d.snap_selected_to_grid", "Selection to Grid", &[]),
+    op("view3d.snap_selected_to_cursor", "Selection to Cursor", &[("use_offset", "False")]),
+    op("view3d.snap_selected_to_cursor", "Selection to Cursor (Keep Offset)", &[("use_offset", "True")]),
+    op("view3d.snap_selected_to_active", "Selection to Active", &[]),
+    Row::Separator,
+    op("view3d.snap_cursor_to_selected", "Cursor to Selected", &[]),
+    op("view3d.snap_cursor_to_center", "Cursor to World Origin", &[]),
+    op("view3d.snap_cursor_to_grid", "Cursor to Grid", &[]),
+    op("view3d.snap_cursor_to_active", "Cursor to Active", &[]),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;

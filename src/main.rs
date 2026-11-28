@@ -1226,6 +1226,21 @@ impl ApplicationHandler for App {
                             } else if let Some(menu_dispatch::Command::MeshFilter(kind)) = menu_dispatch::command_of_row(&row) {
                                 let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as u32);
                                 self.mesh_filter = self.scene.mesh_filter_begin(kind, self.cursor[0] as f32, seed);
+                            } else if let Some(cmd @ (menu_dispatch::Command::SnapSelectionToCursorOffset | menu_dispatch::Command::SnapCursorToSelected | menu_dispatch::Command::SnapCursorToCenter)) = menu_dispatch::command_of_row(&row) {
+                                /* The snap operators that read or move the 3D cursor. */
+                                match cmd {
+                                    menu_dispatch::Command::SnapSelectionToCursorOffset => {
+                                        if self.scene.selection_to_cursor(self.cursor3d) > 0 {
+                                            scene_changed(&mut self.scene, &mut self.taa);
+                                        }
+                                    }
+                                    menu_dispatch::Command::SnapCursorToSelected => {
+                                        if let Some(p) = self.scene.cursor_target() {
+                                            self.cursor3d = p;
+                                        }
+                                    }
+                                    _ => self.cursor3d = [0.0; 3],
+                                }
                             } else if let Some(cmd) = menu_dispatch::command_of_row(&row) {
                                 let symm = self.sculpt.as_ref().map_or([false; 3], |s| s.settings.symmetry);
                                 if menu_dispatch::apply_with_symmetry(&mut self.scene, cmd, symm) {
