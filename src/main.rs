@@ -90,6 +90,7 @@ mod scene_fps;
 mod transform_snap;
 mod info_stats;
 mod view3d_snap;
+mod sculpt_automask_layout;
 mod sculpt_thumb;
 mod view3d_placement;
 #[allow(dead_code)]
