@@ -167,6 +167,7 @@ mod sculpt_draw;
 mod sculpt_draw_face_sets;
 mod sculpt_multiplane;
 mod sculpt_plane;
+mod sculpt_automasking;
 mod sculpt_boundary;
 mod sculpt_smooth;
 mod sculpt_slide;
