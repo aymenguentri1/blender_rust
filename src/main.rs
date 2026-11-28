@@ -99,6 +99,7 @@ mod brush_context_menu;
 mod sculpt_symmetry_layout;
 mod pbvh_build;
 mod pbvh_partition;
+mod pbvh_search;
 mod sculpt_automask_apply;
 mod sculpt_automask_layout;
 mod sculpt_thumb;
