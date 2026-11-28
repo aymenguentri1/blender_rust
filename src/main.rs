@@ -1241,9 +1241,14 @@ impl ApplicationHandler for App {
                                     self.rv3d.update(&self.v3d, rw, rh);
                                     self.xform = transform::Transform::begin_with_pivot(mode, &mut self.scene, mval, &self.rv3d, true, self.pivot_point, self.cursor3d);
                                 }
-                            } else if let Some(cmd @ (menu_dispatch::Command::SnapSelectionToCursorOffset | menu_dispatch::Command::SnapCursorToSelected | menu_dispatch::Command::SnapCursorToCenter)) = menu_dispatch::command_of_row(&row) {
+                            } else if let Some(cmd @ (menu_dispatch::Command::SnapSelectionToCursor | menu_dispatch::Command::SnapSelectionToCursorOffset | menu_dispatch::Command::SnapCursorToSelected | menu_dispatch::Command::SnapCursorToCenter)) = menu_dispatch::command_of_row(&row) {
                                 /* The snap operators that read or move the 3D cursor. */
                                 match cmd {
+                                    menu_dispatch::Command::SnapSelectionToCursor => {
+                                        if self.scene.selection_each_to_point(self.cursor3d) > 0 {
+                                            scene_changed(&mut self.scene, &mut self.taa);
+                                        }
+                                    }
                                     menu_dispatch::Command::SnapSelectionToCursorOffset => {
                                         if self.scene.selection_to_cursor(self.cursor3d) > 0 {
                                             scene_changed(&mut self.scene, &mut self.taa);
