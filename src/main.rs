@@ -221,6 +221,7 @@ mod overlay_extra;
 mod add_menu;
 mod brush_menu;
 mod sculpt_menu;
+mod view_menu;
 mod menu_dispatch;
 mod header_menu;
 mod row_menu;
